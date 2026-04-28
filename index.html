@@ -246,6 +246,423 @@
       white-space: nowrap;
     }
 
+    /* ── Stats strip ── */
+    .stats-strip {
+      border-top: 1px solid var(--outline-variant);
+      border-bottom: 1px solid var(--outline-variant);
+      background: var(--surface);
+    }
+
+    .stats-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: var(--space-lg) 64px;
+      display: flex;
+      gap: var(--space-xl);
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-xs);
+    }
+
+    .stat-value {
+      font-family: 'Newsreader', serif;
+      font-size: 28px;
+      font-weight: 500;
+      line-height: 1.3;
+      color: var(--primary);
+    }
+
+    .stat-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--on-surface-variant);
+    }
+
+    .stat-divider {
+      width: 1px;
+      height: 40px;
+      background: var(--outline-variant);
+      flex-shrink: 0;
+    }
+
+    /* ── Section wrapper ── */
+    .section {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: calc(var(--space-xl) * 1.5) 64px;
+    }
+
+    .section-header {
+      margin-bottom: var(--space-xl);
+    }
+
+    .section-eyebrow {
+      display: inline-block;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary-container);
+      margin-bottom: var(--space-sm);
+    }
+
+    .section-title {
+      font-family: 'Newsreader', serif;
+      font-size: 36px;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+      color: var(--on-surface);
+      margin-bottom: var(--space-md);
+    }
+
+    .section-body {
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: var(--on-surface-variant);
+      max-width: 560px;
+    }
+
+    /* ── How it works ── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-lg);
+    }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease;
+    }
+
+    .step-card:hover { box-shadow: var(--shadow-md); }
+
+    .step-number {
+      font-family: 'Newsreader', serif;
+      font-size: 48px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: var(--outline-variant);
+      margin-bottom: var(--space-md);
+    }
+
+    .step-title {
+      font-family: 'Newsreader', serif;
+      font-size: 22px;
+      font-weight: 500;
+      line-height: 1.4;
+      color: var(--on-surface);
+      margin-bottom: var(--space-sm);
+    }
+
+    .step-divider {
+      height: 1px;
+      background: var(--primary);
+      margin-bottom: var(--space-md);
+      width: 32px;
+    }
+
+    .step-body {
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: var(--on-surface-variant);
+    }
+
+    /* ── Trip cards ── */
+    .trips-bg {
+      background: var(--surface);
+      border-top: 1px solid var(--outline-variant);
+      border-bottom: 1px solid var(--outline-variant);
+    }
+
+    .trips-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-lg);
+    }
+
+    .trip-card {
+      background: var(--background);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+      transition: box-shadow 0.2s ease;
+    }
+
+    .trip-card:hover { box-shadow: var(--shadow-md); }
+
+    .trip-header { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+    .trip-distance {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--outline);
+    }
+
+    .trip-title {
+      font-family: 'Newsreader', serif;
+      font-size: 22px;
+      font-weight: 500;
+      line-height: 1.4;
+      color: var(--on-surface);
+    }
+
+    .trip-divider {
+      height: 1px;
+      background: var(--primary);
+      opacity: 0.2;
+    }
+
+    .trip-body {
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: var(--on-surface-variant);
+      flex: 1;
+    }
+
+    .trip-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+    }
+
+    /* Confidence Meter */
+    .confidence-meter { display: flex; flex-direction: column; gap: var(--space-xs); }
+
+    .confidence-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .confidence-label span:first-child {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--outline);
+    }
+
+    .confidence-score {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    .meter-track {
+      position: relative;
+      height: 2px;
+      background: var(--outline-variant);
+      border-radius: 9999px;
+    }
+
+    .meter-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 9999px;
+      position: relative;
+    }
+
+    .meter-marker {
+      position: absolute;
+      right: -4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      background: var(--secondary-container);
+      border-radius: 9999px;
+      border: 2px solid var(--surface);
+      box-shadow: 0 0 0 1px var(--secondary-container);
+    }
+
+    .trip-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--primary);
+      text-decoration: none;
+      padding: 10px var(--space-md);
+      border: 1px solid var(--primary);
+      border-radius: var(--radius-md);
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .trip-cta:hover {
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    /* ── CTA band ── */
+    .cta-band {
+      background: var(--primary);
+    }
+
+    .cta-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: calc(var(--space-xl) * 1.25) 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-xl);
+    }
+
+    .cta-copy { max-width: 600px; }
+
+    .cta-title {
+      font-family: 'Newsreader', serif;
+      font-size: 36px;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+      color: var(--on-primary);
+      margin-bottom: var(--space-md);
+    }
+
+    .cta-body {
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: rgba(255,255,255,0.75);
+    }
+
+    .btn-amber {
+      flex-shrink: 0;
+      background: var(--secondary-container);
+      color: var(--on-secondary-container);
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 15px 32px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn-amber:hover {
+      opacity: 0.9;
+      box-shadow: var(--shadow-md);
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--outline-variant);
+    }
+
+    .footer-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: var(--space-xl) 64px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: var(--space-xl);
+    }
+
+    .footer-brand { grid-column: span 1; }
+
+    .footer-logo {
+      font-family: 'Newsreader', serif;
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--primary);
+      text-decoration: none;
+      display: block;
+      margin-bottom: var(--space-md);
+    }
+
+    .footer-tagline {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: var(--on-surface-variant);
+    }
+
+    .footer-col-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--on-surface);
+      margin-bottom: var(--space-md);
+    }
+
+    .footer-links {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+    }
+
+    .footer-links a {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--on-surface-variant);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+
+    .footer-links a:hover { color: var(--primary); }
+
+    .footer-bottom {
+      border-top: 1px solid var(--outline-variant);
+    }
+
+    .footer-bottom-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: var(--space-lg) 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-lg);
+    }
+
+    .footer-legal {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--outline);
+    }
+
     /* ── Responsive ── */
     @media (max-width: 900px) {
       nav { padding: var(--space-lg) var(--space-lg); }
@@ -258,6 +675,41 @@
 
       .hero-headline { font-size: 36px; letter-spacing: -0.01em; }
       .hero-copy { max-width: 100%; }
+
+      .stats-inner {
+        flex-wrap: wrap;
+        gap: var(--space-lg);
+        padding: var(--space-lg);
+      }
+
+      .stat-divider { display: none; }
+
+      .section { padding: var(--space-xl) var(--space-lg); }
+
+      .steps-grid,
+      .trips-grid { grid-template-columns: 1fr; }
+
+      .cta-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: var(--space-xl) var(--space-lg);
+      }
+
+      .btn-amber { width: 100%; text-align: center; }
+
+      .footer-inner {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-lg);
+        padding: var(--space-xl) var(--space-lg);
+      }
+
+      .footer-brand { grid-column: span 2; }
+
+      .footer-bottom-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: var(--space-lg);
+      }
     }
   </style>
 </head>
@@ -341,6 +793,202 @@
     </div>
 
   </section>
+
+  <!-- Stats strip -->
+  <div class="stats-strip">
+    <div class="stats-inner">
+      <div class="stat">
+        <span class="stat-value">4,200+</span>
+        <span class="stat-label">Family trips curated</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">33</span>
+        <span class="stat-label">London boroughs covered</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">92%</span>
+        <span class="stat-label">Parents saved 3+ hours planning</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value">Term-aware</span>
+        <span class="stat-label">Synced to your school calendar</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- How it works -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-eyebrow">The process</span>
+      <h2 class="section-title">Three steps to your next trip</h2>
+      <p class="section-body">No spreadsheets, no browser tabs, no guesswork. Tell us a little about your family and we do the rest.</p>
+    </div>
+
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-number">01</div>
+        <h3 class="step-title">Choose your borough</h3>
+        <div class="step-divider"></div>
+        <p class="step-body">We use your location to filter transport time, local term dates, and nearby departure points so every result is genuinely reachable.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">02</div>
+        <h3 class="step-title">Tell us about your family</h3>
+        <div class="step-divider"></div>
+        <p class="step-body">Ages, interests, budget bracket. Takes under a minute. Our confidence engine cross-references thousands of trip data points to surface the right fit.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">03</div>
+        <h3 class="step-title">Get your curated shortlist</h3>
+        <div class="step-divider"></div>
+        <p class="step-body">A ranked list of trips with full itineraries, honest pricing, and a Confidence Score — so you can book knowing it was the right choice.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Featured trips -->
+  <div class="trips-bg">
+    <div class="section">
+      <div class="section-header">
+        <span class="section-eyebrow">Featured trips</span>
+        <h2 class="section-title">Popular with London families this season</h2>
+        <p class="section-body">Handpicked from our highest-rated itineraries. Confidence Scores reflect real family feedback and live availability data.</p>
+      </div>
+
+      <div class="trips-grid">
+
+        <div class="trip-card">
+          <div class="trip-header">
+            <span class="trip-distance">2h 15m from Central London</span>
+            <h3 class="trip-title">The Cotswolds: Slow Travel for Little Ones</h3>
+          </div>
+          <div class="trip-divider"></div>
+          <p class="trip-body">A gentle three-night loop through Bourton-on-the-Water and Burford, built around car-free mornings and afternoon farmyard visits. Ideal for under-7s.</p>
+          <div class="trip-chips">
+            <span class="chip">Under-5 Friendly</span>
+            <span class="chip">Half Term</span>
+            <span class="chip">Weekend Escape</span>
+          </div>
+          <div class="confidence-meter">
+            <div class="confidence-label">
+              <span>Confidence Score</span>
+              <span class="confidence-score">94 / 100</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill" style="width:94%"><div class="meter-marker"></div></div>
+            </div>
+          </div>
+          <a class="trip-cta" href="#">View itinerary →</a>
+        </div>
+
+        <div class="trip-card">
+          <div class="trip-header">
+            <span class="trip-distance">1h 45m from Central London</span>
+            <h3 class="trip-title">Whitstable &amp; the Kent Coast</h3>
+          </div>
+          <div class="trip-divider"></div>
+          <p class="trip-body">A weekend by the sea without the M25 misery. Direct trains from Victoria, dog-friendly beaches, and a harbour town that genuinely welcomes children.</p>
+          <div class="trip-chips">
+            <span class="chip">Term Time</span>
+            <span class="chip">Weekend Escape</span>
+            <span class="chip">Beach</span>
+          </div>
+          <div class="confidence-meter">
+            <div class="confidence-label">
+              <span>Confidence Score</span>
+              <span class="confidence-score">88 / 100</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill" style="width:88%"><div class="meter-marker"></div></div>
+            </div>
+          </div>
+          <a class="trip-cta" href="#">View itinerary →</a>
+        </div>
+
+        <div class="trip-card">
+          <div class="trip-header">
+            <span class="trip-distance">3h 10m from Central London</span>
+            <h3 class="trip-title">Pembrokeshire: Coastal Paths &amp; Castles</h3>
+          </div>
+          <div class="trip-divider"></div>
+          <p class="trip-body">Five nights in Wales for families who want fresh air and a bit of history. The Pembrokeshire Coast Path has short, well-signed family loops from every village.</p>
+          <div class="trip-chips">
+            <span class="chip">Half Term</span>
+            <span class="chip">Active</span>
+            <span class="chip">7+ Friendly</span>
+          </div>
+          <div class="confidence-meter">
+            <div class="confidence-label">
+              <span>Confidence Score</span>
+              <span class="confidence-score">91 / 100</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill" style="width:91%"><div class="meter-marker"></div></div>
+            </div>
+          </div>
+          <a class="trip-cta" href="#">View itinerary →</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA band -->
+  <div class="cta-band">
+    <div class="cta-inner">
+      <div class="cta-copy">
+        <h2 class="cta-title">Your next holiday is closer than you think</h2>
+        <p class="cta-body">Select your borough and let Holiday Smart do the research. Most families have a shortlist in under three minutes.</p>
+      </div>
+      <button class="btn-amber" type="button">Start planning — it's free</button>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a class="footer-logo" href="#">Holiday Smart</a>
+        <p class="footer-tagline">The knowledgeable friend every London family deserves when planning a trip away.</p>
+      </div>
+      <div>
+        <p class="footer-col-title">Product</p>
+        <ul class="footer-links">
+          <li><a href="#">How it works</a></li>
+          <li><a href="#">Destinations</a></li>
+          <li><a href="#">Term dates</a></li>
+          <li><a href="#">Confidence Score</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-col-title">Company</p>
+        <ul class="footer-links">
+          <li><a href="#">About us</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">Press</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-col-title">Support</p>
+        <ul class="footer-links">
+          <li><a href="#">Help centre</a></li>
+          <li><a href="#">Privacy policy</a></li>
+          <li><a href="#">Terms of use</a></li>
+          <li><a href="#">Contact us</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-bottom-inner">
+        <span class="footer-legal">© 2026 Holiday Smart Ltd. All rights reserved.</span>
+        <span class="footer-legal">Made with care in London.</span>
+      </div>
+    </div>
+  </footer>
 
 </body>
 </html>
