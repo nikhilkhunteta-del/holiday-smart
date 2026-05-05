@@ -373,6 +373,11 @@
       opacity: 0.75;
     }
 
+    .btn-primary:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
     .break-pill.active .pill-dates { opacity: 1; }
 
     .btn-primary {
@@ -732,7 +737,7 @@
           <button class="break-pill" type="button" data-break-label="May half-term"><span class="pill-name">May half-term</span></button>
           <button class="break-pill" type="button" data-break-label="Summer"><span class="pill-name">Summer</span></button>
         </div>
-        <button class="btn-primary" type="button">Show me the data →</button>
+        <button class="btn-primary" id="cta-btn" type="button" disabled>Show me the data →</button>
       </div>
     </div>
 
@@ -816,6 +821,7 @@
     const boroughSelect = document.getElementById('borough-select');
     const boroughLink   = document.getElementById('use-borough-link');
     const breakSection  = document.getElementById('break-pills-section');
+    const ctaBtn        = document.getElementById('cta-btn');
 
     // ── Break definitions — keyed to term_label values in Supabase ───────────
     const BREAKS = [
@@ -828,9 +834,26 @@
     ];
 
     // ── Component state ───────────────────────────────────────────────────────
-    const selected = { urn: null, school_name: null, borough: null, break_label: null };
+    const selected = { urn: null, school_name: null, borough: null, break_label: null, break_start: null, break_end: null };
     let highlightIdx = -1;
     let searchTimer  = null;
+
+    // ── CTA state ─────────────────────────────────────────────────────────────
+    function updateCTAState() {
+      ctaBtn.disabled = !(selected.urn || selected.borough) || !selected.break_label;
+    }
+
+    ctaBtn.addEventListener('click', () => {
+      const p = new URLSearchParams({
+        borough: selected.borough || '',
+        break:   selected.break_label,
+        start:   selected.break_start || '',
+        end:     selected.break_end   || '',
+      });
+      if (selected.urn)         p.set('urn', selected.urn);
+      if (selected.school_name) p.set('school', selected.school_name);
+      window.location.href = `/results?${p}`;
+    });
 
     // ── Break pills (single-select, wired after resolution) ───────────────────
     document.querySelectorAll('.break-pill').forEach(pill => {
@@ -838,6 +861,9 @@
         document.querySelectorAll('.break-pill').forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
         selected.break_label = pill.dataset.breakLabel;
+        selected.break_start = pill.dataset.start || null;
+        selected.break_end   = pill.dataset.end   || null;
+        updateCTAState();
       });
     });
 
@@ -888,25 +914,27 @@
     }
 
     async function pickSchool(school) {
-      Object.assign(selected, { urn: school.urn, school_name: school.school_name, borough: school.borough, break_label: null });
+      Object.assign(selected, { urn: school.urn, school_name: school.school_name, borough: school.borough, break_label: null, break_start: null, break_end: null });
       input.value    = school.school_name;
       input.readOnly = true;
       input.classList.add('school-search-input--locked');
       clearBtn.hidden = false;
       closeDropdown();
       fallback.hidden = true;
+      updateCTAState();
       await loadTermDates('school', school.urn);
     }
 
     // ── Clear button ──────────────────────────────────────────────────────────
     clearBtn.addEventListener('click', () => {
-      Object.assign(selected, { urn: null, school_name: null, borough: null, break_label: null });
+      Object.assign(selected, { urn: null, school_name: null, borough: null, break_label: null, break_start: null, break_end: null });
       input.value    = '';
       input.readOnly = false;
       input.classList.remove('school-search-input--locked');
       clearBtn.hidden     = true;
       breakSection.hidden = true;
       resetPills();
+      updateCTAState();
       input.focus();
     });
 
@@ -964,12 +992,14 @@
 
     boroughSelect.addEventListener('change', async () => {
       const borough = boroughSelect.value;
-      Object.assign(selected, { urn: null, school_name: null, borough, break_label: null });
+      Object.assign(selected, { urn: null, school_name: null, borough, break_label: null, break_start: null, break_end: null });
       if (borough) {
+        updateCTAState();
         await loadTermDates('borough', borough);
       } else {
         breakSection.hidden = true;
         resetPills();
+        updateCTAState();
       }
     });
 
@@ -1022,21 +1052,31 @@
         const pill  = pills[i];
         const dates = termMap[brk.key];
         pill.classList.remove('active');
+        pill.dataset.start = dates?.start || '';
+        pill.dataset.end   = dates?.end   || '';
         pill.innerHTML = (dates?.start && dates?.end)
           ? `<span class="pill-name">${esc(brk.label)}</span><span class="pill-dates">${fmtDate(dates.start)} – ${fmtDate(dates.end)}</span>`
           : `<span class="pill-name">${esc(brk.label)}</span>`;
       });
       selected.break_label = null;
+      selected.break_start = null;
+      selected.break_end   = null;
       breakSection.hidden  = false;
+      updateCTAState();
     }
 
     function resetPills() {
       const pills = document.querySelectorAll('.break-pill');
       BREAKS.forEach((brk, i) => {
-        pills[i].classList.remove('active');
-        pills[i].innerHTML = `<span class="pill-name">${esc(brk.label)}</span>`;
+        const pill = pills[i];
+        pill.classList.remove('active');
+        pill.dataset.start = '';
+        pill.dataset.end   = '';
+        pill.innerHTML = `<span class="pill-name">${esc(brk.label)}</span>`;
       });
       selected.break_label = null;
+      selected.break_start = null;
+      selected.break_end   = null;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
