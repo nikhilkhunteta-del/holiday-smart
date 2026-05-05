@@ -817,14 +817,14 @@
     const boroughLink   = document.getElementById('use-borough-link');
     const breakSection  = document.getElementById('break-pills-section');
 
-    // ── Break definitions (column names must match Supabase schema) ───────────
+    // ── Break definitions — keyed to term_label values in Supabase ───────────
     const BREAKS = [
-      { label: 'Autumn half-term',   start: 'autumn_half_term_start',   end: 'autumn_half_term_end'   },
-      { label: 'Christmas',          start: 'christmas_start',          end: 'christmas_end'          },
-      { label: 'February half-term', start: 'february_half_term_start', end: 'february_half_term_end' },
-      { label: 'Easter',             start: 'easter_start',             end: 'easter_end'             },
-      { label: 'May half-term',      start: 'may_half_term_start',      end: 'may_half_term_end'      },
-      { label: 'Summer',             start: 'summer_start',             end: 'summer_end'             },
+      { label: 'Autumn half-term',   key: 'autumn_half_term'  },
+      { label: 'Christmas',          key: 'christmas_holiday' },
+      { label: 'February half-term', key: 'spring_half_term'  },
+      { label: 'Easter',             key: 'easter_holiday'    },
+      { label: 'May half-term',      key: 'summer_half_term'  },
+      { label: 'Summer',             key: 'summer_holiday'    },
     ];
 
     // ── Component state ───────────────────────────────────────────────────────
@@ -975,37 +975,56 @@
 
     // ── Term date loading ─────────────────────────────────────────────────────
     async function loadTermDates(type, id) {
-      const table  = type === 'school' ? 'school_term_dates' : 'borough_term_dates';
-      const col    = type === 'school' ? 'urn' : 'borough';
-      const cols   = BREAKS.flatMap(b => [b.start, b.end]).join(', ');
       const acYear = academicYear();
+      let rows = null;
 
-      // Try current academic year first, fall back to any available row
-      let { data } = await supabase
-        .from(table).select(cols).eq(col, id).eq('academic_year', acYear).maybeSingle();
-
-      if (!data) {
-        ({ data } = await supabase
-          .from(table).select(cols).eq(col, id).limit(1).maybeSingle());
+      if (type === 'school') {
+        rows = await fetchTermRows('school_term_dates', 'urn', id, acYear);
+        // Fall back to borough-level dates if school has no data
+        if (!rows && selected.borough) {
+          rows = await fetchTermRows('borough_term_dates', 'borough', selected.borough, acYear);
+        }
+      } else {
+        rows = await fetchTermRows('borough_term_dates', 'borough', id, acYear);
       }
 
-      populatePills(data);
+      populatePills(buildTermMap(rows));
     }
 
-    function populatePills(row) {
+    // Fetches rows for a given table/column/value. Tries current academic year
+    // first; falls back to the most recent year present in the table.
+    async function fetchTermRows(table, col, val, acYear) {
+      const sel = 'term_label, start_date, end_date, academic_year';
+
+      const { data: curr } = await supabase
+        .from(table).select(sel).eq(col, val).eq('academic_year', acYear);
+      if (curr && curr.length > 0) return curr;
+
+      const { data: any } = await supabase
+        .from(table).select(sel).eq(col, val)
+        .order('academic_year', { ascending: false }).limit(50);
+      if (!any || any.length === 0) return null;
+
+      const latest = any[0].academic_year;
+      return any.filter(r => r.academic_year === latest);
+    }
+
+    function buildTermMap(rows) {
+      if (!rows) return {};
+      return Object.fromEntries(
+        rows.map(r => [r.term_label, { start: r.start_date, end: r.end_date }])
+      );
+    }
+
+    function populatePills(termMap) {
       const pills = document.querySelectorAll('.break-pill');
       BREAKS.forEach((brk, i) => {
-        const pill = pills[i];
+        const pill  = pills[i];
+        const dates = termMap[brk.key];
         pill.classList.remove('active');
-        const s = row?.[brk.start];
-        const e = row?.[brk.end];
-        if (s && e) {
-          pill.innerHTML =
-            `<span class="pill-name">${esc(brk.label)}</span>` +
-            `<span class="pill-dates">${fmtDate(s)} – ${fmtDate(e)}</span>`;
-        } else {
-          pill.innerHTML = `<span class="pill-name">${esc(brk.label)}</span>`;
-        }
+        pill.innerHTML = (dates?.start && dates?.end)
+          ? `<span class="pill-name">${esc(brk.label)}</span><span class="pill-dates">${fmtDate(dates.start)} – ${fmtDate(dates.end)}</span>`
+          : `<span class="pill-name">${esc(brk.label)}</span>`;
       });
       selected.break_label = null;
       breakSection.hidden  = false;
@@ -1021,12 +1040,11 @@
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+    // Returns "YYYY-YYYY" format, e.g. "2025-2026"
     function academicYear() {
       const now = new Date();
       const y   = now.getFullYear();
-      return now.getMonth() >= 8
-        ? `${y}-${String(y + 1).slice(-2)}`
-        : `${y - 1}-${String(y).slice(-2)}`;
+      return now.getMonth() >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
     }
 
     function fmtDate(str) {
