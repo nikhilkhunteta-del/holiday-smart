@@ -530,6 +530,101 @@
       color: var(--outline);
     }
 
+    /* ── School autocomplete dropdown ── */
+    .school-search-input--locked {
+      border-color: var(--primary);
+      padding-right: 44px;
+      cursor: default;
+    }
+
+    .school-clear-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--outline);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      transition: color 0.15s ease;
+    }
+
+    .school-clear-btn:hover { color: var(--primary); }
+
+    .school-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      list-style: none;
+      z-index: 100;
+      overflow: hidden;
+      max-height: 288px;
+      overflow-y: auto;
+    }
+
+    .school-dropdown-item {
+      padding: 11px var(--space-md);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      cursor: pointer;
+      border-bottom: 1px solid var(--outline-variant);
+      transition: background 0.1s ease;
+    }
+
+    .school-dropdown-item:last-child { border-bottom: none; }
+
+    .school-dropdown-item:hover,
+    .school-dropdown-item[aria-selected="true"] {
+      background: var(--color-surface-container-low);
+    }
+
+    .school-dropdown-item .item-name {
+      color: var(--on-surface);
+      font-weight: 500;
+    }
+
+    .school-dropdown-item .item-borough {
+      color: var(--on-surface-variant);
+    }
+
+    /* ── Borough select (fallback mode) ── */
+    .borough-select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: var(--radius-md);
+      padding: 14px var(--space-md);
+      padding-right: 40px;
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--on-surface);
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236f797a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      margin-bottom: var(--space-lg);
+    }
+
+    .borough-select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0,67,73,0.12);
+    }
+
     /* ── Responsive ── */
     @media (max-width: 900px) {
       nav { padding: var(--space-lg); }
@@ -573,20 +668,42 @@
     </div>
 
     <div class="selector-card">
-      <label class="field-label" for="school-search">Your child's school</label>
-      <div class="school-search-wrap">
-        <svg class="school-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input
-          class="school-search-input"
-          id="school-search"
-          type="search"
-          name="school"
-          placeholder="Type your school name…"
-          autocomplete="off"
-          spellcheck="false"
-        />
+
+      <!-- School search (hidden when borough mode active) -->
+      <div id="school-search-section">
+        <label class="field-label" for="school-search">Your child's school</label>
+        <div class="school-search-wrap">
+          <svg class="school-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            class="school-search-input"
+            id="school-search"
+            type="search"
+            name="school"
+            placeholder="Type your school name…"
+            autocomplete="off"
+            spellcheck="false"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-controls="school-dropdown"
+          />
+          <button class="school-clear-btn" id="school-clear" hidden aria-label="Clear school selection">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <ul class="school-dropdown" id="school-dropdown" role="listbox" hidden></ul>
+        </div>
+        <p class="fallback-text" id="school-fallback" hidden>
+          Can't find your school? <a href="#" id="use-borough-link">Choose your borough instead.</a>
+        </p>
       </div>
-      <p class="fallback-text">Can't find your school? <a href="#">Choose your borough instead.</a></p>
+
+      <!-- Borough fallback (replaces school search on link click) -->
+      <div id="borough-mode" hidden>
+        <label class="field-label" for="borough-select">Your borough</label>
+        <select class="borough-select" id="borough-select">
+          <option value="">Select a borough…</option>
+        </select>
+      </div>
 
       <span class="break-pills-label">Select a break</span>
       <div class="break-pills-grid">
@@ -663,13 +780,184 @@
     </div>
   </footer>
 
-  <script>
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL  = 'https://mlqkicbifcwjvfagtdbc.supabase.co';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1scWtpY2JpZmN3anZmYWd0ZGJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MjA5MTMsImV4cCI6MjA5MzQ5NjkxM30.UHua7-D3UK3d6ZrnUvC3zHq8_iX4qLkQMJKzvAuoyhg';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const input         = document.getElementById('school-search');
+    const dropdown      = document.getElementById('school-dropdown');
+    const clearBtn      = document.getElementById('school-clear');
+    const fallback      = document.getElementById('school-fallback');
+    const schoolSection = document.getElementById('school-search-section');
+    const boroughMode   = document.getElementById('borough-mode');
+    const boroughSelect = document.getElementById('borough-select');
+    const boroughLink   = document.getElementById('use-borough-link');
+
+    // ── Component state ───────────────────────────────────────────────────────
+    const selected = { urn: null, school_name: null, borough: null };
+    let highlightIdx = -1;
+    let searchTimer  = null;
+
+    // ── Break pills ───────────────────────────────────────────────────────────
     document.querySelectorAll('.break-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         document.querySelectorAll('.break-pill').forEach(p => p.classList.remove('active'));
         pill.classList.toggle('active');
       });
     });
+
+    // ── School search input ───────────────────────────────────────────────────
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      clearTimeout(searchTimer);
+      if (q.length < 3) {
+        closeDropdown();
+        fallback.hidden = true;
+        return;
+      }
+      searchTimer = setTimeout(() => fetchSchools(q), 250);
+    });
+
+    async function fetchSchools(q) {
+      const { data, error } = await supabase
+        .from('school_term_dates')
+        .select('urn, school_name, borough')
+        .ilike('school_name', `%${q}%`)
+        .limit(8);
+
+      if (error) return;
+
+      if (!data || data.length === 0) {
+        closeDropdown();
+        fallback.hidden = false;
+        return;
+      }
+
+      fallback.hidden = true;
+      renderDropdown(data);
+    }
+
+    function renderDropdown(schools) {
+      highlightIdx = -1;
+      dropdown.innerHTML = '';
+      schools.forEach((school, i) => {
+        const li = document.createElement('li');
+        li.className = 'school-dropdown-item';
+        li.setAttribute('role', 'option');
+        li.setAttribute('id', `school-opt-${i}`);
+        li.setAttribute('aria-selected', 'false');
+        li.innerHTML =
+          `<span class="item-name">${esc(school.school_name)}</span>` +
+          `<span class="item-borough"> — ${esc(school.borough)}</span>`;
+        li.addEventListener('mousedown', e => { e.preventDefault(); pickSchool(school); });
+        dropdown.appendChild(li);
+      });
+      dropdown.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    function closeDropdown() {
+      dropdown.hidden = true;
+      dropdown.innerHTML = '';
+      input.setAttribute('aria-expanded', 'false');
+      highlightIdx = -1;
+    }
+
+    function pickSchool(school) {
+      Object.assign(selected, { urn: school.urn, school_name: school.school_name, borough: school.borough });
+      input.value    = school.school_name;
+      input.readOnly = true;
+      input.classList.add('school-search-input--locked');
+      clearBtn.hidden = false;
+      closeDropdown();
+      fallback.hidden = true;
+    }
+
+    // ── Clear button ──────────────────────────────────────────────────────────
+    clearBtn.addEventListener('click', () => {
+      Object.assign(selected, { urn: null, school_name: null, borough: null });
+      input.value    = '';
+      input.readOnly = false;
+      input.classList.remove('school-search-input--locked');
+      clearBtn.hidden = true;
+      input.focus();
+    });
+
+    // ── Keyboard navigation ───────────────────────────────────────────────────
+    input.addEventListener('keydown', e => {
+      const items = [...dropdown.querySelectorAll('.school-dropdown-item')];
+      if (!items.length) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        applyHighlight(Math.min(highlightIdx + 1, items.length - 1), items);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        applyHighlight(Math.max(highlightIdx - 1, 0), items);
+      } else if (e.key === 'Enter' && highlightIdx >= 0) {
+        e.preventDefault();
+        items[highlightIdx].dispatchEvent(new MouseEvent('mousedown'));
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+        fallback.hidden = true;
+      }
+    });
+
+    function applyHighlight(idx, items) {
+      items.forEach((item, i) => item.setAttribute('aria-selected', i === idx ? 'true' : 'false'));
+      highlightIdx = idx;
+      items[idx]?.scrollIntoView({ block: 'nearest' });
+    }
+
+    // Close dropdown when clicking outside the search wrap
+    document.addEventListener('mousedown', e => {
+      if (!input.closest('.school-search-wrap').contains(e.target)) closeDropdown();
+    });
+
+    // ── Borough fallback ──────────────────────────────────────────────────────
+    boroughLink.addEventListener('click', async e => {
+      e.preventDefault();
+
+      const { data, error } = await supabase
+        .from('borough_term_dates')
+        .select('borough')
+        .order('borough');
+
+      if (!error && data) {
+        const seen = new Set();
+        data.forEach(({ borough }) => {
+          if (borough && !seen.has(borough)) {
+            seen.add(borough);
+            const opt = document.createElement('option');
+            opt.value       = borough;
+            opt.textContent = borough;
+            boroughSelect.appendChild(opt);
+          }
+        });
+      }
+
+      schoolSection.hidden = true;
+      fallback.hidden      = true;
+      boroughMode.hidden   = false;
+    });
+
+    boroughSelect.addEventListener('change', () => {
+      Object.assign(selected, { urn: null, school_name: null, borough: boroughSelect.value });
+    });
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
   </script>
 
 </body>
