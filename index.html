@@ -331,6 +331,12 @@
       margin-bottom: var(--space-lg);
     }
 
+    #break-pills-section {
+      border-top: 1px solid var(--outline-variant);
+      margin-top: var(--space-lg);
+      padding-top: var(--space-lg);
+    }
+
     .break-pill {
       font-family: 'Inter', sans-serif;
       font-size: 13px;
@@ -342,7 +348,10 @@
       padding: 8px 10px;
       cursor: pointer;
       text-align: center;
-      white-space: nowrap;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
       transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
     }
 
@@ -357,6 +366,14 @@
       color: var(--on-primary);
       border-color: var(--primary);
     }
+
+    .pill-dates {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.75;
+    }
+
+    .break-pill.active .pill-dates { opacity: 1; }
 
     .btn-primary {
       width: 100%;
@@ -705,17 +722,18 @@
         </select>
       </div>
 
-      <span class="break-pills-label">Select a break</span>
-      <div class="break-pills-grid">
-        <button class="break-pill" type="button">Autumn half-term</button>
-        <button class="break-pill" type="button">Christmas</button>
-        <button class="break-pill" type="button">February half-term</button>
-        <button class="break-pill" type="button">Easter</button>
-        <button class="break-pill" type="button">May half-term</button>
-        <button class="break-pill" type="button">Summer</button>
+      <div id="break-pills-section" hidden>
+        <span class="break-pills-label">Which break?</span>
+        <div class="break-pills-grid">
+          <button class="break-pill" type="button" data-break-label="Autumn half-term"><span class="pill-name">Autumn half-term</span></button>
+          <button class="break-pill" type="button" data-break-label="Christmas"><span class="pill-name">Christmas</span></button>
+          <button class="break-pill" type="button" data-break-label="February half-term"><span class="pill-name">February half-term</span></button>
+          <button class="break-pill" type="button" data-break-label="Easter"><span class="pill-name">Easter</span></button>
+          <button class="break-pill" type="button" data-break-label="May half-term"><span class="pill-name">May half-term</span></button>
+          <button class="break-pill" type="button" data-break-label="Summer"><span class="pill-name">Summer</span></button>
+        </div>
+        <button class="btn-primary" type="button">Show me the data →</button>
       </div>
-
-      <button class="btn-primary" type="button">Show me the data →</button>
     </div>
 
   </section>
@@ -797,17 +815,29 @@
     const boroughMode   = document.getElementById('borough-mode');
     const boroughSelect = document.getElementById('borough-select');
     const boroughLink   = document.getElementById('use-borough-link');
+    const breakSection  = document.getElementById('break-pills-section');
+
+    // ── Break definitions (column names must match Supabase schema) ───────────
+    const BREAKS = [
+      { label: 'Autumn half-term',   start: 'autumn_half_term_start',   end: 'autumn_half_term_end'   },
+      { label: 'Christmas',          start: 'christmas_start',          end: 'christmas_end'          },
+      { label: 'February half-term', start: 'february_half_term_start', end: 'february_half_term_end' },
+      { label: 'Easter',             start: 'easter_start',             end: 'easter_end'             },
+      { label: 'May half-term',      start: 'may_half_term_start',      end: 'may_half_term_end'      },
+      { label: 'Summer',             start: 'summer_start',             end: 'summer_end'             },
+    ];
 
     // ── Component state ───────────────────────────────────────────────────────
-    const selected = { urn: null, school_name: null, borough: null };
+    const selected = { urn: null, school_name: null, borough: null, break_label: null };
     let highlightIdx = -1;
     let searchTimer  = null;
 
-    // ── Break pills ───────────────────────────────────────────────────────────
+    // ── Break pills (single-select, wired after resolution) ───────────────────
     document.querySelectorAll('.break-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         document.querySelectorAll('.break-pill').forEach(p => p.classList.remove('active'));
-        pill.classList.toggle('active');
+        pill.classList.add('active');
+        selected.break_label = pill.dataset.breakLabel;
       });
     });
 
@@ -815,11 +845,7 @@
     input.addEventListener('input', () => {
       const q = input.value.trim();
       clearTimeout(searchTimer);
-      if (q.length < 3) {
-        closeDropdown();
-        fallback.hidden = true;
-        return;
-      }
+      if (q.length < 3) { closeDropdown(); fallback.hidden = true; return; }
       searchTimer = setTimeout(() => fetchSchools(q), 250);
     });
 
@@ -829,15 +855,8 @@
         .select('urn, school_name, borough')
         .ilike('school_name', `%${q}%`)
         .limit(8);
-
       if (error) return;
-
-      if (!data || data.length === 0) {
-        closeDropdown();
-        fallback.hidden = false;
-        return;
-      }
-
+      if (!data || data.length === 0) { closeDropdown(); fallback.hidden = false; return; }
       fallback.hidden = true;
       renderDropdown(data);
     }
@@ -868,23 +887,26 @@
       highlightIdx = -1;
     }
 
-    function pickSchool(school) {
-      Object.assign(selected, { urn: school.urn, school_name: school.school_name, borough: school.borough });
+    async function pickSchool(school) {
+      Object.assign(selected, { urn: school.urn, school_name: school.school_name, borough: school.borough, break_label: null });
       input.value    = school.school_name;
       input.readOnly = true;
       input.classList.add('school-search-input--locked');
       clearBtn.hidden = false;
       closeDropdown();
       fallback.hidden = true;
+      await loadTermDates('school', school.urn);
     }
 
     // ── Clear button ──────────────────────────────────────────────────────────
     clearBtn.addEventListener('click', () => {
-      Object.assign(selected, { urn: null, school_name: null, borough: null });
+      Object.assign(selected, { urn: null, school_name: null, borough: null, break_label: null });
       input.value    = '';
       input.readOnly = false;
       input.classList.remove('school-search-input--locked');
-      clearBtn.hidden = true;
+      clearBtn.hidden     = true;
+      breakSection.hidden = true;
+      resetPills();
       input.focus();
     });
 
@@ -892,7 +914,6 @@
     input.addEventListener('keydown', e => {
       const items = [...dropdown.querySelectorAll('.school-dropdown-item')];
       if (!items.length) return;
-
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         applyHighlight(Math.min(highlightIdx + 1, items.length - 1), items);
@@ -914,7 +935,6 @@
       items[idx]?.scrollIntoView({ block: 'nearest' });
     }
 
-    // Close dropdown when clicking outside the search wrap
     document.addEventListener('mousedown', e => {
       if (!input.closest('.school-search-wrap').contains(e.target)) closeDropdown();
     });
@@ -922,41 +942,104 @@
     // ── Borough fallback ──────────────────────────────────────────────────────
     boroughLink.addEventListener('click', async e => {
       e.preventDefault();
-
       const { data, error } = await supabase
         .from('borough_term_dates')
         .select('borough')
         .order('borough');
-
       if (!error && data) {
         const seen = new Set();
         data.forEach(({ borough }) => {
           if (borough && !seen.has(borough)) {
             seen.add(borough);
             const opt = document.createElement('option');
-            opt.value       = borough;
-            opt.textContent = borough;
+            opt.value = borough; opt.textContent = borough;
             boroughSelect.appendChild(opt);
           }
         });
       }
-
       schoolSection.hidden = true;
       fallback.hidden      = true;
       boroughMode.hidden   = false;
     });
 
-    boroughSelect.addEventListener('change', () => {
-      Object.assign(selected, { urn: null, school_name: null, borough: boroughSelect.value });
+    boroughSelect.addEventListener('change', async () => {
+      const borough = boroughSelect.value;
+      Object.assign(selected, { urn: null, school_name: null, borough, break_label: null });
+      if (borough) {
+        await loadTermDates('borough', borough);
+      } else {
+        breakSection.hidden = true;
+        resetPills();
+      }
     });
 
+    // ── Term date loading ─────────────────────────────────────────────────────
+    async function loadTermDates(type, id) {
+      const table  = type === 'school' ? 'school_term_dates' : 'borough_term_dates';
+      const col    = type === 'school' ? 'urn' : 'borough';
+      const cols   = BREAKS.flatMap(b => [b.start, b.end]).join(', ');
+      const acYear = academicYear();
+
+      // Try current academic year first, fall back to any available row
+      let { data } = await supabase
+        .from(table).select(cols).eq(col, id).eq('academic_year', acYear).maybeSingle();
+
+      if (!data) {
+        ({ data } = await supabase
+          .from(table).select(cols).eq(col, id).limit(1).maybeSingle());
+      }
+
+      populatePills(data);
+    }
+
+    function populatePills(row) {
+      const pills = document.querySelectorAll('.break-pill');
+      BREAKS.forEach((brk, i) => {
+        const pill = pills[i];
+        pill.classList.remove('active');
+        const s = row?.[brk.start];
+        const e = row?.[brk.end];
+        if (s && e) {
+          pill.innerHTML =
+            `<span class="pill-name">${esc(brk.label)}</span>` +
+            `<span class="pill-dates">${fmtDate(s)} – ${fmtDate(e)}</span>`;
+        } else {
+          pill.innerHTML = `<span class="pill-name">${esc(brk.label)}</span>`;
+        }
+      });
+      selected.break_label = null;
+      breakSection.hidden  = false;
+    }
+
+    function resetPills() {
+      const pills = document.querySelectorAll('.break-pill');
+      BREAKS.forEach((brk, i) => {
+        pills[i].classList.remove('active');
+        pills[i].innerHTML = `<span class="pill-name">${esc(brk.label)}</span>`;
+      });
+      selected.break_label = null;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+    function academicYear() {
+      const now = new Date();
+      const y   = now.getFullYear();
+      return now.getMonth() >= 8
+        ? `${y}-${String(y + 1).slice(-2)}`
+        : `${y - 1}-${String(y).slice(-2)}`;
+    }
+
+    function fmtDate(str) {
+      if (!str) return '';
+      const d = new Date(str);
+      const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${d.getDate()} ${M[d.getMonth()]}`;
+    }
+
     function esc(str) {
       return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
   </script>
 
