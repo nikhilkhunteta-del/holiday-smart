@@ -378,6 +378,8 @@
       cursor: not-allowed;
     }
 
+    .text-error { color: var(--color-error, #ba1a1a); }
+
     .break-pill.active .pill-dates { opacity: 1; }
 
     .btn-primary {
@@ -714,6 +716,9 @@
           </button>
           <ul class="school-dropdown" id="school-dropdown" role="listbox" hidden></ul>
         </div>
+        <p class="fallback-text text-error" id="search-conn-error" hidden>
+          Could not reach the school database — check your connection or try refreshing.
+        </p>
         <p class="fallback-text" id="school-fallback" hidden>
           Can't find your school? <a href="#" id="use-borough-link">Choose your borough instead.</a>
         </p>
@@ -816,12 +821,40 @@
     const dropdown      = document.getElementById('school-dropdown');
     const clearBtn      = document.getElementById('school-clear');
     const fallback      = document.getElementById('school-fallback');
+    const connError     = document.getElementById('search-conn-error');
     const schoolSection = document.getElementById('school-search-section');
     const boroughMode   = document.getElementById('borough-mode');
     const boroughSelect = document.getElementById('borough-select');
     const boroughLink   = document.getElementById('use-borough-link');
     const breakSection  = document.getElementById('break-pills-section');
     const ctaBtn        = document.getElementById('cta-btn');
+
+    // ── Startup diagnostics (results visible in browser DevTools console) ─────
+    async function runDiagnostics() {
+      console.group('%c[HolidaySmart] Supabase diagnostics', 'font-weight:bold');
+      console.log('URL :', SUPABASE_URL);
+      console.log('Key :', SUPABASE_ANON.slice(0, 10) + '… (truncated)');
+
+      const { data: sd, error: se } = await supabase
+        .from('school_term_dates').select('urn, school_name, borough').limit(3);
+      if (se) {
+        console.error('school_term_dates → FAILED', { code: se.code, message: se.message, hint: se.hint, details: se.details });
+      } else {
+        console.log('school_term_dates → OK, sample:', sd);
+      }
+
+      const { data: bd, error: be } = await supabase
+        .from('borough_term_dates').select('borough, academic_year').limit(3);
+      if (be) {
+        console.error('borough_term_dates → FAILED', { code: be.code, message: be.message, hint: be.hint, details: be.details });
+      } else {
+        console.log('borough_term_dates → OK, sample:', bd);
+      }
+
+      console.groupEnd();
+    }
+
+    runDiagnostics();
 
     // ── Break definitions — keyed to term_label values in Supabase ───────────
     const BREAKS = [
@@ -871,17 +904,27 @@
     input.addEventListener('input', () => {
       const q = input.value.trim();
       clearTimeout(searchTimer);
+      connError.hidden = true;
       if (q.length < 3) { closeDropdown(); fallback.hidden = true; return; }
       searchTimer = setTimeout(() => fetchSchools(q), 250);
     });
 
     async function fetchSchools(q) {
+      console.log(`[HolidaySmart] autocomplete query: school_name ilike '%${q}%'`);
       const { data, error } = await supabase
         .from('school_term_dates')
         .select('urn, school_name, borough')
         .ilike('school_name', `%${q}%`)
         .limit(8);
-      if (error) return;
+      if (error) {
+        console.error('[HolidaySmart] fetchSchools failed:', { code: error.code, message: error.message, hint: error.hint });
+        closeDropdown();
+        fallback.hidden  = true;
+        connError.hidden = false;
+        return;
+      }
+      console.log(`[HolidaySmart] fetchSchools returned ${data?.length ?? 0} rows`);
+      connError.hidden = true;
       if (!data || data.length === 0) { closeDropdown(); fallback.hidden = false; return; }
       fallback.hidden = true;
       renderDropdown(data);
@@ -974,7 +1017,9 @@
         .from('borough_term_dates')
         .select('borough')
         .order('borough');
-      if (!error && data) {
+      if (error) {
+        console.error('[HolidaySmart] borough list fetch failed:', { code: error.code, message: error.message, hint: error.hint });
+      } else if (data) {
         const seen = new Set();
         data.forEach(({ borough }) => {
           if (borough && !seen.has(borough)) {
@@ -984,6 +1029,7 @@
             boroughSelect.appendChild(opt);
           }
         });
+        console.log(`[HolidaySmart] borough list loaded: ${seen.size} boroughs`);
       }
       schoolSection.hidden = true;
       fallback.hidden      = true;
@@ -1026,13 +1072,15 @@
     async function fetchTermRows(table, col, val, acYear) {
       const sel = 'term_label, start_date, end_date, academic_year';
 
-      const { data: curr } = await supabase
+      const { data: curr, error: e1 } = await supabase
         .from(table).select(sel).eq(col, val).eq('academic_year', acYear);
+      if (e1) console.error(`[HolidaySmart] fetchTermRows(${table}, ${acYear}) failed:`, e1.message);
       if (curr && curr.length > 0) return curr;
 
-      const { data: any } = await supabase
+      const { data: any, error: e2 } = await supabase
         .from(table).select(sel).eq(col, val)
         .order('academic_year', { ascending: false }).limit(50);
+      if (e2) console.error(`[HolidaySmart] fetchTermRows(${table}, fallback) failed:`, e2.message);
       if (!any || any.length === 0) return null;
 
       const latest = any[0].academic_year;
