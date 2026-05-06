@@ -17,6 +17,8 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
+  res.setHeader('X-Debug-Count', data ? data.length : 0);
+
   // Deduplicate by urn in case of multiple term rows per school
   const seen = new Set();
   const unique = (data || []).filter(r => {
