@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   const { data, error } = await supabase
     .from('school_term_dates')
     .select('term_label, start_date, end_date, academic_year')
-    .eq('urn', parseInt(urn, 10))
+    .eq('urn', urn)
     .order('academic_year', { ascending: false });
 
   if (error) {
