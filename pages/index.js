@@ -70,7 +70,6 @@ export default function Home() {
 
           <div id="break-pills-section" hidden>
             <span className="break-pills-label">Which break?</span>
-            <p id="borough-notice" className="borough-notice" hidden></p>
             <div className="break-pills-grid">
               <button className="break-pill" type="button" data-break-label="Autumn half-term"><span className="pill-name">Autumn half-term</span></button>
               <button className="break-pill" type="button" data-break-label="Christmas"><span className="pill-name">Christmas</span></button>
