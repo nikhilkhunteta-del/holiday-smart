@@ -354,21 +354,40 @@
     hideInsetReveal();
     try {
       const res = await fetch(
-        '/api/inset-days?urn=' + encodeURIComponent(urn) +
-        '&break_start=' + encodeURIComponent(breakStart)
+        '/api/inset-days?urn='         + encodeURIComponent(urn) +
+        '&break_start='                + encodeURIComponent(breakStart) +
+        '&break_end='                  + encodeURIComponent(breakEnd)
       );
       if (!res.ok) return;
       const days = await res.json();
       if (!days || !days.length) return;
 
-      const insetDate  = days[0].date;
-      const windowDays = daysBetweenInclusive(insetDate, breakEnd);
+      // Pick the day closest to the break (min absolute distance to start or end)
+      const insetDate = days.reduce((best, d) => {
+        const distBest = Math.min(
+          Math.abs(daysBetweenInclusive(d.date,     breakStart) - 1),
+          Math.abs(daysBetweenInclusive(breakEnd,   d.date)     - 1)
+        );
+        const distCurr = Math.min(
+          Math.abs(daysBetweenInclusive(best.date,  breakStart) - 1),
+          Math.abs(daysBetweenInclusive(breakEnd,   best.date)  - 1)
+        );
+        return distBest < distCurr ? d : best;
+      }).date;
+
+      const isBefore  = insetDate < breakStart;
+      const earliest  = isBefore ? insetDate : breakStart;
+      const latest    = isBefore ? breakEnd   : insetDate;
+      const totalDays = daysBetweenInclusive(earliest, latest);
+      const action    = isBefore
+        ? 'fly a day earlier and extend your trip to'
+        : 'return a day later and extend your trip to';
 
       const panel = document.getElementById('inset-reveal');
       panel.innerHTML =
         '<span class="inset-icon">⚡</span>' +
         '<span>Inset day ' + fmtInsetDate(insetDate) +
-        ' — extends your window to <strong>' + windowDays + ' days</strong></span>';
+        ' — ' + action + ' <strong>' + totalDays + ' days</strong></span>';
       panel.hidden = false;
     } catch (err) {
       console.error('[HolidaySmart] loadInsetDay failed:', err);
