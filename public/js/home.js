@@ -347,12 +347,16 @@
           ' — return later and extend your trip to <strong>' + x + ' days</strong></span>';
         panel.hidden = false;
       } else if (inside.length) {
-        // Scenario A: count all inside days
-        const n = inside.length;
+        // Scenario A: list dates (first 3, then +N more)
+        const n       = inside.length;
+        const M       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const fmtD    = s => { const d = new Date(s + 'T00:00:00'); return d.getDate() + ' ' + M[d.getMonth()]; };
+        const shown   = inside.slice(0, 3).map(d => fmtD(d.date)).join(', ');
+        const extra   = n > 3 ? ' +' + (n - 3) + ' more' : '';
         panel.innerHTML =
           '<span class="inset-icon">ℹ️</span>' +
           '<span>Includes <strong>' + n + '</strong> inset day' + (n > 1 ? 's' : '') +
-          ' — children are off the full period</span>';
+          ' (' + shown + extra + ') — children are off the full period</span>';
         panel.hidden = false;
       }
     } catch (err) {
