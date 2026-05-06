@@ -321,6 +321,28 @@ nav {
 .pill-dates { font-size: 11px; font-weight: 400; opacity: 0.75; }
 .break-pill.active .pill-dates { opacity: 1; }
 
+/* ── Inset day reveal panel ── */
+.inset-reveal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #e0f5f6;
+  border: 1px solid #0d5c63;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  margin-bottom: var(--space-sm);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  color: #004349;
+  line-height: 1.4;
+}
+.inset-reveal .inset-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.inset-reveal strong { font-weight: 600; }
+
 /* ── Buttons ── */
 .btn-primary {
   width: 100%;
