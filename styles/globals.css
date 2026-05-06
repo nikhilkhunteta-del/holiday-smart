@@ -293,6 +293,14 @@ nav {
   color: var(--on-surface-variant);
   margin-bottom: var(--space-sm);
 }
+.borough-notice {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--on-surface-variant);
+  margin-bottom: var(--space-sm);
+}
 .break-pills-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -1,16 +1,17 @@
 (function () {
   // ── DOM refs ──────────────────────────────────────────────────────────────
-  const input         = document.getElementById('school-search');
-  const dropdown      = document.getElementById('school-dropdown');
-  const clearBtn      = document.getElementById('school-clear');
-  const fallback      = document.getElementById('school-fallback');
-  const connError     = document.getElementById('search-conn-error');
-  const schoolSection = document.getElementById('school-search-section');
-  const boroughMode   = document.getElementById('borough-mode');
-  const boroughSelect = document.getElementById('borough-select');
-  const boroughLink   = document.getElementById('use-borough-link');
-  const breakSection  = document.getElementById('break-pills-section');
-  const ctaBtn        = document.getElementById('cta-btn');
+  const input          = document.getElementById('school-search');
+  const dropdown       = document.getElementById('school-dropdown');
+  const clearBtn       = document.getElementById('school-clear');
+  const fallback       = document.getElementById('school-fallback');
+  const connError      = document.getElementById('search-conn-error');
+  const schoolSection  = document.getElementById('school-search-section');
+  const boroughMode    = document.getElementById('borough-mode');
+  const boroughSelect  = document.getElementById('borough-select');
+  const boroughLink    = document.getElementById('use-borough-link');
+  const breakSection   = document.getElementById('break-pills-section');
+  const boroughNotice  = document.getElementById('borough-notice');
+  const ctaBtn         = document.getElementById('cta-btn');
 
   // ── Break definitions keyed to term_label values in Supabase ─────────────
   const BREAKS = [
@@ -57,7 +58,6 @@
       selected.break_end   = pill.dataset.end   || null;
       updateCTAState();
 
-      // Show inset day panel for school mode only
       if (selected.urn && selected.break_start && selected.break_end) {
         loadInsetDay(selected.urn, selected.break_start, selected.break_end);
       } else {
@@ -217,32 +217,23 @@
 
   // ── Term date loading ─────────────────────────────────────────────────────
   async function loadTermDates(type, id) {
-    const today    = todayStr();
-    const acYear   = academicYear();
-    const nextYear = nextAcademicYear();
+    let schoolRows  = [];
+    let boroughRows = [];
 
-    let rows = await fetchAllTermRows(type, id);
-
-    if (!rows.length && type === 'school' && selected.borough) {
-      rows = await fetchAllTermRows('borough', selected.borough);
+    if (type === 'school') {
+      // Fetch school and borough rows in parallel
+      [schoolRows, boroughRows] = await Promise.all([
+        fetchAllTermRows('school', id),
+        selected.borough ? fetchAllTermRows('borough', selected.borough) : Promise.resolve([]),
+      ]);
+    } else {
+      boroughRows = await fetchAllTermRows('borough', id);
     }
 
-    if (!rows.length) {
-      populatePills({});
-      return;
-    }
+    const schoolMap  = buildUpcomingMap(schoolRows);
+    const boroughMap = buildUpcomingMap(boroughRows);
 
-    // Prefer current and next academic year; fall back to two most-recent years
-    let relevant = rows.filter(r => r.academic_year === acYear || r.academic_year === nextYear);
-    if (!relevant.length) {
-      const years = [...new Set(rows.map(r => r.academic_year))].sort().reverse();
-      relevant = rows.filter(r => years.slice(0, 2).includes(r.academic_year));
-    }
-
-    // Keep only breaks that haven't ended yet
-    const upcoming = relevant.filter(r => r.end_date >= today);
-
-    populatePills(buildTermMap(upcoming));
+    populatePills(schoolMap, boroughMap, type === 'school');
   }
 
   async function fetchAllTermRows(type, id) {
@@ -260,26 +251,56 @@
     }
   }
 
-  function buildTermMap(rows) {
+  // Filter rows to current+next academic year (upcoming only), return earliest-per-key map
+  function buildUpcomingMap(rows) {
     if (!rows || !rows.length) return {};
+
+    const today    = todayStr();
+    const acYear   = academicYear();
+    const nextYear = nextAcademicYear();
+
+    let relevant = rows.filter(r => r.academic_year === acYear || r.academic_year === nextYear);
+    if (!relevant.length) {
+      // Fall back to two most-recent years present in the data
+      const years = [...new Set(rows.map(r => r.academic_year))].sort().reverse();
+      relevant = rows.filter(r => years.slice(0, 2).includes(r.academic_year));
+    }
+
+    // Only upcoming breaks; for duplicates keep the nearest (earliest start_date)
     const map = {};
-    rows.forEach(r => {
-      // For each break key keep the earliest upcoming occurrence
-      const existing = map[r.term_label];
-      if (!existing || r.start_date < existing.start) {
-        map[r.term_label] = { start: r.start_date, end: r.end_date };
-      }
-    });
+    relevant
+      .filter(r => r.end_date >= today)
+      .forEach(r => {
+        const existing = map[r.term_label];
+        if (!existing || r.start_date < existing.start) {
+          map[r.term_label] = { start: r.start_date, end: r.end_date };
+        }
+      });
+
     return map;
   }
 
-  function populatePills(termMap) {
+  // Per-pill waterfall: school first, borough fallback, exclude if neither
+  function populatePills(schoolMap, boroughMap, isSchoolMode) {
     const pills = document.querySelectorAll('.break-pill');
+    let anyBorough = false;
+
     BREAKS.forEach((brk, i) => {
-      const pill  = pills[i];
-      const dates = termMap[brk.key];
+      const pill = pills[i];
       pill.classList.remove('active');
-      if (dates && dates.start && dates.end) {
+
+      let dates      = null;
+      let fromBorough = false;
+
+      if (schoolMap[brk.key]) {
+        dates = schoolMap[brk.key];
+      } else if (boroughMap[brk.key]) {
+        dates      = boroughMap[brk.key];
+        fromBorough = true;
+        if (isSchoolMode) anyBorough = true;
+      }
+
+      if (dates) {
         pill.hidden        = false;
         pill.dataset.start = dates.start;
         pill.dataset.end   = dates.end;
@@ -292,6 +313,17 @@
         pill.dataset.end   = '';
       }
     });
+
+    // Borough notice: only in school mode when at least one pill fell back to borough data
+    if (isSchoolMode && anyBorough && selected.borough && selected.school_name) {
+      boroughNotice.textContent =
+        'Showing ' + selected.borough + ' borough dates — school-specific dates for ' +
+        selected.school_name + ' not available yet.';
+      boroughNotice.hidden = false;
+    } else {
+      boroughNotice.hidden = true;
+    }
+
     selected.break_label = null;
     selected.break_start = null;
     selected.break_end   = null;
@@ -313,6 +345,7 @@
     selected.break_label = null;
     selected.break_start = null;
     selected.break_end   = null;
+    boroughNotice.hidden = true;
     hideInsetReveal();
   }
 
@@ -328,7 +361,6 @@
       const days = await res.json();
       if (!days || !days.length) return;
 
-      // Use the closest inset day (latest date, i.e. first in descending order)
       const insetDate  = days[0].date;
       const windowDays = daysBetweenInclusive(insetDate, breakEnd);
 
@@ -365,15 +397,17 @@
     return now.getMonth() >= 8 ? ((y + 1) + '-' + (y + 2)) : (y + '-' + (y + 1));
   }
 
-  // "27 Oct – 31 Oct 2026"
+  // "27 Oct – 31 Oct 2026"  or  "19 Dec 2026 – 3 Jan 2027" for year-boundary breaks
   function fmtRange(startStr, endStr) {
     if (!startStr || !endStr) return '';
-    const s = new Date(startStr + 'T00:00:00');
-    const e = new Date(endStr   + 'T00:00:00');
-    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return s.getDate() + ' ' + M[s.getMonth()] +
-           ' – ' +
-           e.getDate() + ' ' + M[e.getMonth()] + ' ' + e.getFullYear();
+    const s  = new Date(startStr + 'T00:00:00');
+    const e  = new Date(endStr   + 'T00:00:00');
+    const M  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const sy = s.getFullYear();
+    const ey = e.getFullYear();
+    const sf = s.getDate() + ' ' + M[s.getMonth()] + (sy !== ey ? ' ' + sy : '');
+    const ef = e.getDate() + ' ' + M[e.getMonth()] + ' ' + ey;
+    return sf + ' – ' + ef;
   }
 
   // "Fri 24 Oct"
