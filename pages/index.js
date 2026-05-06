@@ -78,6 +78,7 @@ export default function Home() {
               <button className="break-pill" type="button" data-break-label="May half-term"><span className="pill-name">May half-term</span></button>
               <button className="break-pill" type="button" data-break-label="Summer"><span className="pill-name">Summer</span></button>
             </div>
+            <div id="inset-reveal" className="inset-reveal" hidden></div>
             <button className="btn-primary" id="cta-btn" type="button" disabled>Show me the data →</button>
           </div>
 

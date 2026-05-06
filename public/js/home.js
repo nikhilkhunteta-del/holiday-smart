@@ -56,6 +56,13 @@
       selected.break_start = pill.dataset.start || null;
       selected.break_end   = pill.dataset.end   || null;
       updateCTAState();
+
+      // Show inset day panel for school mode only
+      if (selected.urn && selected.break_start && selected.break_end) {
+        loadInsetDay(selected.urn, selected.break_start, selected.break_end);
+      } else {
+        hideInsetReveal();
+      }
     });
   });
 
@@ -210,48 +217,60 @@
 
   // ── Term date loading ─────────────────────────────────────────────────────
   async function loadTermDates(type, id) {
-    const acYear = academicYear();
-    let rows = null;
+    const today    = todayStr();
+    const acYear   = academicYear();
+    const nextYear = nextAcademicYear();
 
-    if (type === 'school') {
-      rows = await fetchTermRows('school', id, acYear);
-      if (!rows && selected.borough) {
-        rows = await fetchTermRows('borough', selected.borough, acYear);
-      }
-    } else {
-      rows = await fetchTermRows('borough', id, acYear);
+    let rows = await fetchAllTermRows(type, id);
+
+    if (!rows.length && type === 'school' && selected.borough) {
+      rows = await fetchAllTermRows('borough', selected.borough);
     }
 
-    populatePills(buildTermMap(rows));
+    if (!rows.length) {
+      populatePills({});
+      return;
+    }
+
+    // Prefer current and next academic year; fall back to two most-recent years
+    let relevant = rows.filter(r => r.academic_year === acYear || r.academic_year === nextYear);
+    if (!relevant.length) {
+      const years = [...new Set(rows.map(r => r.academic_year))].sort().reverse();
+      relevant = rows.filter(r => years.slice(0, 2).includes(r.academic_year));
+    }
+
+    // Keep only breaks that haven't ended yet
+    const upcoming = relevant.filter(r => r.end_date >= today);
+
+    populatePills(buildTermMap(upcoming));
   }
 
-  async function fetchTermRows(type, id, acYear) {
+  async function fetchAllTermRows(type, id) {
     try {
       const endpoint = type === 'school'
         ? '/api/term-dates?urn=' + encodeURIComponent(id)
         : '/api/borough-dates?borough=' + encodeURIComponent(id);
-      const res  = await fetch(endpoint);
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const all  = await res.json();
-      if (!all || all.length === 0) return null;
-
-      const curr = all.filter(r => r.academic_year === acYear);
-      if (curr.length > 0) return curr;
-
-      // Fall back to most recent academic year
-      const latest = all[0].academic_year;
-      return all.filter(r => r.academic_year === latest);
+      const all = await res.json();
+      return all || [];
     } catch (err) {
-      console.error('[HolidaySmart] fetchTermRows(' + type + ') failed:', err);
-      return null;
+      console.error('[HolidaySmart] fetchAllTermRows(' + type + ') failed:', err);
+      return [];
     }
   }
 
   function buildTermMap(rows) {
-    if (!rows) return {};
-    return Object.fromEntries(
-      rows.map(r => [r.term_label, { start: r.start_date, end: r.end_date }])
-    );
+    if (!rows || !rows.length) return {};
+    const map = {};
+    rows.forEach(r => {
+      // For each break key keep the earliest upcoming occurrence
+      const existing = map[r.term_label];
+      if (!existing || r.start_date < existing.start) {
+        map[r.term_label] = { start: r.start_date, end: r.end_date };
+      }
+    });
+    return map;
   }
 
   function populatePills(termMap) {
@@ -260,16 +279,24 @@
       const pill  = pills[i];
       const dates = termMap[brk.key];
       pill.classList.remove('active');
-      pill.dataset.start = dates && dates.start ? dates.start : '';
-      pill.dataset.end   = dates && dates.end   ? dates.end   : '';
-      pill.innerHTML = (dates && dates.start && dates.end)
-        ? '<span class="pill-name">' + esc(brk.label) + '</span><span class="pill-dates">' + fmtDate(dates.start) + ' – ' + fmtDate(dates.end) + '</span>'
-        : '<span class="pill-name">' + esc(brk.label) + '</span>';
+      if (dates && dates.start && dates.end) {
+        pill.hidden        = false;
+        pill.dataset.start = dates.start;
+        pill.dataset.end   = dates.end;
+        pill.innerHTML =
+          '<span class="pill-name">' + esc(brk.label) + '</span>' +
+          '<span class="pill-dates">' + fmtRange(dates.start, dates.end) + '</span>';
+      } else {
+        pill.hidden        = true;
+        pill.dataset.start = '';
+        pill.dataset.end   = '';
+      }
     });
     selected.break_label = null;
     selected.break_start = null;
     selected.break_end   = null;
-    breakSection.hidden  = false;
+    hideInsetReveal();
+    breakSection.hidden = false;
     updateCTAState();
   }
 
@@ -277,6 +304,7 @@
     const pills = document.querySelectorAll('.break-pill');
     BREAKS.forEach((brk, i) => {
       const pill = pills[i];
+      pill.hidden = false;
       pill.classList.remove('active');
       pill.dataset.start = '';
       pill.dataset.end   = '';
@@ -285,25 +313,87 @@
     selected.break_label = null;
     selected.break_start = null;
     selected.break_end   = null;
+    hideInsetReveal();
+  }
+
+  // ── Inset day reveal ──────────────────────────────────────────────────────
+  async function loadInsetDay(urn, breakStart, breakEnd) {
+    hideInsetReveal();
+    try {
+      const res = await fetch(
+        '/api/inset-days?urn=' + encodeURIComponent(urn) +
+        '&break_start=' + encodeURIComponent(breakStart)
+      );
+      if (!res.ok) return;
+      const days = await res.json();
+      if (!days || !days.length) return;
+
+      // Use the closest inset day (latest date, i.e. first in descending order)
+      const insetDate  = days[0].date;
+      const windowDays = daysBetweenInclusive(insetDate, breakEnd);
+
+      const panel = document.getElementById('inset-reveal');
+      panel.innerHTML =
+        '<span class="inset-icon">⚡</span>' +
+        '<span>Inset day ' + fmtInsetDate(insetDate) +
+        ' — extends your window to <strong>' + windowDays + ' days</strong></span>';
+      panel.hidden = false;
+    } catch (err) {
+      console.error('[HolidaySmart] loadInsetDay failed:', err);
+    }
+  }
+
+  function hideInsetReveal() {
+    const panel = document.getElementById('inset-reveal');
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+  function todayStr() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   function academicYear() {
     const now = new Date();
     const y   = now.getFullYear();
     return now.getMonth() >= 8 ? (y + '-' + (y + 1)) : ((y - 1) + '-' + y);
   }
 
-  function fmtDate(str) {
-    if (!str) return '';
-    const d = new Date(str);
+  function nextAcademicYear() {
+    const now = new Date();
+    const y   = now.getFullYear();
+    return now.getMonth() >= 8 ? ((y + 1) + '-' + (y + 2)) : (y + '-' + (y + 1));
+  }
+
+  // "27 Oct – 31 Oct 2026"
+  function fmtRange(startStr, endStr) {
+    if (!startStr || !endStr) return '';
+    const s = new Date(startStr + 'T00:00:00');
+    const e = new Date(endStr   + 'T00:00:00');
     const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return d.getDate() + ' ' + M[d.getMonth()];
+    return s.getDate() + ' ' + M[s.getMonth()] +
+           ' – ' +
+           e.getDate() + ' ' + M[e.getMonth()] + ' ' + e.getFullYear();
+  }
+
+  // "Fri 24 Oct"
+  function fmtInsetDate(str) {
+    if (!str) return '';
+    const d    = new Date(str + 'T00:00:00');
+    const Days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const M    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return Days[d.getDay()] + ' ' + d.getDate() + ' ' + M[d.getMonth()];
+  }
+
+  function daysBetweenInclusive(dateStr1, dateStr2) {
+    const d1 = new Date(dateStr1 + 'T00:00:00');
+    const d2 = new Date(dateStr2 + 'T00:00:00');
+    return Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
   }
 
   function esc(str) {
     return String(str)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      .replace(/&/g,  '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g,  '&gt;').replace(/"/g, '&quot;');
   }
 })();
