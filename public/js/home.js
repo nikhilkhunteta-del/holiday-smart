@@ -245,11 +245,21 @@
     const pills = document.querySelectorAll('.break-pill');
     boroughNotice.hidden = true;
 
-    BREAKS.forEach((brk, i) => {
+    const sorted = BREAKS.slice().sort((a, b) => {
+      const sa = map[a.key] ? map[a.key].start : '';
+      const sb = map[b.key] ? map[b.key].start : '';
+      if (!sa && !sb) return 0;
+      if (!sa) return 1;
+      if (!sb) return -1;
+      return sa < sb ? -1 : sa > sb ? 1 : 0;
+    });
+
+    sorted.forEach((brk, i) => {
       const pill  = pills[i];
       const dates = map[brk.key];
       pill.hidden = false;
       pill.classList.remove('active');
+      pill.dataset.breakLabel = brk.label;
       if (dates) {
         pill.dataset.start = dates.start;
         pill.dataset.end   = dates.end;
