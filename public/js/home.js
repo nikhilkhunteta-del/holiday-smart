@@ -218,13 +218,16 @@
   // ── Term date loading ─────────────────────────────────────────────────────
   async function loadTermDates(urn) {
     try {
-      const res = await fetch('/api/term-dates?urn=' + encodeURIComponent(urn));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const rows = await res.json() || [];
-      populatePills(buildUpcomingMap(rows));
+      const [schoolRes, boroughRes] = await Promise.all([
+        fetch('/api/term-dates?urn=' + encodeURIComponent(urn)),
+        fetch('/api/borough-dates?borough=' + encodeURIComponent(selected.borough)),
+      ]);
+      const schoolRows  = schoolRes.ok  ? (await schoolRes.json()  || []) : [];
+      const boroughRows = boroughRes.ok ? (await boroughRes.json() || []) : [];
+      populatePills(buildUpcomingMap(schoolRows), buildUpcomingMap(boroughRows));
     } catch (err) {
       console.error('[HolidaySmart] loadTermDates failed:', err);
-      populatePills({});
+      populatePills({}, {});
     }
   }
 
@@ -241,22 +244,28 @@
     return map;
   }
 
-  function populatePills(map) {
+  function populatePills(schoolMap, boroughMap) {
+    boroughMap = boroughMap || {};
     const pills = document.querySelectorAll('.break-pill');
     boroughNotice.hidden = true;
 
     const sorted = BREAKS.slice().sort((a, b) => {
-      const sa = map[a.key] ? map[a.key].start : '';
-      const sb = map[b.key] ? map[b.key].start : '';
+      const da = schoolMap[a.key] || boroughMap[a.key];
+      const db = schoolMap[b.key] || boroughMap[b.key];
+      const sa = da ? da.start : '';
+      const sb = db ? db.start : '';
       if (!sa && !sb) return 0;
       if (!sa) return 1;
       if (!sb) return -1;
       return sa < sb ? -1 : sa > sb ? 1 : 0;
     });
 
+    let allBorough = true;
     sorted.forEach((brk, i) => {
-      const pill  = pills[i];
-      const dates = map[brk.key];
+      const pill        = pills[i];
+      const schoolDates = schoolMap[brk.key];
+      const dates       = schoolDates || boroughMap[brk.key];
+      if (schoolDates) allBorough = false;
       pill.hidden = false;
       pill.classList.remove('active');
       pill.dataset.breakLabel = brk.label;
@@ -272,6 +281,13 @@
         pill.innerHTML = '<span class="pill-name">' + esc(brk.label) + '</span>';
       }
     });
+
+    if (allBorough && Object.keys(boroughMap).length > 0) {
+      boroughNotice.textContent =
+        'Showing ' + esc(selected.borough) + ' borough dates — school-specific dates for ' +
+        esc(selected.school_name) + ' not available yet.';
+      boroughNotice.hidden = false;
+    }
 
     selected.break_label = null;
     selected.break_start = null;
