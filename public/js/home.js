@@ -130,7 +130,7 @@
     closeDropdown();
     fallback.hidden = true;
     updateCTAState();
-    await loadTermDates('school', school.urn);
+    await loadTermDates(school.urn);
   }
 
   // ── Clear ─────────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@
     });
     if (borough) {
       updateCTAState();
-      await loadTermDates('borough', borough);
+      await loadBoroughDates(borough);
     } else {
       breakSection.hidden = true;
       resetPills();
@@ -216,113 +216,52 @@
   });
 
   // ── Term date loading ─────────────────────────────────────────────────────
-  async function loadTermDates(type, id) {
-    let schoolRows  = [];
-    let boroughRows = [];
-
-    if (type === 'school') {
-      // Fetch school and borough rows in parallel
-      [schoolRows, boroughRows] = await Promise.all([
-        fetchAllTermRows('school', id),
-        selected.borough ? fetchAllTermRows('borough', selected.borough) : Promise.resolve([]),
-      ]);
-    } else {
-      boroughRows = await fetchAllTermRows('borough', id);
-    }
-
-    const schoolMap  = buildUpcomingMap(schoolRows);
-    const boroughMap = buildUpcomingMap(boroughRows);
-
-    populatePills(schoolMap, boroughMap, type === 'school');
-  }
-
-  async function fetchAllTermRows(type, id) {
+  async function loadTermDates(urn) {
     try {
-      const endpoint = type === 'school'
-        ? '/api/term-dates?urn=' + encodeURIComponent(id)
-        : '/api/borough-dates?borough=' + encodeURIComponent(id);
-      const res = await fetch(endpoint);
+      const res = await fetch('/api/term-dates?urn=' + encodeURIComponent(urn));
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const all = await res.json();
-      return all || [];
+      const rows = await res.json() || [];
+      populatePills(buildUpcomingMap(rows));
     } catch (err) {
-      console.error('[HolidaySmart] fetchAllTermRows(' + type + ') failed:', err);
-      return [];
+      console.error('[HolidaySmart] loadTermDates failed:', err);
+      populatePills({});
     }
   }
 
-  // Filter rows to current+next academic year (upcoming only), return earliest-per-key map
   function buildUpcomingMap(rows) {
-    if (!rows || !rows.length) return {};
-
-    const today    = todayStr();
-    const acYear   = academicYear();
-    const nextYear = nextAcademicYear();
-
-    let relevant = rows.filter(r => r.academic_year === acYear || r.academic_year === nextYear);
-    if (!relevant.length) {
-      // Fall back to two most-recent years present in the data
-      const years = [...new Set(rows.map(r => r.academic_year))].sort().reverse();
-      relevant = rows.filter(r => years.slice(0, 2).includes(r.academic_year));
-    }
-
-    // Only upcoming breaks; for duplicates keep the nearest (earliest start_date)
+    const today = todayStr();
     const map = {};
-    relevant
+    (rows || [])
       .filter(r => r.end_date >= today)
       .forEach(r => {
-        const existing = map[r.term_label];
-        if (!existing || r.start_date < existing.start) {
+        if (!map[r.term_label] || r.start_date < map[r.term_label].start) {
           map[r.term_label] = { start: r.start_date, end: r.end_date };
         }
       });
-
     return map;
   }
 
-  // Per-pill waterfall: school first, borough fallback, exclude if neither
-  function populatePills(schoolMap, boroughMap, isSchoolMode) {
+  function populatePills(map) {
     const pills = document.querySelectorAll('.break-pill');
-    let anyBorough = false;
+    boroughNotice.hidden = true;
 
     BREAKS.forEach((brk, i) => {
-      const pill = pills[i];
+      const pill  = pills[i];
+      const dates = map[brk.key];
+      pill.hidden = false;
       pill.classList.remove('active');
-
-      let dates      = null;
-      let fromBorough = false;
-
-      if (schoolMap[brk.key]) {
-        dates = schoolMap[brk.key];
-      } else if (boroughMap[brk.key]) {
-        dates      = boroughMap[brk.key];
-        fromBorough = true;
-        if (isSchoolMode) anyBorough = true;
-      }
-
       if (dates) {
-        pill.hidden        = false;
         pill.dataset.start = dates.start;
         pill.dataset.end   = dates.end;
         pill.innerHTML =
           '<span class="pill-name">' + esc(brk.label) + '</span>' +
           '<span class="pill-dates">' + fmtRange(dates.start, dates.end) + '</span>';
       } else {
-        pill.hidden        = true;
         pill.dataset.start = '';
         pill.dataset.end   = '';
+        pill.innerHTML = '<span class="pill-name">' + esc(brk.label) + '</span>';
       }
     });
-
-    // Borough notice: only in school mode when at least one pill fell back to borough data
-    if (isSchoolMode && anyBorough && selected.borough && selected.school_name) {
-      boroughNotice.textContent =
-        'Showing ' + selected.borough + ' borough dates — school-specific dates for ' +
-        selected.school_name + ' not available yet.';
-      boroughNotice.hidden = false;
-    } else {
-      boroughNotice.hidden = true;
-    }
 
     selected.break_label = null;
     selected.break_start = null;
@@ -330,6 +269,18 @@
     hideInsetReveal();
     breakSection.hidden = false;
     updateCTAState();
+  }
+
+  async function loadBoroughDates(borough) {
+    try {
+      const res = await fetch('/api/borough-dates?borough=' + encodeURIComponent(borough));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const rows = await res.json() || [];
+      populatePills(buildUpcomingMap(rows));
+    } catch (err) {
+      console.error('[HolidaySmart] loadBoroughDates failed:', err);
+      populatePills({});
+    }
   }
 
   function resetPills() {
@@ -402,18 +353,6 @@
   // ── Helpers ───────────────────────────────────────────────────────────────
   function todayStr() {
     return new Date().toISOString().slice(0, 10);
-  }
-
-  function academicYear() {
-    const now = new Date();
-    const y   = now.getFullYear();
-    return now.getMonth() >= 8 ? (y + '-' + (y + 1)) : ((y - 1) + '-' + y);
-  }
-
-  function nextAcademicYear() {
-    const now = new Date();
-    const y   = now.getFullYear();
-    return now.getMonth() >= 8 ? ((y + 1) + '-' + (y + 2)) : (y + '-' + (y + 1));
   }
 
   // "27 Oct – 31 Oct 2026"  or  "19 Dec 2026 – 3 Jan 2027" for year-boundary breaks
