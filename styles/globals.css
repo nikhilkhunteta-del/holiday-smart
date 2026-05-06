@@ -332,22 +332,23 @@ nav {
 /* ── Inset day reveal panel ── */
 .inset-reveal {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #e0f5f6;
-  border: 1px solid #0d5c63;
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
+  align-items: flex-start;
+  gap: 8px;
+  background: #f0fafb;
+  border-left: 3px solid #0d8a9a;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 8px 12px;
   margin-bottom: var(--space-sm);
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--type-label-sm-size);
+  font-weight: var(--type-label-sm-weight);
+  line-height: var(--type-label-sm-lh);
   color: #004349;
-  line-height: 1.4;
 }
 .inset-reveal .inset-icon {
   font-size: 13px;
   flex-shrink: 0;
+  line-height: var(--type-label-sm-lh);
 }
 .inset-reveal strong { font-weight: 600; }
 

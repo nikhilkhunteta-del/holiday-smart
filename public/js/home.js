@@ -315,41 +315,46 @@
     hideInsetReveal();
     try {
       const res = await fetch(
-        '/api/inset-days?urn='         + encodeURIComponent(urn) +
-        '&break_start='                + encodeURIComponent(breakStart) +
-        '&break_end='                  + encodeURIComponent(breakEnd)
+        '/api/inset-days?urn='   + encodeURIComponent(urn) +
+        '&start='                + encodeURIComponent(breakStart) +
+        '&end='                  + encodeURIComponent(breakEnd)
       );
       if (!res.ok) return;
       const days = await res.json();
       if (!days || !days.length) return;
 
-      // Pick the day closest to the break (min absolute distance to start or end)
-      const insetDate = days.reduce((best, d) => {
-        const distBest = Math.min(
-          Math.abs(daysBetweenInclusive(d.date,     breakStart) - 1),
-          Math.abs(daysBetweenInclusive(breakEnd,   d.date)     - 1)
-        );
-        const distCurr = Math.min(
-          Math.abs(daysBetweenInclusive(best.date,  breakStart) - 1),
-          Math.abs(daysBetweenInclusive(breakEnd,   best.date)  - 1)
-        );
-        return distBest < distCurr ? d : best;
-      }).date;
-
-      const isBefore  = insetDate < breakStart;
-      const earliest  = isBefore ? insetDate : breakStart;
-      const latest    = isBefore ? breakEnd   : insetDate;
-      const totalDays = daysBetweenInclusive(earliest, latest);
-      const action    = isBefore
-        ? 'fly a day earlier and extend your trip to'
-        : 'return a day later and extend your trip to';
+      const before = days.filter(d => d.date <  breakStart);
+      const after  = days.filter(d => d.date >  breakEnd);
+      const inside = days.filter(d => d.date >= breakStart && d.date <= breakEnd);
 
       const panel = document.getElementById('inset-reveal');
-      panel.innerHTML =
-        '<span class="inset-icon">⚡</span>' +
-        '<span>Inset day ' + fmtInsetDate(insetDate) +
-        ' — ' + action + ' <strong>' + totalDays + ' days</strong></span>';
-      panel.hidden = false;
+      if (before.length) {
+        // Scenario B: earliest before-day maximises extension
+        const day = before[0].date;
+        const x   = daysBetweenInclusive(day, breakEnd);
+        panel.innerHTML =
+          '<span class="inset-icon">⚡</span>' +
+          '<span>Inset day ' + fmtInsetDate(day) +
+          ' — fly earlier and extend your trip to <strong>' + x + ' days</strong></span>';
+        panel.hidden = false;
+      } else if (after.length) {
+        // Scenario C: latest after-day maximises extension
+        const day = after[after.length - 1].date;
+        const x   = daysBetweenInclusive(breakStart, day);
+        panel.innerHTML =
+          '<span class="inset-icon">⚡</span>' +
+          '<span>Inset day ' + fmtInsetDate(day) +
+          ' — return later and extend your trip to <strong>' + x + ' days</strong></span>';
+        panel.hidden = false;
+      } else if (inside.length) {
+        // Scenario A: count all inside days
+        const n = inside.length;
+        panel.innerHTML =
+          '<span class="inset-icon">ℹ️</span>' +
+          '<span>Includes <strong>' + n + '</strong> inset day' + (n > 1 ? 's' : '') +
+          ' — children are off the full period</span>';
+        panel.hidden = false;
+      }
     } catch (err) {
       console.error('[HolidaySmart] loadInsetDay failed:', err);
     }
