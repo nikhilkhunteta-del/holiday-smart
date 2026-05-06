@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   windowEnd.setDate(windowEnd.getDate() + 7);
 
   const { data, error } = await supabase
-    .from('inset_days')
+    .from('school_inset_days')
     .select('date')
     .eq('urn', urn)
     .gte('date', windowStart.toISOString().slice(0, 10))
