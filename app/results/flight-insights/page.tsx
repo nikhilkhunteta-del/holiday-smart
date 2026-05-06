@@ -529,16 +529,43 @@ const fareConfigs: FareConfig[] = [
   },
 ];
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function fmtDateRange(start: string, end: string): string {
+  const s = new Date(start + 'T00:00:00');
+  const e = new Date(end   + 'T00:00:00');
+  const sy = s.getFullYear(), ey = e.getFullYear();
+  const sf = `${s.getDate()} ${MONTHS[s.getMonth()]}${sy !== ey ? ' ' + sy : ''}`;
+  const ef = `${e.getDate()} ${MONTHS[e.getMonth()]} ${ey}`;
+  return `${sf} – ${ef}`;
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export default function FlightInsightsPage() {
-  const context = {
-    school: 'Grasmere Primary School',
-    borough: 'Hackney',
-    breakLabel: 'May half-term 2025',
-    startDate: '2025-05-23',
-    endDate: '2025-05-30',
-  };
+interface PageProps {
+  searchParams: { school?: string; urn?: string; borough?: string; break?: string; start?: string; end?: string };
+}
+
+export default function FlightInsightsPage({ searchParams }: PageProps) {
+  const school    = searchParams.school   || searchParams.urn || 'Your school';
+  const borough   = searchParams.borough  || 'Your borough';
+  const breakLabel = searchParams.break   || 'Your break';
+  const startDate = searchParams.start    || '';
+  const endDate   = searchParams.end      || '';
+  const dateRange = startDate && endDate ? fmtDateRange(startDate, endDate) : '';
+
+  const headerChips = [
+    borough,
+    breakLabel,
+    dateRange,
+  ].filter(Boolean);
 
   return (
     <div className="min-h-screen bg-background">
@@ -567,10 +594,10 @@ export default function FlightInsightsPage() {
           Flight Insights
         </span>
         <h1 className="font-newsreader text-display-md text-on-surface mb-lg">
-          {context.school}
+          {school}
         </h1>
         <div className="flex flex-wrap gap-sm">
-          {[context.borough, context.breakLabel, '23 May – 30 May 2025', '4 travellers'].map((chip) => (
+          {headerChips.map((chip) => (
             <span
               key={chip}
               className="inline-block font-inter text-label-sm px-md py-xs rounded-full"
@@ -585,7 +612,7 @@ export default function FlightInsightsPage() {
       {/* Sections */}
       <main className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
         <SchoolCalendarSection     data={calendarData} />
-        <ComplianceCalculatorSection scenarios={complianceScenarios} borough={context.borough} />
+        <ComplianceCalculatorSection scenarios={complianceScenarios} borough={borough} />
         <FamilyCostSection         fares={familyCostData} />
         <CapacityWarningSection    warning={capacityWarning} />
         <MultiAirportSection       fares={airportFares} destination="Alicante" travelDate="23 May 2025" />

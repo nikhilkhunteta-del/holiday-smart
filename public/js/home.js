@@ -44,7 +44,7 @@
     });
     if (selected.urn)         p.set('urn', selected.urn);
     if (selected.school_name) p.set('school', selected.school_name);
-    window.location.href = '/results?' + p.toString();
+    window.location.href = '/results/flight-insights?' + p.toString();
   });
 
   // ── Break pills ───────────────────────────────────────────────────────────
