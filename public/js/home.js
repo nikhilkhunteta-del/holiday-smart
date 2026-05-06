@@ -10,7 +10,6 @@
   const boroughSelect  = document.getElementById('borough-select');
   const boroughLink    = document.getElementById('use-borough-link');
   const breakSection   = document.getElementById('break-pills-section');
-  const boroughNotice  = document.getElementById('borough-notice');
   const ctaBtn         = document.getElementById('cta-btn');
 
   // ── Break definitions keyed to term_label values in Supabase ─────────────
@@ -58,7 +57,14 @@
       selected.break_end   = pill.dataset.end   || null;
       updateCTAState();
 
-      if (selected.urn && selected.break_start && selected.break_end) {
+      const source = pill.dataset.source;
+      if (source === 'borough' && selected.break_start) {
+        const panel = document.getElementById('inset-reveal');
+        panel.innerHTML =
+          '<span class="inset-icon">📍</span>' +
+          '<span>' + esc(selected.borough) + ' borough dates — confirm exact dates on your school website</span>';
+        panel.hidden = false;
+      } else if (source === 'school' && selected.urn && selected.break_start && selected.break_end) {
         loadInsetDay(selected.urn, selected.break_start, selected.break_end);
       } else {
         hideInsetReveal();
@@ -247,7 +253,6 @@
   function populatePills(schoolMap, boroughMap) {
     boroughMap = boroughMap || {};
     const pills = document.querySelectorAll('.break-pill');
-    boroughNotice.hidden = true;
 
     const sorted = BREAKS.slice().sort((a, b) => {
       const da = schoolMap[a.key] || boroughMap[a.key];
@@ -260,34 +265,34 @@
       return sa < sb ? -1 : sa > sb ? 1 : 0;
     });
 
-    let allBorough = true;
     sorted.forEach((brk, i) => {
       const pill        = pills[i];
       const schoolDates = schoolMap[brk.key];
       const dates       = schoolDates || boroughMap[brk.key];
-      if (schoolDates) allBorough = false;
       pill.hidden = false;
       pill.classList.remove('active');
       pill.dataset.breakLabel = brk.label;
-      if (dates) {
-        pill.dataset.start = dates.start;
-        pill.dataset.end   = dates.end;
+      if (schoolDates) {
+        pill.dataset.source = 'school';
+        pill.dataset.start  = schoolDates.start;
+        pill.dataset.end    = schoolDates.end;
+        pill.innerHTML =
+          '<span class="pill-name">' + esc(brk.label) + '</span>' +
+          '<span class="pill-dates">' + fmtRange(schoolDates.start, schoolDates.end) + '</span>';
+      } else if (dates) {
+        pill.dataset.source = 'borough';
+        pill.dataset.start  = dates.start;
+        pill.dataset.end    = dates.end;
         pill.innerHTML =
           '<span class="pill-name">' + esc(brk.label) + '</span>' +
           '<span class="pill-dates">' + fmtRange(dates.start, dates.end) + '</span>';
       } else {
-        pill.dataset.start = '';
-        pill.dataset.end   = '';
+        pill.dataset.source = 'none';
+        pill.dataset.start  = '';
+        pill.dataset.end    = '';
         pill.innerHTML = '<span class="pill-name">' + esc(brk.label) + '</span>';
       }
     });
-
-    if (allBorough && Object.keys(boroughMap).length > 0) {
-      boroughNotice.textContent =
-        'Showing ' + esc(selected.borough) + ' borough dates — school-specific dates for ' +
-        esc(selected.school_name) + ' not available yet.';
-      boroughNotice.hidden = false;
-    }
 
     selected.break_label = null;
     selected.break_start = null;
@@ -322,7 +327,6 @@
     selected.break_label = null;
     selected.break_start = null;
     selected.break_end   = null;
-    boroughNotice.hidden = true;
     hideInsetReveal();
   }
 
