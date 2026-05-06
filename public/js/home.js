@@ -331,20 +331,16 @@
       if (before.length) {
         // Scenario B: earliest before-day maximises extension
         const day = before[0].date;
-        const x   = daysBetweenInclusive(day, breakEnd);
         panel.innerHTML =
           '<span class="inset-icon">⚡</span>' +
-          '<span>Inset day ' + fmtInsetDate(day) +
-          ' — fly earlier and extend your trip to <strong>' + x + ' days</strong></span>';
+          '<span>Inset day ' + fmtInsetDate(day) + ' — fly earlier and save</span>';
         panel.hidden = false;
       } else if (after.length) {
         // Scenario C: latest after-day maximises extension
         const day = after[after.length - 1].date;
-        const x   = daysBetweenInclusive(breakStart, day);
         panel.innerHTML =
           '<span class="inset-icon">⚡</span>' +
-          '<span>Inset day ' + fmtInsetDate(day) +
-          ' — return later and extend your trip to <strong>' + x + ' days</strong></span>';
+          '<span>Inset day ' + fmtInsetDate(day) + ' — return later and save</span>';
         panel.hidden = false;
       } else if (inside.length) {
         // Scenario A: list dates (first 3, then +N more)
