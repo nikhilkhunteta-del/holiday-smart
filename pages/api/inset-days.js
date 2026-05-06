@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
   const { urn, start, end } = req.query;
+  console.log('[/api/inset-days] urn=%s start=%s end=%s', urn, start, end);
   if (!urn || !start || !end) {
     return res.status(400).json({ error: 'urn, start and end required' });
   }
@@ -25,5 +26,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  res.status(200).json(data || []);
+  const rows = data || [];
+  res.setHeader('X-Debug-Count', rows.length);
+  res.status(200).json(rows);
 }
