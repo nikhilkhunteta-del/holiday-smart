@@ -7,6 +7,7 @@ interface Props {
   fares: AirportFare[];
   destination: string;
   travelDate: string;
+  partySize: number;
 }
 
 type SortKey = 'allInFromHome' | 'price' | 'transferMinutes';
@@ -19,9 +20,17 @@ const sortLabels: Record<SortKey, string> = {
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
 
-export function MultiAirportSection({ fares, destination, travelDate }: Props) {
+export function MultiAirportSection({ fares, destination, travelDate, partySize }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('allInFromHome');
-  const sorted = [...fares].sort((a, b) => a[sortBy] - b[sortBy]);
+
+  // Scale mock family totals (built for 4) to actual party size
+  const scaled = fares.map((f) => ({
+    ...f,
+    familyTotal:   Math.round(f.familyTotal   / 4 * partySize),
+    allInFromHome: Math.round(f.familyTotal   / 4 * partySize) + f.transferCost,
+  }));
+
+  const sorted = [...scaled].sort((a, b) => a[sortBy] - b[sortBy]);
   const best = sorted[0];
 
   return (

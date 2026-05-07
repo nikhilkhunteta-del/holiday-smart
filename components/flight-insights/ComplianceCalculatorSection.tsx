@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import type { ComplianceScenario } from '@/types/flight';
+import type { ComplianceScenario, Party } from '@/types/flight';
 
 interface Props {
   scenarios: ComplianceScenario[];
   borough: string;
+  party: Party;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -21,15 +22,27 @@ function gbp(n: number) {
   return n === 0 ? '£0' : `£${n.toLocaleString('en-GB')}`;
 }
 
+// Fine = £80 per parent, per child (UK statutory scheme)
+function computedFine(finePerParent: number, adults: number, children: number) {
+  return finePerParent * adults * children;
+}
+
 type Tab = 'table' | 'detail';
 
-export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
-  const [activeIdx, setActiveIdx] = useState(1); // default: 1 day early (best net saving)
+export function ComplianceCalculatorSection({ scenarios, borough, party }: Props) {
+  const [activeIdx, setActiveIdx] = useState(1);
   const [tab, setTab] = useState<Tab>('table');
 
-  const active = scenarios[activeIdx];
-  const bestNetSaving = Math.max(...scenarios.map((s) => s.netSaving));
-  const bestIdx = scenarios.findIndex((s) => s.netSaving === bestNetSaving);
+  // Re-derive totals from actual party composition
+  const derived = scenarios.map((s) => {
+    const totalFine = computedFine(s.finePerParent, party.adults, party.children);
+    const netSaving = s.grossSaving - totalFine;
+    return { ...s, totalFine, netSaving, parents: party.adults, children: party.children };
+  });
+
+  const active = derived[activeIdx];
+  const bestNetSaving = Math.max(...derived.map((s) => s.netSaving));
+  const bestIdx = derived.findIndex((s) => s.netSaving === bestNetSaving);
 
   return (
     <section aria-labelledby="compliance-heading">
@@ -53,7 +66,7 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
         <span>
-          <strong>Legal disclaimer:</strong> Taking children out of school during term time without authorisation may result in a fixed-penalty notice. Fine amounts shown are based on current {borough} council rates (£80/parent for up to 5 days, rising to £160 if unpaid within 21 days). Holiday Smart does not endorse term-time absence. This tool is for information only.
+          <strong>Legal disclaimer:</strong> Taking children out of school during term time without authorisation may result in a fixed-penalty notice. Fine amounts shown are based on current {borough} council rates (£80/parent per child for up to 5 days, rising to £160 if unpaid within 21 days). Shown for {party.adults} adult{party.adults !== 1 ? 's' : ''}, {party.children} child{party.children !== 1 ? 'ren' : ''}. Holiday Smart does not endorse term-time absence. This tool is for information only.
         </span>
       </div>
 
@@ -76,7 +89,6 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
       </div>
 
       {tab === 'table' ? (
-        /* Comparison table */
         <div className="overflow-x-auto rounded-lg border border-outline-variant shadow-sm">
           <table className="w-full border-collapse font-inter text-body-md">
             <thead>
@@ -84,39 +96,33 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
                 <th className="text-left px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Scenario</th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Depart</th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Flight cost</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Fine risk</th>
+                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">
+                  Fine ({party.adults}A × {party.children}C)
+                </th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Net saving</th>
               </tr>
             </thead>
             <tbody>
-              {scenarios.map((s, i) => {
-                const isBest  = i === bestIdx && s.netSaving > 0;
+              {derived.map((s, i) => {
+                const isBest     = i === bestIdx && s.netSaving > 0;
                 const isSelected = i === activeIdx;
                 return (
                   <tr
                     key={s.label}
                     onClick={() => { setActiveIdx(i); setTab('detail'); }}
                     className={[
-                      'border-b border-outline-variant cursor-pointer transition-colors',
+                      'border-b border-outline-variant cursor-pointer transition-colors last:border-0',
                       isSelected ? 'bg-primary/5' : 'hover:bg-surface-container-low',
-                      'last:border-0',
                     ].join(' ')}
                   >
                     <td className="px-lg py-md">
-                      <span className="flex items-center gap-sm">
+                      <span className="flex items-center gap-sm flex-wrap">
                         <span className="font-medium text-on-surface">{s.label}</span>
                         {isBest && (
-                          <span
-                            className="font-inter text-label-sm rounded-full px-sm py-xs"
-                            style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}
-                          >
-                            Best value
-                          </span>
+                          <span className="font-inter text-label-sm rounded-full px-sm py-xs" style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}>Best value</span>
                         )}
                         {s.daysEarly === 0 && (
-                          <span className="font-inter text-label-sm rounded-full px-sm py-xs bg-surface-container text-on-surface-variant">
-                            Baseline
-                          </span>
+                          <span className="font-inter text-label-sm rounded-full px-sm py-xs bg-surface-container text-on-surface-variant">Baseline</span>
                         )}
                       </span>
                     </td>
@@ -125,20 +131,18 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
                     </td>
                     <td className="px-lg py-md text-right font-semibold text-on-surface">{gbp(s.flightCost)}</td>
                     <td className="px-lg py-md text-right">
-                      {s.totalFine === 0 ? (
-                        <span className="text-on-surface-variant">—</span>
-                      ) : (
-                        <span style={{ color: '#ba1a1a' }}>{gbp(s.totalFine)}</span>
-                      )}
+                      {s.totalFine === 0
+                        ? <span className="text-on-surface-variant">—</span>
+                        : <span style={{ color: '#ba1a1a' }}>{gbp(s.totalFine)}</span>
+                      }
                     </td>
                     <td className="px-lg py-md text-right font-semibold">
-                      {s.netSaving === 0 ? (
-                        <span className="text-on-surface-variant">—</span>
-                      ) : s.netSaving > 0 ? (
-                        <span style={{ color: '#3d6b33' }}>+{gbp(s.netSaving)}</span>
-                      ) : (
-                        <span style={{ color: '#ba1a1a' }}>{gbp(s.netSaving)}</span>
-                      )}
+                      {s.netSaving === 0
+                        ? <span className="text-on-surface-variant">—</span>
+                        : s.netSaving > 0
+                          ? <span style={{ color: '#3d6b33' }}>+{gbp(s.netSaving)}</span>
+                          : <span style={{ color: '#ba1a1a' }}>{gbp(s.netSaving)}</span>
+                      }
                     </td>
                   </tr>
                 );
@@ -147,11 +151,9 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
           </table>
         </div>
       ) : (
-        /* Detail panel */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-          {/* Scenario selector */}
           <div className="flex flex-col gap-sm">
-            {scenarios.map((s, i) => (
+            {derived.map((s, i) => (
               <button
                 key={s.label}
                 onClick={() => setActiveIdx(i)}
@@ -172,18 +174,14 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
             ))}
           </div>
 
-          {/* Detail card */}
           <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-lg shadow-sm flex flex-col gap-md">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between flex-wrap gap-sm">
               <div>
                 <p className="font-inter text-label-sm uppercase tracking-widest text-outline mb-xs">Selected scenario</p>
                 <p className="font-newsreader text-headline-md text-on-surface">{active.label}</p>
               </div>
               {activeIdx === bestIdx && active.netSaving > 0 && (
-                <span
-                  className="font-inter text-label-sm rounded-full px-md py-xs"
-                  style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}
-                >
+                <span className="font-inter text-label-sm rounded-full px-md py-xs" style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}>
                   ★ Best net saving
                 </span>
               )}
@@ -193,12 +191,12 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
 
             <div className="grid grid-cols-2 gap-md">
               {[
-                { label: 'Departure',     val: `${fmtDay(active.departureDate)} ${fmt(active.departureDate)}`, highlight: false },
-                { label: 'Return',        val: fmt(active.returnDate),          highlight: false },
-                { label: 'Flight cost',   val: gbp(active.flightCost),          highlight: false },
-                { label: 'Flight saving vs official', val: active.grossSaving > 0 ? gbp(active.grossSaving) : '—', highlight: true },
-                { label: `Fine (${active.parents}× parents, ${active.children}× children)`, val: active.totalFine > 0 ? gbp(active.totalFine) : '—', highlight: false },
-                { label: 'Net saving',    val: active.netSaving > 0 ? gbp(active.netSaving) : active.netSaving < 0 ? gbp(active.netSaving) : '—', highlight: active.netSaving > 0 },
+                { label: 'Departure',              val: `${fmtDay(active.departureDate)} ${fmt(active.departureDate)}`, highlight: false },
+                { label: 'Return',                 val: fmt(active.returnDate),                                         highlight: false },
+                { label: 'Flight cost',            val: gbp(active.flightCost),                                         highlight: false },
+                { label: 'Flight saving',          val: active.grossSaving > 0 ? gbp(active.grossSaving) : '—',         highlight: true  },
+                { label: `Fine (£80 × ${party.adults}A × ${party.children}C)`, val: active.totalFine > 0 ? gbp(active.totalFine) : '—', highlight: false },
+                { label: 'Net saving',             val: active.netSaving > 0 ? gbp(active.netSaving) : active.netSaving < 0 ? gbp(active.netSaving) : '—', highlight: active.netSaving > 0 },
               ].map(({ label, val, highlight }) => (
                 <div key={label}>
                   <p className="font-inter text-label-sm uppercase tracking-wider text-outline mb-xs">{label}</p>
@@ -215,12 +213,8 @@ export function ComplianceCalculatorSection({ scenarios, borough }: Props) {
                 <p className="font-inter text-body-md text-on-surface-variant">
                   Leaving <strong className="text-on-surface">{fmtDay(active.departureDate)} {fmt(active.departureDate)}</strong> ({active.daysEarly} school {active.daysEarly === 1 ? 'day' : 'days'} early) saves{' '}
                   <strong className="text-on-surface">{gbp(active.grossSaving)}</strong> on flights.
-                  {active.totalFine > 0 && (
-                    <> Fine exposure: <span style={{ color: '#ba1a1a' }}>{gbp(active.totalFine)}</span>.</>
-                  )}{' '}
-                  {active.netSaving > 0 && (
-                    <strong className="text-primary"> Net saving: {gbp(active.netSaving)}.</strong>
-                  )}
+                  {active.totalFine > 0 && <> Fine exposure: <span style={{ color: '#ba1a1a' }}>{gbp(active.totalFine)}</span>.</>}
+                  {active.netSaving > 0 && <strong className="text-primary"> Net saving: {gbp(active.netSaving)}.</strong>}
                 </p>
               </>
             )}

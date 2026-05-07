@@ -1,10 +1,16 @@
 import type { OpenJawItinerary } from '@/types/flight';
 
-interface Props { itineraries: OpenJawItinerary[] }
+interface Props { itineraries: OpenJawItinerary[]; partySize: number }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
 
-export function OpenJawSection({ itineraries }: Props) {
+export function OpenJawSection({ itineraries, partySize }: Props) {
+  // totalPrice is per-person; scale to actual party
+  const scaled = itineraries.map((it) => ({
+    ...it,
+    familyTotal:    it.totalPrice * partySize,
+    savingVsDirect: Math.round(it.savingVsDirect / 4 * partySize),
+  }));
   return (
     <section aria-labelledby="openjaw-heading">
       <div className="mb-lg">
@@ -20,7 +26,7 @@ export function OpenJawSection({ itineraries }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-        {itineraries.map((it) => (
+        {scaled.map((it) => (
           <div
             key={it.id}
             className="bg-surface-container-lowest border border-outline-variant rounded-lg p-lg shadow-sm hover:shadow-md transition-shadow flex flex-col gap-md"

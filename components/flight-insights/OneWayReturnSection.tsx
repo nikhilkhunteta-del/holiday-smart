@@ -4,6 +4,7 @@ interface Props {
   configs: FareConfig[];
   route: string;
   travelDate: string;
+  partySize: number;
 }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
@@ -14,8 +15,13 @@ const flexLabels: Record<FareConfig['flexibility'], { label: string; color: stri
   high:   { label: 'High flexibility',   color: '#3d6b33' },
 };
 
-export function OneWayReturnSection({ configs, route, travelDate }: Props) {
-  const sorted = [...configs].sort((a, b) => a.familyTotal - b.familyTotal);
+export function OneWayReturnSection({ configs, route, travelDate, partySize }: Props) {
+  // Recompute family totals from per-person prices for actual party size
+  const scaled = configs.map((c) => ({
+    ...c,
+    familyTotal: c.totalPerPerson * partySize,
+  }));
+  const sorted = [...scaled].sort((a, b) => a.familyTotal - b.familyTotal);
   const cheapest = sorted[0].familyTotal;
   const mostExpensive = sorted[sorted.length - 1].familyTotal;
 
@@ -48,7 +54,7 @@ export function OneWayReturnSection({ configs, route, travelDate }: Props) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-        {sorted.map((config, rank) => {
+        {sorted.map((config: typeof scaled[number], rank: number) => {
           const isRecommended = config.recommended;
           const saving = mostExpensive - config.familyTotal;
 
