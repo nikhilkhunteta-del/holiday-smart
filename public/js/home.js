@@ -6,9 +6,6 @@
   const fallback       = document.getElementById('school-fallback');
   const connError      = document.getElementById('search-conn-error');
   const schoolSection  = document.getElementById('school-search-section');
-  const boroughMode    = document.getElementById('borough-mode');
-  const boroughSelect  = document.getElementById('borough-select');
-  const boroughLink    = document.getElementById('use-borough-link');
   const breakSection   = document.getElementById('break-pills-section');
   const ctaBtn         = document.getElementById('cta-btn');
 
@@ -182,43 +179,6 @@
 
   document.addEventListener('mousedown', e => {
     if (!input.closest('.school-search-wrap').contains(e.target)) closeDropdown();
-  });
-
-  // ── Borough fallback ──────────────────────────────────────────────────────
-  boroughLink.addEventListener('click', async e => {
-    e.preventDefault();
-    try {
-      const res  = await fetch('/api/boroughs');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const list = await res.json();
-      list.forEach(borough => {
-        const opt = document.createElement('option');
-        opt.value = borough;
-        opt.textContent = borough;
-        boroughSelect.appendChild(opt);
-      });
-    } catch (err) {
-      console.error('[HolidaySmart] borough list fetch failed:', err);
-    }
-    schoolSection.hidden = true;
-    fallback.hidden      = true;
-    boroughMode.hidden   = false;
-  });
-
-  boroughSelect.addEventListener('change', async () => {
-    const borough = boroughSelect.value;
-    Object.assign(selected, {
-      urn: null, school_name: null, borough,
-      break_label: null, break_start: null, break_end: null,
-    });
-    if (borough) {
-      updateCTAState();
-      await loadBoroughDates(borough);
-    } else {
-      breakSection.hidden = true;
-      resetPills();
-      updateCTAState();
-    }
   });
 
   // ── Term date loading ─────────────────────────────────────────────────────
