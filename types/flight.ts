@@ -1,3 +1,10 @@
+// ── Party composition (set via TravellerBanner before results render) ────────
+export interface Party {
+  adults: number;
+  children: number;
+  childAges: number[]; // length === children, values 0–17
+}
+
 // ── Search context (passed from landing page via query params) ─────────────
 export interface SearchContext {
   school: string;

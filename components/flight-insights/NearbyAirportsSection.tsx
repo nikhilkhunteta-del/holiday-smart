@@ -1,10 +1,10 @@
 import type { NearbyAirportOption } from '@/types/flight';
 
-interface Props { options: NearbyAirportOption[] }
+interface Props { options: NearbyAirportOption[]; partySize: number }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
 
-export function NearbyAirportsSection({ options }: Props) {
+export function NearbyAirportsSection({ options, partySize }: Props) {
   const sorted = [...options].sort((a, b) => b.netSaving - a.netSaving);
 
   return (
@@ -49,9 +49,9 @@ export function NearbyAirportsSection({ options }: Props) {
                 </p>
               </div>
               <div className="text-right">
-                <p className="font-inter text-label-sm text-outline mb-xs">Net saving</p>
+                <p className="font-inter text-label-sm text-outline mb-xs">Net saving (family)</p>
                 <p className="font-newsreader text-headline-md" style={{ color: '#3d6b33' }}>
-                  {gbp(opt.netSaving)}
+                  {gbp(opt.netSaving * partySize)}
                 </p>
               </div>
             </div>
@@ -89,11 +89,11 @@ export function NearbyAirportsSection({ options }: Props) {
 
             {/* Saving breakdown */}
             <div className="mt-md pt-md border-t border-outline-variant font-inter text-label-sm text-on-surface-variant flex items-center gap-md flex-wrap">
-              <span>Flight saving: <strong className="text-on-surface">{gbp(Math.abs(opt.flightPriceDiff))}</strong></span>
+              <span>Flight saving: <strong className="text-on-surface">{gbp(Math.abs(opt.flightPriceDiff))}</strong>/person</span>
               <span>−</span>
               <span>Transfer: <strong className="text-on-surface">{gbp(opt.onwardCost)}</strong>/person</span>
               <span>=</span>
-              <span className="font-semibold" style={{ color: '#3d6b33' }}>Net: {gbp(opt.netSaving)}/person</span>
+              <span className="font-semibold" style={{ color: '#3d6b33' }}>Net: {gbp(opt.netSaving)}/person · {gbp(opt.netSaving * partySize)} family</span>
             </div>
           </div>
         ))}

@@ -1,6 +1,6 @@
 import type { MultiModalRoute } from '@/types/flight';
 
-interface Props { routes: MultiModalRoute[] }
+interface Props { routes: MultiModalRoute[]; partySize: number }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
 
@@ -20,7 +20,14 @@ const modeLabels: Record<string, string> = {
   bus:      'Coach',
 };
 
-export function MultiModalSection({ routes }: Props) {
+export function MultiModalSection({ routes, partySize }: Props) {
+  // Scale family totals (mock built for 4) to actual party
+  const scaledRoutes = routes.map((r) => ({
+    ...r,
+    familyTotal: Math.round(r.familyTotal / 4 * partySize),
+    saving:      Math.round(r.saving      / 4 * partySize),
+  }));
+
   return (
     <section aria-labelledby="multimodal-heading">
       <div className="mb-lg">
@@ -36,7 +43,7 @@ export function MultiModalSection({ routes }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-        {routes.map((route) => (
+        {scaledRoutes.map((route) => (
           <div
             key={route.id}
             className="bg-surface-container-lowest border border-outline-variant rounded-lg p-lg shadow-sm hover:shadow-md transition-shadow flex flex-col gap-md"

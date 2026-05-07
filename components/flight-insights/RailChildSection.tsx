@@ -1,10 +1,10 @@
-import type { RailChildPolicy } from '@/types/flight';
+import type { RailChildPolicy, Party } from '@/types/flight';
 
-interface Props { policies: RailChildPolicy[] }
+interface Props { policies: RailChildPolicy[]; party: Party }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
 
-export function RailChildSection({ policies }: Props) {
+export function RailChildSection({ policies, party }: Props) {
   return (
     <section aria-labelledby="rail-child-heading">
       <div className="mb-lg">
@@ -20,7 +20,11 @@ export function RailChildSection({ policies }: Props) {
       </div>
 
       <div className="flex flex-col gap-md">
-        {policies.map((p) => (
+        {policies.map((p) => {
+          const eligibleChildren = party.childAges.filter((age) => age <= p.maxChildAge).length;
+          const cappedPerAdult   = Math.min(eligibleChildren, p.maxChildrenPerAdult * party.adults);
+          const familySaving     = cappedPerAdult * p.savingPerChild;
+          return (
           <div
             key={p.id}
             className="bg-surface-container-lowest border border-outline-variant rounded-lg p-lg shadow-sm"
@@ -82,8 +86,16 @@ export function RailChildSection({ policies }: Props) {
               <div className="bg-surface-container-low rounded-lg p-md flex flex-col gap-md justify-between border border-outline-variant">
                 <p className="font-inter text-label-sm uppercase tracking-wider text-outline">Your family saves</p>
                 <div>
-                  <p className="font-newsreader text-headline-lg text-primary">{gbp(p.totalFamilySaving)}</p>
-                  <p className="font-inter text-label-sm text-on-surface-variant mt-xs">for 2 children</p>
+                  {familySaving > 0 ? (
+                    <>
+                      <p className="font-newsreader text-headline-lg text-primary">{gbp(familySaving)}</p>
+                      <p className="font-inter text-label-sm text-on-surface-variant mt-xs">
+                        {cappedPerAdult} qualifying {cappedPerAdult === 1 ? 'child' : 'children'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="font-inter text-body-md text-on-surface-variant">No qualifying children for this policy</p>
+                  )}
                 </div>
                 <div className="h-px bg-outline-variant" />
                 <div className="flex flex-col gap-xs font-inter text-label-sm">
@@ -97,13 +109,14 @@ export function RailChildSection({ policies }: Props) {
                   </div>
                   <div className="flex justify-between font-semibold border-t border-outline-variant pt-xs mt-xs">
                     <span className="text-on-surface">Total saved</span>
-                    <span style={{ color: '#3d6b33' }}>{gbp(p.totalFamilySaving)}</span>
+                    <span style={{ color: familySaving > 0 ? '#3d6b33' : '#6f797a' }}>{familySaving > 0 ? gbp(familySaving) : '—'}</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

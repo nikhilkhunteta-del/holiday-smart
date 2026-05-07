@@ -1,9 +1,10 @@
-import type { StopoverRoute, KidAgeFriction } from '@/types/flight';
+import type { StopoverRoute, KidAgeFriction, Party } from '@/types/flight';
 
 interface Props {
   routes: StopoverRoute[];
   destination: string;
   directPrice: number;
+  party: Party;
 }
 
 function gbp(n: number) { return `£${n.toLocaleString('en-GB')}`; }
@@ -14,7 +15,26 @@ const frictionConfig: Record<KidAgeFriction, { label: string; icon: string; bg: 
   red:   { label: 'Not recommended under 6',  icon: '🚫', bg: 'rgba(186,26,26,0.08)', color: '#ba1a1a' },
 };
 
-export function StopoverSection({ routes, destination, directPrice }: Props) {
+// Escalate friction if any child is under 6
+function escalateFriction(base: KidAgeFriction, childAges: number[]): KidAgeFriction {
+  if (childAges.some((age) => age < 6)) {
+    if (base === 'green') return 'amber';
+    if (base === 'amber') return 'red';
+  }
+  return base;
+}
+
+export function StopoverSection({ routes, destination, directPrice, party }: Props) {
+  const partySize = party.adults + party.children;
+  // Scale family totals (mock built for 4) to actual party
+  const scaledRoutes = routes.map((r) => {
+    const familyTotal = r.totalPrice * partySize;
+    const scaledDirect = Math.round(r.directFamilyTotal / 4 * partySize);
+    const saving = scaledDirect - familyTotal;
+    const kidAgeFriction = escalateFriction(r.kidAgeFriction, party.childAges);
+    return { ...r, familyTotal, saving, kidAgeFriction };
+  });
+  const scaledDirectPrice = Math.round(directPrice / 4 * partySize);
   return (
     <section aria-labelledby="stopover-heading">
       <div className="mb-lg">
@@ -32,12 +52,12 @@ export function StopoverSection({ routes, destination, directPrice }: Props) {
       {/* Direct baseline */}
       <div className="flex items-center gap-md rounded-md p-md mb-lg border border-outline-variant bg-surface-container-low font-inter text-body-md">
         <span className="text-on-surface-variant">Direct flight baseline:</span>
-        <span className="font-semibold text-on-surface">{gbp(directPrice)}</span>
+        <span className="font-semibold text-on-surface">{gbp(scaledDirectPrice)}</span>
         <span className="font-inter text-label-sm text-outline">family total</span>
       </div>
 
       <div className="flex flex-col gap-md">
-        {routes.map((r) => {
+        {scaledRoutes.map((r) => {
           const fc = frictionConfig[r.kidAgeFriction];
           return (
             <div
@@ -107,7 +127,7 @@ export function StopoverSection({ routes, destination, directPrice }: Props) {
                   <div
                     className="h-full rounded-full"
                     style={{
-                      width: `${Math.min(100, (r.saving / directPrice) * 100)}%`,
+                      width: `${Math.min(100, (r.saving / scaledDirectPrice) * 100)}%`,
                       background: r.kidAgeFriction === 'green' ? '#3d6b33' : r.kidAgeFriction === 'amber' ? '#fdba49' : '#ba1a1a',
                     }}
                   />
