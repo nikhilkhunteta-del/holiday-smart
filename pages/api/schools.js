@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   }
 
   const { data, error } = await supabase
-    .from('school_term_dates')
+    .from('all_schools')
     .select('urn, school_name, borough')
     .ilike('school_name', `%${q}%`)
     .limit(8);
@@ -17,15 +17,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  res.setHeader('X-Debug-Count', data ? data.length : 0);
-
-  // Deduplicate by urn in case of multiple term rows per school
-  const seen = new Set();
-  const unique = (data || []).filter(r => {
-    if (seen.has(r.urn)) return false;
-    seen.add(r.urn);
-    return true;
-  });
-
-  res.status(200).json(unique);
+  res.status(200).json(data || []);
 }
