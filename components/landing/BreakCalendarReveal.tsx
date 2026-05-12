@@ -198,12 +198,16 @@ export default function BreakCalendarReveal({
       const dateStr = toDateStr(cur);
       let type: DayType;
 
+      const dow = cur.getDay(); // 0 = Sun, 6 = Sat
+      const isWeekend = dow === 0 || dow === 6;
+
+      // Priority: inset > weekend (any Sat/Sun) > official break (weekdays only) > term
       if (insetDaySet.has(dateStr)) {
         type = 'inset';
+      } else if (isWeekend) {
+        type = 'weekend';
       } else if (dateStr >= officialStart && dateStr <= officialEnd) {
         type = 'break';
-      } else if (adjacentWeekendSet.has(dateStr)) {
-        type = 'weekend';
       } else {
         type = 'term';
       }
@@ -221,15 +225,19 @@ export default function BreakCalendarReveal({
     return rows;
   }, [calendarCells]);
 
-  // Annotate each week with the column index where a new month begins
-  // (null = no month transition in this row).
-  // Row 0 never gets a label — there is no "previous" month to transition from.
+  // Annotate each week with:
+  //   rowMonthName  — month of the Monday (shown at top-left of every row)
+  //   monthChangeCol — column index where the month changes mid-row (1–6),
+  //                    null if no mid-row transition; used only for the divider
+  //                    and the above-column label for the incoming month.
   const weeksWithMeta = useMemo(() => {
     return weeks.map((week, wi) => {
+      const rowMonthName = MONTH_ABBR[parseLocal(week[0].dateStr).getMonth()];
+
       const prevLastCell = wi > 0 ? weeks[wi - 1][6] : null;
       let monthChangeCol: number | null = null;
 
-      for (let i = 0; i < week.length; i++) {
+      for (let i = 1; i < week.length; i++) {
         const prev = i === 0 ? prevLastCell : week[i - 1];
         if (!prev) continue;
         if (parseLocal(week[i].dateStr).getMonth() !== parseLocal(prev.dateStr).getMonth()) {
@@ -238,11 +246,11 @@ export default function BreakCalendarReveal({
         }
       }
 
-      const newMonthName = monthChangeCol !== null
+      const midMonthName = monthChangeCol !== null
         ? MONTH_ABBR[parseLocal(week[monthChangeCol].dateStr).getMonth()]
         : null;
 
-      return { week, monthChangeCol, newMonthName };
+      return { week, rowMonthName, monthChangeCol, midMonthName };
     });
   }, [weeks]);
 
@@ -319,34 +327,35 @@ export default function BreakCalendarReveal({
           ))}
         </div>
 
-        {/* Week rows — all weeks shown, with month labels on transitions */}
-        {weeksWithMeta.map(({ week, monthChangeCol, newMonthName }, wi) => (
+        {/* Week rows — all weeks shown; every row has a month label */}
+        {weeksWithMeta.map(({ week, rowMonthName, monthChangeCol, midMonthName }, wi) => (
           <div key={week[0]?.dateStr ?? wi}>
 
-            {/* Month label row: only for mid-row transitions (col > 0) */}
-            {monthChangeCol !== null && monthChangeCol > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                {week.map((_, i) => (
-                  <div key={i} style={{
-                    textAlign: 'center',
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: '#6f797a',
-                    lineHeight: 1.2,
-                    padding: '4px 0 2px',
-                  }}>
-                    {i === monthChangeCol ? newMonthName : ''}
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Month label row: left cell always shows rowMonthName;
+                mid-row transition also shows incoming month above its column */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+              {week.map((_, i) => (
+                <div key={i} style={{
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: '#6f797a',
+                  lineHeight: 1.2,
+                  padding: '4px 0 2px',
+                  textAlign: i === 0 ? 'left' : 'center',
+                }}>
+                  {i === 0
+                    ? rowMonthName
+                    : (monthChangeCol !== null && i === monthChangeCol ? midMonthName : '')
+                  }
+                </div>
+              ))}
+            </div>
 
             {/* Day cells */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
               {week.map((cell, i) => {
-                const isMondayMonthStart = monthChangeCol === 0 && i === 0;
-                const isMidRowMonthStart = monthChangeCol !== null && monthChangeCol > 0 && i === monthChangeCol;
+                const isMidRowMonthStart = monthChangeCol !== null && i === monthChangeCol;
 
                 return (
                   <div
@@ -364,14 +373,10 @@ export default function BreakCalendarReveal({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      // Subtle left divider at mid-row month transitions
                       ...(isMidRowMonthStart ? { borderLeft: '2px solid #bfc8c9' } : {}),
                     }}
                   >
-                    {isMondayMonthStart
-                      ? <span style={{ fontSize: 11, fontWeight: 600, color: '#6f797a', letterSpacing: '0.04em' }}>{newMonthName}</span>
-                      : cell.dayNum
-                    }
+                    {cell.dayNum}
                   </div>
                 );
               })}
