@@ -157,25 +157,54 @@ export default function BreakCalendarReveal({
     const calStart = getMondayOfWeek(earliestDate);
     const calEnd   = getSundayOfWeek(parseLocal(officialEnd));
 
+    // Build the set of weekend dates to highlight.
+    // Walk forward from officialEnd: mark Sat/Sun until a weekday is hit.
+    // Walk backward from officialStart: mark Sat/Sun until a weekday is hit.
+    // Also do the same from each inset day that falls outside the break.
+    const adjacentWeekendSet = new Set<string>();
+
+    function walkAndMarkForward(from: Date) {
+      let d = from;
+      for (;;) {
+        const next = addDays(d, 1);
+        const dow = next.getDay();
+        if (dow === 0 || dow === 6) { adjacentWeekendSet.add(toDateStr(next)); d = next; }
+        else break;
+      }
+    }
+    function walkAndMarkBackward(from: Date) {
+      let d = from;
+      for (;;) {
+        const prev = addDays(d, -1);
+        const dow = prev.getDay();
+        if (dow === 0 || dow === 6) { adjacentWeekendSet.add(toDateStr(prev)); d = prev; }
+        else break;
+      }
+    }
+
+    walkAndMarkForward(parseLocal(officialEnd));
+    walkAndMarkBackward(parseLocal(officialStart));
+
+    // Weekends adjacent to inset days outside the official break
+    insetDays.forEach(({ date }) => {
+      if (date < officialStart || date > officialEnd) {
+        walkAndMarkForward(parseLocal(date));
+        walkAndMarkBackward(parseLocal(date));
+      }
+    });
+
     const cells: CalendarCell[] = [];
     let cur = calStart;
     while (toDateStr(cur) <= toDateStr(calEnd)) {
       const dateStr = toDateStr(cur);
-      const dow = cur.getDay();
       let type: DayType;
 
       if (insetDaySet.has(dateStr)) {
         type = 'inset';
       } else if (dateStr >= officialStart && dateStr <= officialEnd) {
         type = 'break';
-      } else if (dow === 0 || dow === 6) {
-        const prevStr = toDateStr(addDays(cur, -1));
-        const nextStr = toDateStr(addDays(cur, 1));
-        const touchesBreak =
-          (prevStr >= officialStart && prevStr <= officialEnd) ||
-          (nextStr >= officialStart && nextStr <= officialEnd);
-        const touchesInset = insetDaySet.has(prevStr) || insetDaySet.has(nextStr);
-        type = touchesBreak || touchesInset ? 'weekend' : 'term';
+      } else if (adjacentWeekendSet.has(dateStr)) {
+        type = 'weekend';
       } else {
         type = 'term';
       }
@@ -186,12 +215,19 @@ export default function BreakCalendarReveal({
     return cells;
   }, [officialStart, officialEnd, insetDays, insetDaySet]);
 
-  // Slice cells into rows of 7
+  // Slice cells into rows of 7; for long breaks (> 14 days) keep only the
+  // first and last week to avoid an oversized summer/Christmas calendar.
   const weeks = useMemo(() => {
     const rows: CalendarCell[][] = [];
     for (let i = 0; i < calendarCells.length; i += 7) rows.push(calendarCells.slice(i, i + 7));
     return rows;
   }, [calendarCells]);
+
+  const breakDays = daysBetweenInclusive(parseLocal(officialStart), parseLocal(officialEnd));
+  const isTruncated = breakDays > 14;
+  const displayWeeks = isTruncated
+    ? [weeks[0], weeks[weeks.length - 1]]
+    : weeks;
 
   // Determine emphasis line scenario
   const emphasis = useMemo((): EmphasisLine => {
@@ -266,30 +302,44 @@ export default function BreakCalendarReveal({
           ))}
         </div>
 
-        {/* Week rows */}
-        {weeks.map((week, wi) => (
-          <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-            {week.map(cell => (
-              <div
-                key={cell.dateStr}
-                style={{
-                  ...CELL_STYLES[cell.type],
-                  borderRadius: '0.5rem',
-                  padding: '6px 2px',
-                  textAlign: 'center',
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: 13,
-                  fontWeight: cell.type === 'term' ? 400 : 500,
-                  lineHeight: 1.2,
-                  minHeight: 32,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {cell.dayNum}
+        {/* Week rows — truncated to first + last for breaks > 14 days */}
+        {displayWeeks.map((week, wi) => (
+          <div key={week[0]?.dateStr ?? wi}>
+            {isTruncated && wi === 1 && (
+              <div style={{
+                textAlign: 'center',
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 13,
+                color: '#6f797a',
+                letterSpacing: '0.12em',
+                padding: '6px 0',
+              }}>
+                · · ·
               </div>
-            ))}
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+              {week.map(cell => (
+                <div
+                  key={cell.dateStr}
+                  style={{
+                    ...CELL_STYLES[cell.type],
+                    borderRadius: '0.5rem',
+                    padding: '6px 2px',
+                    textAlign: 'center',
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 13,
+                    fontWeight: cell.type === 'term' ? 400 : 500,
+                    lineHeight: 1.2,
+                    minHeight: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {cell.dayNum}
+                </div>
+              ))}
+            </div>
           </div>
         ))}
 
@@ -363,7 +413,7 @@ export default function BreakCalendarReveal({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {([
             { key: 'circuit' as const, title: 'Circuit',  sub: 'Two or three cities, one trip' },
-            { key: 'base'    as const, title: 'Base',     sub: 'One destination, done properly' },
+            { key: 'base'    as const, title: 'Base',     sub: 'One destination — fewer days, lower cost' },
           ]).map(opt => {
             const active = tripStyle === opt.key;
             return (
