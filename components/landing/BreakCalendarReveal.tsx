@@ -158,20 +158,16 @@ export default function BreakCalendarReveal({
     const calEnd   = getSundayOfWeek(parseLocal(officialEnd));
 
     // Build the set of weekend dates to highlight.
-    // Walk forward from officialEnd: mark Sat/Sun until a weekday is hit.
-    // Walk backward from officialStart: mark Sat/Sun until a weekday is hit.
-    // Also do the same from each inset day that falls outside the break.
     const adjacentWeekendSet = new Set<string>();
 
-    function walkAndMarkForward(from: Date) {
-      let d = from;
-      for (;;) {
-        const next = addDays(d, 1);
-        const dow = next.getDay();
-        if (dow === 0 || dow === 6) { adjacentWeekendSet.add(toDateStr(next)); d = next; }
-        else break;
-      }
-    }
+    // After officialEnd: mark day+1 if Saturday, mark day+2 if Sunday.
+    const endDate  = parseLocal(officialEnd);
+    const day1After = addDays(endDate, 1);
+    const day2After = addDays(endDate, 2);
+    if (day1After.getDay() === 6) adjacentWeekendSet.add(toDateStr(day1After));
+    if (day2After.getDay() === 0) adjacentWeekendSet.add(toDateStr(day2After));
+
+    // Before officialStart: walk backward through consecutive Sat/Sun.
     function walkAndMarkBackward(from: Date) {
       let d = from;
       for (;;) {
@@ -182,14 +178,17 @@ export default function BreakCalendarReveal({
       }
     }
 
-    walkAndMarkForward(parseLocal(officialEnd));
     walkAndMarkBackward(parseLocal(officialStart));
 
     // Weekends adjacent to inset days outside the official break
     insetDays.forEach(({ date }) => {
       if (date < officialStart || date > officialEnd) {
-        walkAndMarkForward(parseLocal(date));
-        walkAndMarkBackward(parseLocal(date));
+        const insetDate = parseLocal(date);
+        const d1 = addDays(insetDate, 1);
+        const d2 = addDays(insetDate, 2);
+        if (d1.getDay() === 6) adjacentWeekendSet.add(toDateStr(d1));
+        if (d2.getDay() === 0) adjacentWeekendSet.add(toDateStr(d2));
+        walkAndMarkBackward(insetDate);
       }
     });
 
@@ -215,19 +214,37 @@ export default function BreakCalendarReveal({
     return cells;
   }, [officialStart, officialEnd, insetDays, insetDaySet]);
 
-  // Slice cells into rows of 7; for long breaks (> 14 days) keep only the
-  // first and last week to avoid an oversized summer/Christmas calendar.
+  // Slice cells into rows of 7
   const weeks = useMemo(() => {
     const rows: CalendarCell[][] = [];
     for (let i = 0; i < calendarCells.length; i += 7) rows.push(calendarCells.slice(i, i + 7));
     return rows;
   }, [calendarCells]);
 
-  const breakDays = daysBetweenInclusive(parseLocal(officialStart), parseLocal(officialEnd));
-  const isTruncated = breakDays > 14;
-  const displayWeeks = isTruncated
-    ? [weeks[0], weeks[weeks.length - 1]]
-    : weeks;
+  // Annotate each week with the column index where a new month begins
+  // (null = no month transition in this row).
+  // Row 0 never gets a label — there is no "previous" month to transition from.
+  const weeksWithMeta = useMemo(() => {
+    return weeks.map((week, wi) => {
+      const prevLastCell = wi > 0 ? weeks[wi - 1][6] : null;
+      let monthChangeCol: number | null = null;
+
+      for (let i = 0; i < week.length; i++) {
+        const prev = i === 0 ? prevLastCell : week[i - 1];
+        if (!prev) continue;
+        if (parseLocal(week[i].dateStr).getMonth() !== parseLocal(prev.dateStr).getMonth()) {
+          monthChangeCol = i;
+          break;
+        }
+      }
+
+      const newMonthName = monthChangeCol !== null
+        ? MONTH_ABBR[parseLocal(week[monthChangeCol].dateStr).getMonth()]
+        : null;
+
+      return { week, monthChangeCol, newMonthName };
+    });
+  }, [weeks]);
 
   // Determine emphasis line scenario
   const emphasis = useMemo((): EmphasisLine => {
@@ -302,43 +319,62 @@ export default function BreakCalendarReveal({
           ))}
         </div>
 
-        {/* Week rows — truncated to first + last for breaks > 14 days */}
-        {displayWeeks.map((week, wi) => (
+        {/* Week rows — all weeks shown, with month labels on transitions */}
+        {weeksWithMeta.map(({ week, monthChangeCol, newMonthName }, wi) => (
           <div key={week[0]?.dateStr ?? wi}>
-            {isTruncated && wi === 1 && (
-              <div style={{
-                textAlign: 'center',
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 13,
-                color: '#6f797a',
-                letterSpacing: '0.12em',
-                padding: '6px 0',
-              }}>
-                · · ·
-              </div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-              {week.map(cell => (
-                <div
-                  key={cell.dateStr}
-                  style={{
-                    ...CELL_STYLES[cell.type],
-                    borderRadius: '0.5rem',
-                    padding: '6px 2px',
+
+            {/* Month label row: only for mid-row transitions (col > 0) */}
+            {monthChangeCol !== null && monthChangeCol > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                {week.map((_, i) => (
+                  <div key={i} style={{
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
-                    fontSize: 13,
-                    fontWeight: cell.type === 'term' ? 400 : 500,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: '#6f797a',
                     lineHeight: 1.2,
-                    minHeight: 32,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {cell.dayNum}
-                </div>
-              ))}
+                    padding: '4px 0 2px',
+                  }}>
+                    {i === monthChangeCol ? newMonthName : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Day cells */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+              {week.map((cell, i) => {
+                const isMondayMonthStart = monthChangeCol === 0 && i === 0;
+                const isMidRowMonthStart = monthChangeCol !== null && monthChangeCol > 0 && i === monthChangeCol;
+
+                return (
+                  <div
+                    key={cell.dateStr}
+                    style={{
+                      ...CELL_STYLES[cell.type],
+                      borderRadius: '0.5rem',
+                      padding: '6px 2px',
+                      textAlign: 'center',
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      fontWeight: cell.type === 'term' ? 400 : 500,
+                      lineHeight: 1.2,
+                      minHeight: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      // Subtle left divider at mid-row month transitions
+                      ...(isMidRowMonthStart ? { borderLeft: '2px solid #bfc8c9' } : {}),
+                    }}
+                  >
+                    {isMondayMonthStart
+                      ? <span style={{ fontSize: 11, fontWeight: 600, color: '#6f797a', letterSpacing: '0.04em' }}>{newMonthName}</span>
+                      : cell.dayNum
+                    }
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
