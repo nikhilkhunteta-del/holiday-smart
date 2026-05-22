@@ -340,6 +340,12 @@ CLAUDE.md                            ← Claude Code session instructions
 - **Itinerary builder is Year 2.**
 - **Community features are Year 2.**
 - **Monetisation: undecided** — revisit after first 50 real users.
+- - **Destination airport pool: 250km radius, Option B architecture.** `destination_legs`
+  replaced by `destination_airports` — a pool of valid European airports per destination.
+  Job generates all pairs (including identical pairs for round trips) at query time.
+  Pool defined by 250km driving distance. Ground transport cost stored per airport in
+  `destination_airports` for net saving calculation. SearchAPI has no nearby airports
+  endpoint — pool is manually seeded.
 
 ---
 
