@@ -210,12 +210,7 @@ CREATE TABLE fare_snapshots (
   party_total_gbp       numeric(10,2) NOT NULL,  -- from confirmed call
   call_1_price_gbp      numeric(10,2),            -- stored for research only — biased low for round-trips
 
-  -- Google price context (from price_insights — present in Call 1, absent in Call 2)
-  price_level             text,        -- 'low' | 'typical' | 'high'
-  typical_price_low_gbp   numeric(10,2),
-  typical_price_high_gbp  numeric(10,2),
-
-  -- Result position within the SerpAPI response
+  -- Result position within the SearchAPI.io response
   result_bucket  text NOT NULL,    -- 'best' | 'other'
   result_rank    smallint NOT NULL, -- 1 = first result in that bucket
 
@@ -227,7 +222,6 @@ CREATE TABLE fare_snapshots (
 
   -- Constraints
   CONSTRAINT valid_snapshot_type CHECK (snapshot_type IN ('cross_sectional', 'tracer')),
-  CONSTRAINT valid_price_level   CHECK (price_level IN ('low', 'typical', 'high') OR price_level IS NULL),
   CONSTRAINT positive_price      CHECK (party_total_gbp > 0),
   CONSTRAINT valid_result_bucket CHECK (result_bucket IN ('best', 'other'))
 
