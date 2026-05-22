@@ -174,6 +174,10 @@ async function loadDestinationAirports(supabase: SupabaseClient): Promise<Airpor
     .eq('active', true);
 
   if (destError) throw new Error(`destinations SELECT failed: ${destError.message}`);
+  console.log(
+    `[snapshot] destinations query: ${(dests ?? []).length} row(s) matched` +
+    ` slugs=[${PILOT_SLUGS.join(', ')}] active=true`,
+  );
   if (!dests || dests.length === 0) {
     throw new Error(`No active destinations found for pilot slugs: ${PILOT_SLUGS.join(', ')}`);
   }
@@ -191,6 +195,10 @@ async function loadDestinationAirports(supabase: SupabaseClient): Promise<Airpor
     .in('destination_id', destIds);
 
   if (airportError) throw new Error(`destination_airports SELECT failed: ${airportError.message}`);
+  console.log(
+    `[snapshot] destination_airports query: ${(rows ?? []).length} row(s)` +
+    ` for ${destIds.length} destination ID(s)`,
+  );
 
   const poolMap: AirportPoolMap = new Map();
   for (const row of rows ?? []) {
