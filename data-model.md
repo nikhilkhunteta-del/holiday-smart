@@ -210,7 +210,12 @@ CREATE TABLE fare_snapshots (
   party_total_gbp       numeric(10,2) NOT NULL,  -- from confirmed call
   call_1_price_gbp      numeric(10,2),            -- stored for research only — biased low for round-trips
 
-  -- Result position within the SearchAPI.io response
+  -- Google price context (from price_insights — present in Call 1, absent in Call 2)
+  price_level             text,        -- 'low' | 'typical' | 'high'
+  typical_price_low_gbp   numeric(10,2),
+  typical_price_high_gbp  numeric(10,2),
+
+  -- Result position within the SerpAPI response
   result_bucket  text NOT NULL,    -- 'best' | 'other'
   result_rank    smallint NOT NULL, -- 1 = first result in that bucket
 
@@ -222,6 +227,7 @@ CREATE TABLE fare_snapshots (
 
   -- Constraints
   CONSTRAINT valid_snapshot_type CHECK (snapshot_type IN ('cross_sectional', 'tracer')),
+  CONSTRAINT valid_price_level   CHECK (price_level IN ('low', 'typical', 'high') OR price_level IS NULL),
   CONSTRAINT positive_price      CHECK (party_total_gbp > 0),
   CONSTRAINT valid_result_bucket CHECK (result_bucket IN ('best', 'other'))
 
@@ -327,3 +333,18 @@ not storage.
 3. **Tracer set definition.** Which specific routes get the daily tracer treatment?
    Recommend: top 5 leaderboard destinations × LGW only × canonical departure dates.
    Keeps tracer cost low while still building the booking curve.
+
+   4. **Destination-side ground transport cost.** `destination_airports` needs a ground
+   transport estimate from each airport to the destination's central point. Format:
+   approximate drive time (minutes) and estimated car hire / transfer cost (GBP).
+   This is required for net saving calculation — a cheaper flight into a further airport
+   is only a genuine saving after ground transport cost is subtracted.
+   Method: manual research per airport, stored as a curated estimate with source noted.
+   Do not use a live API for this — it's slow-changing data. Seed once, update annually.
+
+5. **Destination airport pool radius: 250km driving distance.** Pool of valid European
+   airports per destination is defined by 250km driving distance from the destination's
+   central point. Airports within 250km are candidates; included unless manually excluded
+   (e.g. airport has no meaningful London service). SearchAPI does not expose a nearby
+   airports endpoint — pool is seeded manually using the distance rule. Rerun the rule
+   when adding new destinations.
