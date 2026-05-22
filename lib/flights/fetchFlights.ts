@@ -3,21 +3,23 @@ const BASE_URL = 'https://www.searchapi.io/api/v1/search';
 // ── Input params ──────────────────────────────────────────────────────────────
 
 export interface FlightSearchParams {
-  origin: string;        // IATA code, e.g. 'LHR'
+  origin: string;        // IATA code, e.g. 'LGW'
   destination: string;   // IATA code, e.g. 'BCN'
   outboundDate: string;  // YYYY-MM-DD
-  returnDate?: string;   // YYYY-MM-DD — omit for one-way
+  returnDate?: string;   // YYYY-MM-DD — omit for one-way (standard path)
   adults?: number;
   children?: number;
   currency?: string;     // default 'GBP'
 }
 
 export interface CalendarLegParams {
+  // Accepts comma-separated IATA codes for multi-airport queries,
+  // e.g. origin='LGW,LHR,STN,LTN,LCY', destination='BCN'
   origin: string;
   destination: string;
-  year: number;
-  month: number; // 1–12
-  currency?: string;
+  dateStart: string;  // YYYY-MM-DD — start of date range to query
+  dateEnd: string;    // YYYY-MM-DD — end of date range to query
+  currency?: string;  // default 'GBP'
 }
 
 // ── Raw SearchAPI.io types (google_flights engine) ────────────────────────────
@@ -48,26 +50,35 @@ interface SearchAPIFlightsResponse {
 
 export interface FlightResult {
   bookingToken: string;
-  price: number; // per person in requested currency
-  carrier: string;
-  flightNumber: string;
-  origin: string;
-  destination: string;
-  departureTime: string;
-  arrivalTime: string;
+  price: number;         // party total in requested currency
+  carrier: string;       // airline name, e.g. 'Vueling'
+  airlineIata: string;   // 2-letter IATA code, e.g. 'VY'
+  flightNumber: string;  // e.g. 'VY 7827'
+  origin: string;        // departure airport IATA
+  destination: string;   // arrival airport IATA
+  departureTime: string; // as returned by API — may be full datetime
+  arrivalTime: string;   // as returned by API — may be full datetime
   durationMinutes: number;
   stopCount: number;
   layovers: { airport: string; durationMinutes: number; overnight: boolean }[];
-  isBestFlight: boolean;
+  isBestFlight: boolean; // true = best_flights bucket; false = other_flights
+  rawJson: unknown;      // full RawFlight object — never lose an unparsed field
 }
 
 export interface CalendarLeg {
-  date: string;         // YYYY-MM-DD
-  price: number | null; // null when no flights that day
+  date: string;             // YYYY-MM-DD (from 'departure' field in API response)
+  price: number | null;     // null when no flights available on that date
   currency: string;
+  isLowestPrice?: boolean;  // true when API flags this as the cheapest date in range
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+// Extract 2-letter IATA airline code from flight number ('VY 7827' → 'VY', 'U2 8271' → 'U2')
+function extractAirlineIata(flightNumber: string): string {
+  const match = flightNumber.replace(/\s+/g, '').match(/^([A-Z0-9]{2})/i);
+  return match ? match[1].toUpperCase() : flightNumber.slice(0, 2).toUpperCase();
+}
 
 function buildFlightParams(
   params: FlightSearchParams,
@@ -84,7 +95,7 @@ function buildFlightParams(
     adults: params.adults ?? 1,
     children: params.children ?? 0,
     currency: params.currency ?? 'GBP',
-    gl: 'uk',
+    gl: 'gb',
     hl: 'en',
     max_flight_duration: 360,
   };
@@ -102,6 +113,7 @@ function normalise(raw: SearchAPIFlightsResponse): FlightResult[] {
         bookingToken: f.booking_token,
         price: f.price,
         carrier: first.airline,
+        airlineIata: extractAirlineIata(first.flight_number),
         flightNumber: first.flight_number,
         origin: first.departure_airport.id,
         destination: last.arrival_airport.id,
@@ -115,6 +127,7 @@ function normalise(raw: SearchAPIFlightsResponse): FlightResult[] {
           overnight: l.overnight,
         })),
         isBestFlight: isBest,
+        rawJson: f,
       });
     }
   };
@@ -137,15 +150,15 @@ async function searchAPIFetch<T>(url: URL): Promise<T> {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Search for flights. Pass returnDate for round-trip; omit for one-way.
- * One-way results carry a booking_token directly — no departure_token chain.
+ * Search for flights (one-way or round-trip).
+ * Standard path: omit returnDate — one-way, booking_token returned directly.
+ * Round-trip: pass returnDate — for ROUND_TRIP_ELIGIBLE_CARRIERS (BA, TP) only.
  */
 export async function fetchFlights(
   params: FlightSearchParams,
 ): Promise<FlightResult[]> {
   const url = new URL(BASE_URL);
-  const queryParams = buildFlightParams(params);
-  for (const [k, v] of Object.entries(queryParams)) {
+  for (const [k, v] of Object.entries(buildFlightParams(params))) {
     url.searchParams.set(k, String(v));
   }
   const data = await searchAPIFetch<SearchAPIFlightsResponse>(url);
@@ -153,8 +166,14 @@ export async function fetchFlights(
 }
 
 /**
- * Fetch day-by-day pricing for a given month using the google_flights_calendar
- * engine. Useful for the Compliance Calculator and calendar heat-maps.
+ * Stage 1 calendar pre-filter (google_flights_calendar engine).
+ *
+ * Returns one entry per day in the date range with the cheapest one-way price
+ * across all queried airport combinations. Results are used in-memory only to
+ * identify promising dates for Stage 2 detail calls — never written to a table.
+ *
+ * Both origin and destination accept comma-separated IATA codes for
+ * multi-airport queries, e.g. origin='LGW,LHR,STN,LTN,LCY', destination='BCN'.
  */
 export async function fetchCalendarLegs(
   params: CalendarLegParams,
@@ -164,19 +183,21 @@ export async function fetchCalendarLegs(
   url.searchParams.set('api_key', process.env.SEARCHAPI_KEY ?? '');
   url.searchParams.set('departure_id', params.origin);
   url.searchParams.set('arrival_id', params.destination);
-  url.searchParams.set('year', String(params.year));
-  url.searchParams.set('month', String(params.month));
+  url.searchParams.set('outbound_date_start', params.dateStart);
+  url.searchParams.set('outbound_date_end', params.dateEnd);
+  url.searchParams.set('flight_type', 'one_way');
   url.searchParams.set('currency', params.currency ?? 'GBP');
-  url.searchParams.set('gl', 'uk');
+  url.searchParams.set('gl', 'gb');
   url.searchParams.set('hl', 'en');
 
   const data = await searchAPIFetch<{
-    days?: { day: string; price: number | null }[];
+    calendar?: { departure: string; price: number | null; is_lowest_price?: boolean }[];
   }>(url);
 
-  return (data.days ?? []).map(d => ({
-    date: d.day,
+  return (data.calendar ?? []).map(d => ({
+    date: d.departure,
     price: d.price,
     currency: params.currency ?? 'GBP',
+    isLowestPrice: d.is_lowest_price,
   }));
 }
