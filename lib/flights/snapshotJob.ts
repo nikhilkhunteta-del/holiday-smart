@@ -10,10 +10,27 @@
  * Borough-blind: fare_snapshots contains no borough data. Borough × window
  * resolution happens in the Layer 3 derived tables.
  *
+ * Airport pool model:
+ *   destination_airports holds one iata_code row per valid airport per destination.
+ *   All (airport_a, airport_b) combinations are valid trip pairs, including same-airport
+ *   round trips. Outbound = London → airport_a; return = airport_b → London.
+ *   Pair combination is assembled in Layer 3 — the snapshot job collects independent
+ *   one-way legs for every airport in each destination's pool.
+ *
+ * Pilot scope:
+ *   Destinations: barcelona, andalusian-corridor, malta only.
+ *   Date window:  outbound 22 Oct – 2 Nov 2026; trip durations 3–4 and 7–10 nights.
+ *
  * Usage (programmatic):
  *   import { runSnapshotJob } from './snapshotJob';
  *   await runSnapshotJob({
- *     targetWindows: [{ label: '2026-10', start: '2026-10-26', end: '2026-10-30' }],
+ *     targetWindows: [{
+ *       label: '2026-10-halfterm',
+ *       outboundStart: '2026-10-22',
+ *       outboundEnd:   '2026-11-02',
+ *       returnStart:   '2026-10-25',
+ *       returnEnd:     '2026-11-12',
+ *     }],
  *   });
  *
  * Usage (direct, pilot):
@@ -27,8 +44,8 @@ import { fetchFlights, fetchCalendarLegs, type FlightResult, type CalendarLeg } 
 
 const LONDON_ORIGINS = ['LGW', 'LHR', 'STN', 'LTN', 'LCY'] as const;
 
-/** Days of buffer before window.start (outbound) and after window.end (return). */
-const DATE_BUFFER_DAYS = 2;
+/** Destinations included in the pilot run. */
+const PILOT_SLUGS = ['barcelona', 'andalusian-corridor', 'malta'] as const;
 
 /** Max promising dates per direction to run Stage 2 detail calls against. */
 const MAX_PROMISING_DATES = 8;
@@ -45,12 +62,16 @@ const API_DELAY_MS = 300;
 // ── Public interfaces ─────────────────────────────────────────────────────────
 
 export interface TargetWindow {
-  /** Stored in snapshot_runs.target_windows, e.g. '2026-10'. */
+  /** Stored in snapshot_runs.target_windows, e.g. '2026-10-halfterm'. */
   label: string;
-  /** First day of the school holiday window, YYYY-MM-DD. */
-  start: string;
-  /** Last day of the school holiday window, YYYY-MM-DD. */
-  end: string;
+  /** First outbound departure date to search, YYYY-MM-DD. */
+  outboundStart: string;
+  /** Last outbound departure date to search, YYYY-MM-DD. */
+  outboundEnd: string;
+  /** First return departure date to search, YYYY-MM-DD. */
+  returnStart: string;
+  /** Last return departure date to search, YYYY-MM-DD. */
+  returnEnd: string;
 }
 
 export interface JobConfig {
@@ -63,13 +84,8 @@ export interface JobConfig {
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
-interface DestinationLegRow {
-  id: string;
-  destination_id: string;
-  leg_number: number;
-  arrival_iata: string;   // European destination airport (outbound direction)
-  departure_iata: string; // European origin airport (return direction)
-}
+/** Map from destination_id to its ordered airport pool. */
+type AirportPoolMap = Map<string, string[]>;
 
 interface CallCounters {
   total: number;
@@ -138,20 +154,55 @@ async function finishRun(
 
 // ── Reference data ────────────────────────────────────────────────────────────
 
-async function loadDestinationLegs(supabase: SupabaseClient): Promise<DestinationLegRow[]> {
-  const { data, error } = await supabase
-    .from('destination_legs')
-    .select('id, destination_id, leg_number, arrival_iata, departure_iata')
-    .order('destination_id')
-    .order('leg_number');
+/**
+ * Loads the airport pool for each active pilot destination from destination_airports.
+ * Returns a map of destination_id → iata_code[].
+ */
+async function loadDestinationAirports(supabase: SupabaseClient): Promise<AirportPoolMap> {
+  // Step 1: resolve pilot slugs to destination IDs
+  const { data: dests, error: destError } = await supabase
+    .from('destinations')
+    .select('id, slug')
+    .in('slug', [...PILOT_SLUGS])
+    .eq('active', true);
 
-  if (error) throw new Error(`destination_legs SELECT failed: ${error.message}`);
-  return (data ?? []) as DestinationLegRow[];
+  if (destError) throw new Error(`destinations SELECT failed: ${destError.message}`);
+  if (!dests || dests.length === 0) {
+    throw new Error(`No active destinations found for pilot slugs: ${PILOT_SLUGS.join(', ')}`);
+  }
+
+  const destRows = dests as Array<{ id: string; slug: string }>;
+  const destIds = destRows.map(d => d.id);
+  const slugByDestId: Record<string, string> = Object.fromEntries(
+    destRows.map(d => [d.id, d.slug]),
+  );
+
+  // Step 2: load airport pool for those destination IDs
+  const { data: rows, error: airportError } = await supabase
+    .from('destination_airports')
+    .select('destination_id, iata_code')
+    .in('destination_id', destIds);
+
+  if (airportError) throw new Error(`destination_airports SELECT failed: ${airportError.message}`);
+
+  const poolMap: AirportPoolMap = new Map();
+  for (const row of rows ?? []) {
+    const destId = row.destination_id as string;
+    const iata   = row.iata_code as string;
+    if (!poolMap.has(destId)) poolMap.set(destId, []);
+    poolMap.get(destId)!.push(iata);
+  }
+
+  for (const [destId, pool] of poolMap) {
+    console.log(`[snapshot] ${slugByDestId[destId] ?? destId}: airport pool = [${pool.join(', ')}]`);
+  }
+
+  return poolMap;
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
-function addDays(dateStr: string, n: number): string {
+export function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
@@ -270,7 +321,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ── One direction per leg × window ────────────────────────────────────────────
+// ── One direction per airport × window ───────────────────────────────────────
 
 /**
  * Outbound: all 5 London airports → europeanIata.
@@ -396,50 +447,65 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
     throw err;
   }
 
-  // 2. Load destination legs (borough-blind routing matrix)
-  let legs: DestinationLegRow[];
+  // 2. Load destination airport pools (pilot: barcelona, andalusian-corridor, malta only)
+  let airportPoolMap: AirportPoolMap;
   try {
-    legs = await loadDestinationLegs(supabase);
-    console.log(`[snapshot] ${legs.length} destination legs loaded`);
-    if (legs.length === 0) {
-      const msg = 'No rows in destination_legs — seed the table before running.';
+    airportPoolMap = await loadDestinationAirports(supabase);
+    const totalAirports = [...airportPoolMap.values()].reduce((n, pool) => n + pool.length, 0);
+    console.log(`[snapshot] ${airportPoolMap.size} destinations, ${totalAirports} airports in pools`);
+    if (airportPoolMap.size === 0) {
+      const msg = 'No rows in destination_airports for pilot slugs — seed the table before running.';
       await finishRun(supabase, runId, counters, msg);
       console.error(`[snapshot] ${msg}`);
       return;
     }
   } catch (err) {
-    await finishRun(supabase, runId, counters, `destination_legs load failed: ${err}`);
+    await finishRun(supabase, runId, counters, `destination_airports load failed: ${err}`);
     throw err;
   }
 
-  // 3. Main loop: windows × destination legs × directions
+  // 3. Main loop: windows × destinations × airport pairs × directions
+  //
+  // For each destination pool, all (airport_a, airport_b) pairs are valid trip combinations,
+  // including same-airport round trips. Because pairs share the same pool, the set of unique
+  // outbound airports and unique return airports both equal the pool itself — so we iterate
+  // the pool directly to avoid redundant API calls while covering all pair combinations.
   try {
     for (const window of config.targetWindows) {
-      console.log(`[snapshot] window ${window.label}  ${window.start} – ${window.end}`);
+      console.log(
+        `[snapshot] window ${window.label}` +
+        `  outbound ${window.outboundStart}..${window.outboundEnd}` +
+        `  return ${window.returnStart}..${window.returnEnd}`,
+      );
 
-      const outboundStart = addDays(window.start, -DATE_BUFFER_DAYS);
-      const outboundEnd   = addDays(window.start,  DATE_BUFFER_DAYS);
-      const returnStart   = addDays(window.end,    -DATE_BUFFER_DAYS);
-      const returnEnd     = addDays(window.end,     DATE_BUFFER_DAYS);
-
-      for (const leg of legs) {
-        // Outbound: London airports → European destination
-        await runLegDirection(
-          supabase, runId, snapshotType,
-          leg.arrival_iata,
-          'outbound',
-          outboundStart, outboundEnd,
-          party, counters,
+      for (const [destId, pool] of airportPoolMap) {
+        const pairCount = pool.length * pool.length;
+        console.log(
+          `[snapshot] destination ${destId}: ${pool.length} airports → ${pairCount} pairs` +
+          ` (airport_a × airport_b, including same-airport round trips)`,
         );
 
-        // Return: European origin → London airports
-        await runLegDirection(
-          supabase, runId, snapshotType,
-          leg.departure_iata,
-          'return',
-          returnStart, returnEnd,
-          party, counters,
-        );
+        // Outbound: London → each airport in pool (covers airport_a for all pairs)
+        for (const airportA of pool) {
+          await runLegDirection(
+            supabase, runId, snapshotType,
+            airportA,
+            'outbound',
+            window.outboundStart, window.outboundEnd,
+            party, counters,
+          );
+        }
+
+        // Return: each airport in pool → London (covers airport_b for all pairs)
+        for (const airportB of pool) {
+          await runLegDirection(
+            supabase, runId, snapshotType,
+            airportB,
+            'return',
+            window.returnStart, window.returnEnd,
+            party, counters,
+          );
+        }
       }
     }
   } catch (err) {
@@ -457,10 +523,18 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
 }
 
 // Direct execution — pilot config for October 2026 half-term
+// Outbound: 22 Oct – 2 Nov 2026; trip durations 3–4 and 7–10 nights.
+// Return range: outboundStart + 3 nights → outboundEnd + 10 nights.
 // Production invocation goes through /pages/api/cron/flight-snapshot.ts
 if (require.main === module) {
   runSnapshotJob({
-    targetWindows: [{ label: '2026-10', start: '2026-10-26', end: '2026-10-30' }],
+    targetWindows: [{
+      label:         '2026-10-halfterm',
+      outboundStart: '2026-10-22',
+      outboundEnd:   '2026-11-02',
+      returnStart:   '2026-10-25', // 2026-10-22 + 3 nights
+      returnEnd:     '2026-11-12', // 2026-11-02 + 10 nights
+    }],
   }).catch(err => {
     console.error('[snapshot] fatal:', err);
     process.exit(1);
