@@ -67,8 +67,8 @@ interface DestinationLegRow {
   id: string;
   destination_id: string;
   leg_number: number;
-  outbound_destination_iata: string; // European airport for outbound direction
-  return_origin_iata: string;        // European airport for return direction
+  arrival_iata: string;   // European destination airport (outbound direction)
+  departure_iata: string; // European origin airport (return direction)
 }
 
 interface CallCounters {
@@ -141,7 +141,7 @@ async function finishRun(
 async function loadDestinationLegs(supabase: SupabaseClient): Promise<DestinationLegRow[]> {
   const { data, error } = await supabase
     .from('destination_legs')
-    .select('id, destination_id, leg_number, outbound_destination_iata, return_origin_iata')
+    .select('id, destination_id, leg_number, arrival_iata, departure_iata')
     .order('destination_id')
     .order('leg_number');
 
@@ -426,7 +426,7 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
         // Outbound: London airports → European destination
         await runLegDirection(
           supabase, runId, snapshotType,
-          leg.outbound_destination_iata,
+          leg.arrival_iata,
           'outbound',
           outboundStart, outboundEnd,
           party, counters,
@@ -435,7 +435,7 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
         // Return: European origin → London airports
         await runLegDirection(
           supabase, runId, snapshotType,
-          leg.return_origin_iata,
+          leg.departure_iata,
           'return',
           returnStart, returnEnd,
           party, counters,
