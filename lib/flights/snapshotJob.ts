@@ -82,6 +82,13 @@ export interface JobConfig {
   infants?: number;
 }
 
+export interface SnapshotJobResult {
+  runId: string;
+  total: number;
+  success: number;
+  failed: number;
+}
+
 // ── Internal types ────────────────────────────────────────────────────────────
 
 /** Map from destination_id to its ordered airport pool. */
@@ -419,7 +426,7 @@ async function runLegDirection(
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 
-export async function runSnapshotJob(config: JobConfig): Promise<void> {
+export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResult> {
   const snapshotType = config.snapshotType ?? 'cross_sectional';
   const party: Party = {
     adults:   config.adults   ?? DEFAULT_ADULTS,
@@ -457,7 +464,7 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
       const msg = 'No rows in destination_airports for pilot slugs — seed the table before running.';
       await finishRun(supabase, runId, counters, msg);
       console.error(`[snapshot] ${msg}`);
-      return;
+      return { runId, ...counters };
     }
   } catch (err) {
     await finishRun(supabase, runId, counters, `destination_airports load failed: ${err}`);
@@ -520,6 +527,7 @@ export async function runSnapshotJob(config: JobConfig): Promise<void> {
     `[snapshot] job complete  ${new Date().toISOString()}  ` +
     `total=${counters.total}  success=${counters.success}  failed=${counters.failed}`,
   );
+  return { runId, ...counters };
 }
 
 // Direct execution — pilot config for October 2026 half-term

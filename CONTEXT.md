@@ -371,6 +371,8 @@ CLAUDE.md                            ← Claude Code session instructions
 - `SEARCHAPI_KEY` — SearchAPI.io API key (add to Vercel + local .env.local)
 - `NEXT_PUBLIC_SUPABASE_URL` — already set
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — already set
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role key; used by the snapshot job for write access (falls back to anon key if absent, but service role is required in production)
+- `SNAPSHOT_SECRET` — shared secret for the `POST /api/run-snapshot` route; set in Vercel env vars and pass as the `x-api-key` request header to trigger a manual run
 
 ---
 
