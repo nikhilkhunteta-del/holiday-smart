@@ -191,7 +191,7 @@ async function loadDestinationAirports(supabase: SupabaseClient): Promise<Airpor
   const rows = (data ?? []) as Array<{
     destination_id: string;
     iata_code: string;
-    destinations: { id: string; slug: string };
+    destinations: { id: string; slug: string }[];
   }>;
 
   console.log(`[snapshot] destination_airports query: ${rows.length} row(s) returned`);
@@ -202,7 +202,7 @@ async function loadDestinationAirports(supabase: SupabaseClient): Promise<Airpor
   for (const row of rows) {
     const destId = row.destination_id;
     const iata   = row.iata_code;
-    slugByDestId[destId] = row.destinations.slug;
+    slugByDestId[destId] = row.destinations[0].slug;
     if (!poolMap.has(destId)) poolMap.set(destId, []);
     poolMap.get(destId)!.push(iata);
   }
