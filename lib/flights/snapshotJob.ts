@@ -91,8 +91,11 @@ export interface SnapshotJobResult {
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
-/** Map from destination_id to its ordered airport pool. */
-type AirportPoolMap = Map<string, string[]>;
+interface DestinationPool {
+  destinationId: string;
+  slug: string;
+  airportCodes: string[];
+}
 
 interface CallCounters {
   total: number;
@@ -162,56 +165,62 @@ async function finishRun(
 // ── Reference data ────────────────────────────────────────────────────────────
 
 /**
- * Loads the airport pool for each pilot destination from destination_airports.
- * Returns a map of destination_id → iata_code[].
+ * Two simple queries — no joins.
  *
- * Single join query:
- *   FROM destination_airports
- *   INNER JOIN destinations ON destination_airports.destination_id = destinations.id
- *   WHERE destination_airports.excluded = false
- *     AND destinations.slug IN (pilot slugs)
+ * Query 1: destinations WHERE slug IN (pilot slugs)
+ * Query 2: destination_airports WHERE destination_id IN (...) AND excluded = false
  */
-async function loadDestinationAirports(supabase: SupabaseClient): Promise<AirportPoolMap> {
-  console.log(
-    '[snapshot] loadDestinationAirports:' +
-    ' from=destination_airports' +
-    ' join=destinations!inner(id,slug)' +
-    ' .eq(excluded,false)' +
-    ` .filter(destinations.slug,in,(${PILOT_SLUGS.join(',')}))`,
-  );
+async function loadDestinationAirports(supabase: SupabaseClient): Promise<DestinationPool[]> {
+  // Query 1 — pilot destinations
+  const { data: destData, error: destError } = await supabase
+    .from('destinations')
+    .select('id, slug')
+    .in('slug', [...PILOT_SLUGS]);
 
-  const { data, error } = await supabase
+  if (destError) throw new Error(`destinations query failed: ${destError.message}`);
+
+  const dests = (destData ?? []) as Array<{ id: string; slug: string }>;
+  console.log(`[snapshot] destinations query: ${dests.length} row(s) returned`);
+
+  if (dests.length === 0) {
+    console.warn(`[snapshot] WARNING: no destinations matched slugs [${PILOT_SLUGS.join(', ')}]`);
+    return [];
+  }
+
+  // Query 2 — non-excluded airports for those destination IDs
+  const destIds = dests.map(d => d.id);
+  const { data: airportData, error: airportError } = await supabase
     .from('destination_airports')
-    .select('destination_id, iata_code, destinations!inner(id, slug)')
-    .eq('excluded', false)
-    .filter('destinations.slug', 'in', `(${PILOT_SLUGS.join(',')})`);
+    .select('destination_id, iata_code')
+    .in('destination_id', destIds)
+    .eq('excluded', false);
 
-  if (error) throw new Error(`destination_airports query failed: ${error.message}`);
+  if (airportError) throw new Error(`destination_airports query failed: ${airportError.message}`);
 
-  const rows = (data ?? []) as Array<{
-    destination_id: string;
-    iata_code: string;
-    destinations: { id: string; slug: string }[];
-  }>;
+  const airports = (airportData ?? []) as Array<{ destination_id: string; iata_code: string }>;
+  console.log(`[snapshot] destination_airports query: ${airports.length} row(s) returned`);
 
-  console.log(`[snapshot] destination_airports query: ${rows.length} row(s) returned`);
-
-  const poolMap: AirportPoolMap = new Map();
-  const slugByDestId: Record<string, string> = {};
-
-  for (const row of rows) {
-    const destId = row.destination_id;
-    const iata   = row.iata_code;
-    slugByDestId[destId] = row.destinations[0].slug;
-    if (!poolMap.has(destId)) poolMap.set(destId, []);
-    poolMap.get(destId)!.push(iata);
+  if (airports.length === 0) {
+    console.warn(`[snapshot] WARNING: no airports found with excluded=false for ${dests.length} destination(s)`);
+    return [];
   }
 
-  for (const [destId, pool] of poolMap) {
-    console.log(`[snapshot] ${slugByDestId[destId] ?? destId}: airport pool = [${pool.join(', ')}]`);
+  // Group airports by destination_id
+  const codesByDestId: Record<string, string[]> = {};
+  for (const row of airports) {
+    if (!codesByDestId[row.destination_id]) codesByDestId[row.destination_id] = [];
+    codesByDestId[row.destination_id].push(row.iata_code);
   }
 
-  return poolMap;
+  const pools: DestinationPool[] = dests
+    .map(d => ({ destinationId: d.id, slug: d.slug, airportCodes: codesByDestId[d.id] ?? [] }))
+    .filter(d => d.airportCodes.length > 0);
+
+  for (const dest of pools) {
+    console.log(`[snapshot] ${dest.slug}: airport pool = [${dest.airportCodes.join(', ')}]`);
+  }
+
+  return pools;
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -462,13 +471,13 @@ export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResu
   }
 
   // 2. Load destination airport pools (pilot: barcelona, andalusian-corridor, malta only)
-  let airportPoolMap: AirportPoolMap;
+  let destinations: DestinationPool[];
   try {
-    airportPoolMap = await loadDestinationAirports(supabase);
-    const totalAirports = [...airportPoolMap.values()].reduce((n, pool) => n + pool.length, 0);
-    console.log(`[snapshot] ${airportPoolMap.size} destinations, ${totalAirports} airports in pools`);
-    if (airportPoolMap.size === 0) {
-      const msg = 'No rows in destination_airports for pilot slugs — seed the table before running.';
+    destinations = await loadDestinationAirports(supabase);
+    const totalAirports = destinations.reduce((n, d) => n + d.airportCodes.length, 0);
+    console.log(`[snapshot] ${destinations.length} destinations, ${totalAirports} airports in pools`);
+    if (destinations.length === 0) {
+      const msg = 'No airport pools loaded — seed destinations and destination_airports before running.';
       await finishRun(supabase, runId, counters, msg);
       console.error(`[snapshot] ${msg}`);
       return { runId, ...counters };
@@ -492,10 +501,11 @@ export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResu
         `  return ${window.returnStart}..${window.returnEnd}`,
       );
 
-      for (const [destId, pool] of airportPoolMap) {
+      for (const dest of destinations) {
+        const pool = dest.airportCodes;
         const pairCount = pool.length * pool.length;
         console.log(
-          `[snapshot] destination ${destId}: ${pool.length} airports → ${pairCount} pairs` +
+          `[snapshot] ${dest.slug}: ${pool.length} airports → ${pairCount} pairs` +
           ` (airport_a × airport_b, including same-airport round trips)`,
         );
 
