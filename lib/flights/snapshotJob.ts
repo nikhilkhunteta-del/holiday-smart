@@ -162,40 +162,47 @@ async function finishRun(
 // ── Reference data ────────────────────────────────────────────────────────────
 
 /**
- * Loads the airport pool for each active pilot destination from destination_airports.
+ * Loads the airport pool for each pilot destination from destination_airports.
  * Returns a map of destination_id → iata_code[].
+ *
+ * Single join query:
+ *   FROM destination_airports
+ *   INNER JOIN destinations ON destination_airports.destination_id = destinations.id
+ *   WHERE destination_airports.excluded = false
+ *     AND destinations.slug IN (pilot slugs)
  */
 async function loadDestinationAirports(supabase: SupabaseClient): Promise<AirportPoolMap> {
-  // Step 1: resolve pilot slugs to destination IDs
-  const { data: dests, error: destError } = await supabase
-    .from('destinations')
-    .select('id, slug')
-    .in('slug', [...PILOT_SLUGS])
-    .eq('active', true);
-
-  if (destError) throw new Error(`destinations SELECT failed: ${destError.message}`);
-  if (!dests || dests.length === 0) {
-    throw new Error(`No active destinations found for pilot slugs: ${PILOT_SLUGS.join(', ')}`);
-  }
-
-  const destRows = dests as Array<{ id: string; slug: string }>;
-  const destIds = destRows.map(d => d.id);
-  const slugByDestId: Record<string, string> = Object.fromEntries(
-    destRows.map(d => [d.id, d.slug]),
+  console.log(
+    '[snapshot] loadDestinationAirports:' +
+    ' from=destination_airports' +
+    ' join=destinations!inner(id,slug)' +
+    ' .eq(excluded,false)' +
+    ` .filter(destinations.slug,in,(${PILOT_SLUGS.join(',')}))`,
   );
 
-  // Step 2: load airport pool for those destination IDs
-  const { data: rows, error: airportError } = await supabase
+  const { data, error } = await supabase
     .from('destination_airports')
-    .select('destination_id, iata_code')
-    .in('destination_id', destIds);
+    .select('destination_id, iata_code, destinations!inner(id, slug)')
+    .eq('excluded', false)
+    .filter('destinations.slug', 'in', `(${PILOT_SLUGS.join(',')})`);
 
-  if (airportError) throw new Error(`destination_airports SELECT failed: ${airportError.message}`);
+  if (error) throw new Error(`destination_airports query failed: ${error.message}`);
+
+  const rows = (data ?? []) as Array<{
+    destination_id: string;
+    iata_code: string;
+    destinations: { id: string; slug: string };
+  }>;
+
+  console.log(`[snapshot] destination_airports query: ${rows.length} row(s) returned`);
 
   const poolMap: AirportPoolMap = new Map();
-  for (const row of rows ?? []) {
-    const destId = row.destination_id as string;
-    const iata   = row.iata_code as string;
+  const slugByDestId: Record<string, string> = {};
+
+  for (const row of rows) {
+    const destId = row.destination_id;
+    const iata   = row.iata_code;
+    slugByDestId[destId] = row.destinations.slug;
     if (!poolMap.has(destId)) poolMap.set(destId, []);
     poolMap.get(destId)!.push(iata);
   }
