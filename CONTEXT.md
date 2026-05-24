@@ -192,16 +192,15 @@ Key fields (see data-model.md for full schema):
 
 ## Flight Data Pipeline — Final Architecture
 
-### API Provider: SearchAPI.io
+### API Provider: Crawlio via RapidAPI
 
-**NOT SerpAPI.** SearchAPI.io confirmed after Phase A validation.
+**Engine: google-flights8.** Replaced SearchAPI.io ($40/month, 10,000 calls). $9/month for 15,000 calls.
 
-- Base URL: `https://www.searchapi.io/api/v1/search`
-- Environment variable: `SEARCHAPI_KEY`
-- Flight type parameter: `flight_type=one_way` / `flight_type=round_trip` (NOT `type=2` — that is SerpAPI syntax)
-- Always send: `gl=gb`, `hl=en`, `currency=GBP`
-- Max flight duration filter: `max_flight_duration=360` (API-level, no post-processing needed)
-- No equivalent of SerpAPI's `deep_search=true` on SearchAPI.io — not needed
+- RapidAPI host: `google-flights8.p.rapidapi.com`
+- Environment variable: `RAPIDAPI_KEY`
+- **LON city code** for all London-side queries — collapses all 5 London airports into one call. Individual airport attribution visible in response.
+- Sort all calls by price (not Google's default "best" ranking)
+- Always send: `currency=GBP`, `hl=en`
 
 ### Two-Stage Pipeline
 
@@ -318,7 +317,7 @@ CLAUDE.md                            ← Claude Code session instructions
 
 - **Financial intelligence tool, not a travel agency or blog.**
 - **Borough selector is the hook** — single field, landing page, show inset day result immediately.
-- **SearchAPI.io is the flight data provider** — not SerpAPI, Duffel, BrightData, or any scraper.
+- **Crawlio via RapidAPI is the flight data provider** — not SearchAPI.io, SerpAPI, Duffel, BrightData, or any scraper. Engine: google-flights8. $9/month, 15,000 calls.
 - **Two-stage pipeline** — calendar call first, detail calls only for promising dates.
 - **Two one-way calls as standard** — not round-trip queries. Each leg stored as a separate fare_snapshots row.
 - **Round-trip calls for Feature 11 only** — and only for ROUND_TRIP_ELIGIBLE_CARRIERS (BA, TP).
@@ -346,6 +345,11 @@ CLAUDE.md                            ← Claude Code session instructions
   Pool defined by 250km driving distance. Ground transport cost stored per airport in
   `destination_airports` for net saving calculation. SearchAPI has no nearby airports
   endpoint — pool is manually seeded.
+- **Flight provider: Crawlio via RapidAPI** — $9/month for 15,000 calls. LON city code used for all London-side queries — returns all 5 London airports in one call, individual airport attribution visible in response. Replaced SearchAPI ($40/month, 10,000 calls).
+- **destination_legs replaced by destination_airports** — pool of valid European airports per destination. Job generates all pairs at query time. London endpoints injected by job, never stored.
+- **4 family compositions per snapshot run** — 1A+1C, 2A+1C, 2A+2C, 2A+1inf. Bucket splitter saving derivable arithmetically without extra calls.
+- **price_insights fields dropped** — price_level, typical_price_low_gbp, typical_price_high_gbp removed from fare_snapshots. Crawlio does not provide this data.
+- **Results sorted by price** — not Google's default "best" ranking. Leaderboard is purely financial.
 
 ---
 
@@ -355,7 +359,7 @@ CLAUDE.md                            ← Claude Code session instructions
 - **Database:** Supabase (PostgreSQL)
 - **Hosting:** Vercel
 - **Email:** Resend
-- **Flight data:** SearchAPI.io (`google_flights` + `google_flights_calendar` engines)
+- **Flight data:** Crawlio Google Flights API via RapidAPI (google-flights8). $9/month for 15,000 calls. Replaced SearchAPI ($40/month).
 - **Weather:** Open-Meteo (free, no key, 5-year historical) — deferred
 - **Safety:** FCDO API (free) — deferred
 - **Design system:** DESIGN.md (Editorial Fintech tokens)
@@ -368,7 +372,7 @@ CLAUDE.md                            ← Claude Code session instructions
 
 ## Environment Variables Required
 
-- `SEARCHAPI_KEY` — SearchAPI.io API key (add to Vercel + local .env.local)
+- `RAPIDAPI_KEY` — RapidAPI key for Crawlio google-flights8 (add to Vercel + local .env.local)
 - `NEXT_PUBLIC_SUPABASE_URL` — already set
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — already set
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role key; used by the snapshot job for write access (falls back to anon key if absent, but service role is required in production)
@@ -403,32 +407,21 @@ CLAUDE.md                            ← Claude Code session instructions
 - [x] Transport cost matrix — live in Supabase
 - [x] Layer 1 tables created — airports, destinations, destination_legs, snapshot_runs, airline_baggage_fees, fare_snapshots
 - [x] airports table seeded (all London origins + European destinations)
-- [x] Phase A validation complete (SerpAPI → SearchAPI.io decision)
+- [x] Phase A — flight provider validated (Crawlio via RapidAPI)
+- [x] fare_snapshots schema updated for Crawlio
+- [x] destination_legs migrated to destination_airports
+- [x] Pilot destinations seeded (barcelona, andalusian-corridor, malta)
+- [x] Airport pools seeded (3 BCN pool, 4 Andalusia pool, 1 Malta)
 - [x] Data model designed (data-model.md)
-- [x] types/flight.ts generated (needs price_insights fields removed)
-- [x] fetchFlights.ts generated (needs SearchAPI.io update — currently written for SerpAPI)
-- [ ] **destinations table seeded** ← TODO
-- [ ] **destination_legs table seeded** ← TODO
+- [x] types/flight.ts generated (price_insights fields removed)
 - [ ] **airline_baggage_fees table populated** ← TODO
-- [ ] **SEARCHAPI_KEY added to Vercel** ← TODO
-- [ ] **fetchFlights.ts updated for SearchAPI.io** ← CURRENT TASK
-- [ ] snapshotJob.ts built (weekly cross-sectional runner)
-- [ ] Vercel cron schedule configured
-- [ ] 3-destination pilot run (Barcelona, Andalusian Corridor, Malta)
-- [ ] Pilot validation (confirm savings levers extractable)
+- [ ] **RAPIDAPI_KEY added to Vercel** ← TODO
+- [ ] fetchFlights.ts rewritten for Crawlio ← CURRENT TASK
+- [ ] run_pilot.py rewritten for Crawlio
+- [ ] Pilot run validated
 - [ ] Scale to 21 destinations
 - [ ] Layer 3 derived data generation
 - [ ] Flight Insights page components
 
 ## Current Task
-*Update `fetchFlights.ts` for SearchAPI.io. Then build `snapshotJob.ts`.*
-
-Key changes needed in fetchFlights.ts:
-1. Change base URL to `https://www.searchapi.io/api/v1/search`
-2. Change env var from `SERPAPI_KEY` to `SEARCHAPI_KEY`
-3. Change `type: 2` to `flight_type: 'one_way'` and `type: 1` to `flight_type: 'round_trip'`
-4. Remove `deep_search: true` (not a SearchAPI.io parameter)
-5. Add `max_flight_duration: 360` as a standard parameter
-6. Remove all price_insights parsing (priceLevel, typicalPriceLowGbp, typicalPriceHighGbp fields)
-7. Add `fetchCalendarLegs()` function using `engine=google_flights_calendar`
-8. Note: one-way returns `booking_token` directly — no departure_token chain needed
+*Rewrite `fetchFlights.ts` for Crawlio (RapidAPI google-flights8). Then rewrite `run_pilot.py`.*
