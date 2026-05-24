@@ -7,10 +7,10 @@ no longer exists). Uses LON city code for all London-side queries.
 Runs 4 family compositions per call: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
 Pilot scope: barcelona, andalusian-corridor, malta. October 2026 half-term only.
 
-Usage:
-  python run_pilot.py test    # fire one call (LON→BCN, 2026-10-25, 2A+2C) and print raw response
-  python run_pilot.py pilot   # run full pilot and insert results into fare_snapshots
-  python run_pilot.py         # same as pilot
+Usage (Colab):
+  # Run this file as a cell to define all functions, then call manually:
+  test_single_call()   # validate API key + print raw response
+  main()               # run full pilot and insert results into fare_snapshots
 
 Requirements:
   pip install requests supabase
@@ -23,7 +23,6 @@ Environment variables required:
 
 import os
 import re
-import sys
 import time
 import json
 import base64
@@ -47,7 +46,7 @@ log = logging.getLogger("run_pilot")
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 RAPIDAPI_HOST = "google-flights8.p.rapidapi.com"
-BASE_URL = f"https://{RAPIDAPI_HOST}/"
+BASE_URL = f"https://{RAPIDAPI_HOST}/api/v1/search"
 
 # LON city code — collapses all 5 London airports into one Crawlio call.
 # Individual airport attribution visible in response segments[0].from.
@@ -371,13 +370,15 @@ def test_single_call() -> None:
 
 # ── Full pilot run ────────────────────────────────────────────────────────────
 
-def run_pilot() -> None:
+def main() -> None:
     """
     Run the full October 2026 half-term pilot.
     Destinations: barcelona, andalusian-corridor, malta.
     Dates: 2026-10-22 – 2026-11-02 (12 dates).
     Compositions: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
     Directions: outbound (LON → airport) + return (airport → LON).
+
+    Call from a Colab cell: main()
     """
     supabase = get_supabase()
     pools = load_destination_pools(supabase)
@@ -445,15 +446,8 @@ def run_pilot() -> None:
         )
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "pilot"
-
-    if cmd == "test":
-        test_single_call()
-    elif cmd in ("pilot", "run"):
-        run_pilot()
-    else:
-        print(f"Unknown command '{cmd}'. Use: test | pilot")
-        sys.exit(1)
+# ── Usage (Colab) ─────────────────────────────────────────────────────────────
+# Import or run this file to define all functions, then call manually:
+#
+#   test_single_call()   # validate API + print raw response
+#   main()               # run full October 2026 half-term pilot
