@@ -10,11 +10,9 @@ export async function POST(request: NextRequest) {
   try {
     const result = await runSnapshotJob({
       targetWindows: [{
-        label:         '2026-10-halfterm',
-        outboundStart: '2026-10-22',
-        outboundEnd:   '2026-11-02',
-        returnStart:   '2026-10-25',
-        returnEnd:     '2026-11-12',
+        label:     '2026-10-halfterm',
+        dateStart: '2026-10-22',
+        dateEnd:   '2026-11-02',
       }],
     });
 

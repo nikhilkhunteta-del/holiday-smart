@@ -15,7 +15,7 @@ or blog.
 A parent has selected their borough and school break. The page surfaces flight
 intelligence across 11 feature components.
 
-School data is live in Supabase. Flight data integration is in progress — API provider TBD.
+School data is live in Supabase. Flight data provider confirmed: Crawlio via RapidAPI (google-flights8).
 
 ---
 
@@ -25,16 +25,15 @@ School data is live in Supabase. Flight data integration is in progress — API 
 |---|---|---|
 | School / borough data | ✅ Live in Supabase | Serving real data to frontend |
 | Anthropic narrative generation | Pre-generate via Batch API nightly → Supabase | No Claude API calls per user visit |
-| Flight data | 🔄 API provider undecided | Build behind abstraction layer — see below |
+| Flight data | ✅ Crawlio via RapidAPI | google-flights8, $9/month, RAPIDAPI_KEY env var |
 | Open-Meteo (weather) | Real-time | Free, no key required |
 | FCDO (safety) | Real-time | Free API |
 | Supabase | Live | Primary data store |
 
 ### Flight API Abstraction Rule
-Do not hardcode any flight API provider. All flight data calls must go through
-`lib/flights/fetchFlights.ts` — a single adapter function. The provider (Kiwi,
-Amadeus, Duffel — TBD) will be slotted in behind this interface. UI components
-import from the adapter only, never from a provider SDK directly.
+All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
+Provider is Crawlio via RapidAPI (google-flights8). UI components import from the adapter only,
+never from RapidAPI or Crawlio SDK directly.
 
 ---
 
@@ -60,7 +59,8 @@ components/
     one-way-vs-return.tsx             ← Feature 11
 lib/
   flights/
-    fetchFlights.ts                   ← all flight search calls (fares, routes, availability)
+    fetchFlights.ts  ← Crawlio adapter. ONLY entry point for flight data.
+                       Never import RapidAPI or Crawlio SDK directly elsewhere.
     fetchAirports.ts                  ← airport metadata, transfer costs
   schools/
     getSchoolWindows.ts               ← school/borough queries (live, Supabase)
@@ -121,6 +121,10 @@ Read `FlightInsights.md` before writing any UI component. Summary:
 - All flight calls go through `lib/flights/fetchFlights.ts` — never direct to a provider SDK.
 - Read `FlightInsights.md` before writing any UI component.
 - Check in after each component is complete before proceeding to the next.
+- Read from destination_airports, never destination_legs (table dropped).
+- Use LON as origin city code for all London-side queries — not individual airport codes.
+- 4 family compositions per run: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
+- Sort all Crawlio calls by price, not Google default ranking.
 
 ---
 

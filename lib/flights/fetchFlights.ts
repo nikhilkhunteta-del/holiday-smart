@@ -1,203 +1,214 @@
-const BASE_URL = 'https://www.searchapi.io/api/v1/search';
+// Crawlio Google Flights adapter (google-flights8 on RapidAPI).
+// ONLY import point for flight data in the TypeScript codebase.
+// Never call RapidAPI directly from components, jobs, or any other file.
 
-// ── Input params ──────────────────────────────────────────────────────────────
+const RAPIDAPI_HOST = 'google-flights8.p.rapidapi.com';
+const BASE_URL = `https://${RAPIDAPI_HOST}/`;
+
+// ── Input ─────────────────────────────────────────────────────────────────────
 
 export interface FlightSearchParams {
-  origin: string;        // IATA code, e.g. 'LGW'
-  destination: string;   // IATA code, e.g. 'BCN'
-  outboundDate: string;  // YYYY-MM-DD
-  returnDate?: string;   // YYYY-MM-DD — omit for one-way (standard path)
-  adults?: number;
-  children?: number;
-  currency?: string;     // default 'GBP'
+  origin: string;       // IATA code or city code. Use 'LON' for all London airports.
+  destination: string;  // IATA code, e.g. 'BCN'
+  date: string;         // YYYY-MM-DD
+  adults?: number;      // default 2
+  children?: number;    // default 0
+  infants?: number;     // default 0 (lap infants — maps to infants_on_lap in Crawlio)
 }
 
-export interface CalendarLegParams {
-  // Accepts comma-separated IATA codes for multi-airport queries,
-  // e.g. origin='LGW,LHR,STN,LTN,LCY', destination='BCN'
-  origin: string;
-  destination: string;
-  dateStart: string;  // YYYY-MM-DD — start of date range to query
-  dateEnd: string;    // YYYY-MM-DD — end of date range to query
-  currency?: string;  // default 'GBP'
+// ── Crawlio raw response types ────────────────────────────────────────────────
+
+interface CrawlioSegment {
+  from: string;
+  to: string;
+  departure: string | null;    // ISO 8601 datetime — null on some codeshares
+  arrival: string | null;      // ISO 8601 datetime — null on some codeshares
+  plane: string | null;        // aircraft type, e.g. 'Airbus A320'
+  airline: string | null;      // airline name (for raw_json only — not stored as a column)
+  flight_number: string | null;
 }
 
-// ── Raw SearchAPI.io types (google_flights engine) ────────────────────────────
-
-interface RawFlightLeg {
-  departure_airport: { id: string; name: string; time: string };
-  arrival_airport: { id: string; name: string; time: string };
-  airline: string;
-  flight_number: string;
-  duration: number; // minutes
+interface CrawlioResult {
+  price: number;               // integer GBP party total — use directly as party_total_gbp
+  duration_min: number;        // total journey time in minutes
+  stops: number;               // 0 = direct
+  segments: CrawlioSegment[];
 }
 
-interface RawFlight {
-  booking_token: string;
-  price: number;
-  flights: RawFlightLeg[];
-  total_duration: number; // minutes
-  layovers?: { id: string; duration: number; overnight: boolean }[];
+interface CrawlioFlight {
+  is_best: boolean;
+  url: string;                 // contains tfu query param — source of booking_token and airline_iata
 }
 
-interface SearchAPIFlightsResponse {
-  best_flights?: RawFlight[];
-  other_flights?: RawFlight[];
-  error?: string;
+interface CrawlioResponse {
+  flights: CrawlioFlight[];
+  results: CrawlioResult[];
 }
 
-// ── Normalised output types ───────────────────────────────────────────────────
+// ── Output — fare_snapshots-shaped ───────────────────────────────────────────
+//
+// Excludes fields set by the caller:
+//   run_id, snapshot_type, departure_date, observed_at (DB DEFAULT now())
+//
+// Required schema migrations before first insert:
+//   ALTER TABLE fare_snapshots ALTER COLUMN flight_number DROP NOT NULL;
+//   ALTER TABLE fare_snapshots ADD COLUMN IF NOT EXISTS aircraft_type text;
+//   ALTER TABLE fare_snapshots DROP COLUMN IF EXISTS price_level;
+//   ALTER TABLE fare_snapshots DROP COLUMN IF EXISTS typical_price_low_gbp;
+//   ALTER TABLE fare_snapshots DROP COLUMN IF EXISTS typical_price_high_gbp;
 
-export interface FlightResult {
-  bookingToken: string;
-  price: number;         // party total in requested currency
-  carrier: string;       // airline name, e.g. 'Vueling'
-  airlineIata: string;   // 2-letter IATA code, e.g. 'VY'
-  flightNumber: string;  // e.g. 'VY 7827'
-  origin: string;        // departure airport IATA
-  destination: string;   // arrival airport IATA
-  departureTime: string; // as returned by API — may be full datetime
-  arrivalTime: string;   // as returned by API — may be full datetime
-  durationMinutes: number;
-  stopCount: number;
-  layovers: { airport: string; durationMinutes: number; overnight: boolean }[];
-  isBestFlight: boolean; // true = best_flights bucket; false = other_flights
-  rawJson: unknown;      // full RawFlight object — never lose an unparsed field
+export interface FlightRow {
+  origin_iata: string;
+  destination_iata: string;
+  flight_number: null;           // Crawlio does not return flight numbers
+  airline_iata: string | null;   // decoded from tfu param; null if decode fails
+  departure_time: string | null; // HH:MM — null on some codeshare segments
+  arrival_time: string | null;   // HH:MM — null on some codeshare segments
+  duration_minutes: number;
+  stops: number;
+  aircraft_type: string | null;
+  is_overnight: boolean;
+  adults: number;
+  children: number;
+  infants: number;
+  party_total_gbp: number;
+  booking_token: string | null;  // raw tfu param value (expires ~30 min)
+  result_bucket: 'best' | 'other';
+  result_rank: number;
+  raw_json: unknown;
 }
 
-export interface CalendarLeg {
-  date: string;             // YYYY-MM-DD (from 'departure' field in API response)
-  price: number | null;     // null when no flights available on that date
-  currency: string;
-  isLowestPrice?: boolean;  // true when API flags this as the cheapest date in range
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-// Extract 2-letter IATA airline code from flight number ('VY 7827' → 'VY', 'U2 8271' → 'U2')
-function extractAirlineIata(flightNumber: string): string {
-  const match = flightNumber.replace(/\s+/g, '').match(/^([A-Z0-9]{2})/i);
-  return match ? match[1].toUpperCase() : flightNumber.slice(0, 2).toUpperCase();
-}
-
-function buildFlightParams(
-  params: FlightSearchParams,
-): Record<string, string | number> {
-  const isRoundTrip = !!params.returnDate;
-  return {
-    engine: 'google_flights',
-    api_key: process.env.SEARCHAPI_KEY ?? '',
-    departure_id: params.origin,
-    arrival_id: params.destination,
-    outbound_date: params.outboundDate,
-    ...(isRoundTrip ? { return_date: params.returnDate as string } : {}),
-    flight_type: isRoundTrip ? 'round_trip' : 'one_way',
-    adults: params.adults ?? 1,
-    children: params.children ?? 0,
-    currency: params.currency ?? 'GBP',
-    gl: 'gb',
-    hl: 'en',
-    max_flight_duration: 360,
-  };
-}
-
-function normalise(raw: SearchAPIFlightsResponse): FlightResult[] {
-  const results: FlightResult[] = [];
-
-  const addGroup = (flights: RawFlight[] | undefined, isBest: boolean) => {
-    for (const f of flights ?? []) {
-      const first = f.flights[0];
-      const last = f.flights[f.flights.length - 1];
-      if (!first || !last) continue;
-      results.push({
-        bookingToken: f.booking_token,
-        price: f.price,
-        carrier: first.airline,
-        airlineIata: extractAirlineIata(first.flight_number),
-        flightNumber: first.flight_number,
-        origin: first.departure_airport.id,
-        destination: last.arrival_airport.id,
-        departureTime: first.departure_airport.time,
-        arrivalTime: last.arrival_airport.time,
-        durationMinutes: f.total_duration,
-        stopCount: f.flights.length - 1,
-        layovers: (f.layovers ?? []).map(l => ({
-          airport: l.id,
-          durationMinutes: l.duration,
-          overnight: l.overnight,
-        })),
-        isBestFlight: isBest,
-        rawJson: f,
-      });
-    }
-  };
-
-  addGroup(raw.best_flights, true);
-  addGroup(raw.other_flights, false);
-  return results;
-}
-
-async function searchAPIFetch<T>(url: URL): Promise<T> {
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    throw new Error(`SearchAPI.io ${res.status}: ${res.statusText} — ${url.pathname}`);
+// Base64-decode the tfu URL param to find the IATA airline prefix.
+// e.g. tfu=EgZGUjc4MDc → decoded bytes contain 'FR7807' → returns 'FR'
+function extractAirlineIata(flightUrl: string): string | null {
+  try {
+    const tfu = new URL(flightUrl).searchParams.get('tfu');
+    if (!tfu) return null;
+    // Add padding so Buffer.from doesn't choke on unpadded base64
+    const padded = tfu + '==='.slice(0, (4 - (tfu.length % 4)) % 4);
+    const decoded = Buffer.from(padded, 'base64').toString('latin1');
+    const match = decoded.match(/([A-Z][A-Z0-9])\d{2,5}/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
   }
-  const data = (await res.json()) as T & { error?: string };
-  if (data.error) throw new Error(`SearchAPI.io error: ${data.error}`);
+}
+
+function extractBookingToken(flightUrl: string): string | null {
+  try {
+    return new URL(flightUrl).searchParams.get('tfu');
+  } catch {
+    return null;
+  }
+}
+
+// Extract HH:MM from ISO datetime string ('2026-10-26T07:15:00' or '2026-10-26 07:15').
+function toHHMM(iso: string | null): string | null {
+  if (!iso) return null;
+  const parts = iso.trim().split(/[\sT]/);
+  const time = parts[parts.length - 1].slice(0, 5);
+  return time.length === 5 ? time : null;
+}
+
+function detectOvernight(dep: string | null, arr: string | null): boolean {
+  if (!dep || !arr) return false;
+  const d = dep.trim().split(/[\sT]/);
+  const a = arr.trim().split(/[\sT]/);
+  return d.length >= 2 && a.length >= 2 && d[0] !== a[0];
+}
+
+function normalise(response: CrawlioResponse, params: FlightSearchParams): FlightRow[] {
+  const rows: FlightRow[] = [];
+  let bestRank = 1;
+  let otherRank = 1;
+
+  const len = Math.min(response.flights.length, response.results.length);
+
+  for (let i = 0; i < len; i++) {
+    const flight = response.flights[i];
+    const result = response.results[i];
+    if (!flight || !result) continue;
+
+    const seg = result.segments?.[0];
+    const isBest = flight.is_best;
+
+    rows.push({
+      origin_iata:      (seg?.from ?? params.origin).slice(0, 3),
+      destination_iata: (seg?.to   ?? params.destination).slice(0, 3),
+      flight_number:    null,
+      airline_iata:     extractAirlineIata(flight.url),
+      departure_time:   toHHMM(seg?.departure ?? null),
+      arrival_time:     toHHMM(seg?.arrival   ?? null),
+      duration_minutes: result.duration_min,
+      stops:            result.stops,
+      aircraft_type:    seg?.plane ?? null,
+      is_overnight:     detectOvernight(seg?.departure ?? null, seg?.arrival ?? null),
+      adults:           params.adults   ?? 2,
+      children:         params.children ?? 0,
+      infants:          params.infants  ?? 0,
+      party_total_gbp:  result.price,
+      booking_token:    extractBookingToken(flight.url),
+      result_bucket:    isBest ? 'best' : 'other',
+      result_rank:      isBest ? bestRank++ : otherRank++,
+      raw_json:         { flight, result },
+    });
+  }
+
+  return rows;
+}
+
+async function crawlioFetch(queryParams: Record<string, string | number>): Promise<CrawlioResponse> {
+  const key = process.env.RAPIDAPI_KEY;
+  if (!key) throw new Error('RAPIDAPI_KEY env var is not set');
+
+  const url = new URL(BASE_URL);
+  for (const [k, v] of Object.entries(queryParams)) {
+    url.searchParams.set(k, String(v));
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      'X-RapidAPI-Key':  key,
+      'X-RapidAPI-Host': RAPIDAPI_HOST,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Crawlio ${res.status}: ${res.statusText}`);
+  }
+
+  const data = (await res.json()) as CrawlioResponse & { message?: string };
+  if (data.message) throw new Error(`Crawlio API: ${data.message}`);
   return data;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Search for flights (one-way or round-trip).
- * Standard path: omit returnDate — one-way, booking_token returned directly.
- * Round-trip: pass returnDate — for ROUND_TRIP_ELIGIBLE_CARRIERS (BA, TP) only.
- */
-export async function fetchFlights(
-  params: FlightSearchParams,
-): Promise<FlightResult[]> {
-  const url = new URL(BASE_URL);
-  for (const [k, v] of Object.entries(buildFlightParams(params))) {
-    url.searchParams.set(k, String(v));
-  }
-  const data = await searchAPIFetch<SearchAPIFlightsResponse>(url);
-  return normalise(data);
-}
-
-/**
- * Stage 1 calendar pre-filter (google_flights_calendar engine).
+ * Fetch one-way flights via Crawlio (google-flights8 on RapidAPI).
+ * Results are sorted by price (sort_by=1), not Google's default 'best' ranking.
  *
- * Returns one entry per day in the date range with the cheapest one-way price
- * across all queried airport combinations. Results are used in-memory only to
- * identify promising dates for Stage 2 detail calls — never written to a table.
+ * Returns FlightRow[] shaped for fare_snapshots INSERT.
+ * Caller must add: run_id, snapshot_type, departure_date.
+ * observed_at is handled by the DB DEFAULT.
  *
- * Both origin and destination accept comma-separated IATA codes for
- * multi-airport queries, e.g. origin='LGW,LHR,STN,LTN,LCY', destination='BCN'.
+ * This is the ONLY function in the TypeScript codebase that contacts RapidAPI.
  */
-export async function fetchCalendarLegs(
-  params: CalendarLegParams,
-): Promise<CalendarLeg[]> {
-  const url = new URL(BASE_URL);
-  url.searchParams.set('engine', 'google_flights_calendar');
-  url.searchParams.set('api_key', process.env.SEARCHAPI_KEY ?? '');
-  url.searchParams.set('departure_id', params.origin);
-  url.searchParams.set('arrival_id', params.destination);
-  url.searchParams.set('outbound_date_start', params.dateStart);
-  url.searchParams.set('outbound_date_end', params.dateEnd);
-  url.searchParams.set('flight_type', 'one_way');
-  url.searchParams.set('currency', params.currency ?? 'GBP');
-  url.searchParams.set('gl', 'gb');
-  url.searchParams.set('hl', 'en');
+export async function fetchFlights(params: FlightSearchParams): Promise<FlightRow[]> {
+  const response = await crawlioFetch({
+    departure_id:   params.origin,
+    arrival_id:     params.destination,
+    outbound_date:  params.date,
+    type:           2,                   // 2 = one-way; 1 = round-trip
+    adults:         params.adults   ?? 2,
+    children:       params.children ?? 0,
+    infants_on_lap: params.infants  ?? 0,
+    currency:       'GBP',
+    hl:             'en',
+    sort_by:        1,                   // price ascending; omit for Google default 'best'
+  });
 
-  const data = await searchAPIFetch<{
-    calendar?: { departure: string; price: number | null; is_lowest_price?: boolean }[];
-  }>(url);
-
-  return (data.calendar ?? []).map(d => ({
-    date: d.departure,
-    price: d.price,
-    currency: params.currency ?? 'GBP',
-    isLowestPrice: d.is_lowest_price,
-  }));
+  return normalise(response, params);
 }
