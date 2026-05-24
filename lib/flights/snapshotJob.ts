@@ -1,85 +1,83 @@
 /**
  * Weekly cross-sectional snapshot job.
  *
- * Two-stage pipeline (per CONTEXT.md):
- *   Stage 1 — google_flights_calendar call per leg direction × window.
- *             In-memory only — results are never written to any table.
- *   Stage 2 — google_flights detail call per promising date × London airport.
- *             Every returned result stored as its own fare_snapshots row.
+ * Architecture (Crawlio era — no calendar pre-filter):
+ *   For each destination × airport × date × composition:
+ *     - One outbound call:  LON → europeanIata
+ *     - One return call:    europeanIata → LON
+ *   Every result stored as its own fare_snapshots row.
+ *
+ * LON city code collapses all 5 London airports into one Crawlio call.
+ * Individual airport attribution appears in response segments[0].from.
  *
  * Borough-blind: fare_snapshots contains no borough data. Borough × window
- * resolution happens in the Layer 3 derived tables.
+ * resolution happens in Layer 3 derived tables.
  *
  * Airport pool model:
- *   destination_airports holds one iata_code row per valid airport per destination.
- *   All (airport_a, airport_b) combinations are valid trip pairs, including same-airport
- *   round trips. Outbound = London → airport_a; return = airport_b → London.
- *   Pair combination is assembled in Layer 3 — the snapshot job collects independent
+ *   destination_airports holds one iata_code per valid European airport per destination.
+ *   Outbound = LON → airport; return = airport → LON.
+ *   Pair combinations are assembled in Layer 3 — the snapshot job collects independent
  *   one-way legs for every airport in each destination's pool.
+ *
+ * Standard run (21 destinations, 12 dates, 4 compositions, 2 directions):
+ *   12 × 21 × 4 × 2 = 2,016 calls/run
  *
  * Pilot scope:
  *   Destinations: barcelona, andalusian-corridor, malta only.
- *   Date window:  outbound 22 Oct – 2 Nov 2026; trip durations 3–4 and 7–10 nights.
+ *   Date window:  22 Oct – 2 Nov 2026 (October half-term ±3 days).
  *
  * Usage (programmatic):
  *   import { runSnapshotJob } from './snapshotJob';
- *   await runSnapshotJob({
- *     targetWindows: [{
- *       label: '2026-10-halfterm',
- *       outboundStart: '2026-10-22',
- *       outboundEnd:   '2026-11-02',
- *       returnStart:   '2026-10-25',
- *       returnEnd:     '2026-11-12',
- *     }],
- *   });
+ *   await runSnapshotJob({ targetWindows: [OCTOBER_2026_HALFTERM] });
  *
  * Usage (direct, pilot):
  *   npx ts-node --project tsconfig.json lib/flights/snapshotJob.ts
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { fetchFlights, fetchCalendarLegs, type FlightResult, type CalendarLeg } from './fetchFlights';
+import { fetchFlights, type FlightRow } from './fetchFlights';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const LONDON_ORIGINS = ['LGW', 'LHR', 'STN', 'LTN', 'LCY'] as const;
+/** LON city code returns all 5 London airports in one Crawlio call. */
+const LON = 'LON';
 
 /** Destinations included in the pilot run. */
 const PILOT_SLUGS = ['barcelona', 'andalusian-corridor', 'malta'] as const;
 
-/** Max promising dates per direction to run Stage 2 detail calls against. */
-const MAX_PROMISING_DATES = 8;
-
-/** Default pilot party: 2 adults, 2 children, 0 infants. */
-const DEFAULT_ADULTS = 2;
-const DEFAULT_CHILDREN = 2;
-const DEFAULT_INFANTS = 0;
 const CURRENCY = 'GBP';
 
-/** Minimum delay between API calls — stay within SearchAPI.io rate limits. */
+/** Minimum delay between API calls (ms). */
 const API_DELAY_MS = 300;
+
+// 4 standard family compositions — every row represents a real Holiday Smart user family.
+export const STANDARD_COMPOSITIONS = [
+  { adults: 1, children: 1, infants: 0 },  // 1A+1C — bucket-splitter unit
+  { adults: 2, children: 1, infants: 0 },  // 2A+1C — single-child families
+  { adults: 2, children: 2, infants: 0 },  // 2A+2C — canonical family / leaderboard baseline
+  { adults: 2, children: 0, infants: 1 },  // 2A+1inf — infant-on-lap families
+] as const;
+
+export type Composition = (typeof STANDARD_COMPOSITIONS)[number];
 
 // ── Public interfaces ─────────────────────────────────────────────────────────
 
 export interface TargetWindow {
   /** Stored in snapshot_runs.target_windows, e.g. '2026-10-halfterm'. */
   label: string;
-  /** First outbound departure date to search, YYYY-MM-DD. */
-  outboundStart: string;
-  /** Last outbound departure date to search, YYYY-MM-DD. */
-  outboundEnd: string;
-  /** First return departure date to search, YYYY-MM-DD. */
-  returnStart: string;
-  /** Last return departure date to search, YYYY-MM-DD. */
-  returnEnd: string;
+  /** First date in the outbound + return scan range, YYYY-MM-DD. */
+  dateStart: string;
+  /** Last date in the outbound + return scan range, YYYY-MM-DD. */
+  dateEnd: string;
 }
 
 export interface JobConfig {
   targetWindows: TargetWindow[];
-  snapshotType?: 'cross_sectional' | 'tracer'; // defaults to 'cross_sectional'
-  adults?: number;
-  children?: number;
-  infants?: number;
+  snapshotType?: 'cross_sectional' | 'tracer';
+  /** Override compositions. Defaults to all 4 STANDARD_COMPOSITIONS. */
+  compositions?: Composition[];
+  /** Override pilot destination slugs. Defaults to PILOT_SLUGS. */
+  destinationSlugs?: string[];
 }
 
 export interface SnapshotJobResult {
@@ -97,16 +95,10 @@ interface DestinationPool {
   airportCodes: string[];
 }
 
-interface CallCounters {
+interface Counters {
   total: number;
   success: number;
   failed: number;
-}
-
-interface Party {
-  adults: number;
-  children: number;
-  infants: number;
 }
 
 // ── Supabase client ───────────────────────────────────────────────────────────
@@ -115,7 +107,9 @@ function getSupabase(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error('Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are both required. Never use the anon key for server-side write jobs.');
+    throw new Error(
+      'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required.',
+    );
   }
   return createClient(url, key);
 }
@@ -145,16 +139,16 @@ async function startRun(
 async function finishRun(
   supabase: SupabaseClient,
   runId: string,
-  counters: CallCounters,
+  counters: Counters,
   notes?: string,
 ): Promise<void> {
   const { error } = await supabase
     .from('snapshot_runs')
     .update({
-      completed_at: new Date().toISOString(),
-      total_calls: counters.total,
+      completed_at:  new Date().toISOString(),
+      total_calls:   counters.total,
       success_calls: counters.success,
-      failed_calls: counters.failed,
+      failed_calls:  counters.failed,
       ...(notes ? { notes } : {}),
     })
     .eq('id', runId);
@@ -164,60 +158,49 @@ async function finishRun(
 
 // ── Reference data ────────────────────────────────────────────────────────────
 
-/**
- * Two simple queries — no joins.
- *
- * Query 1: destinations WHERE slug IN (pilot slugs)
- * Query 2: destination_airports WHERE destination_id IN (...) AND excluded = false
- */
-async function loadDestinationAirports(supabase: SupabaseClient): Promise<DestinationPool[]> {
-  // Query 1 — pilot destinations
-  const { data: destData, error: destError } = await supabase
+async function loadDestinationPools(
+  supabase: SupabaseClient,
+  slugs: readonly string[],
+): Promise<DestinationPool[]> {
+  const { data: destData, error: destErr } = await supabase
     .from('destinations')
     .select('id, slug')
-    .in('slug', [...PILOT_SLUGS]);
+    .in('slug', [...slugs]);
 
-  if (destError) throw new Error(`destinations query failed: ${destError.message}`);
+  if (destErr) throw new Error(`destinations query failed: ${destErr.message}`);
 
   const dests = (destData ?? []) as Array<{ id: string; slug: string }>;
-  console.log(`[snapshot] destinations query: ${dests.length} row(s) returned`);
+  console.log(`[snapshot] destinations: ${dests.length} row(s)`);
 
   if (dests.length === 0) {
-    console.warn(`[snapshot] WARNING: no destinations matched slugs [${PILOT_SLUGS.join(', ')}]`);
+    console.warn(`[snapshot] WARNING: no destinations matched slugs [${slugs.join(', ')}]`);
     return [];
   }
 
-  // Query 2 — non-excluded airports for those destination IDs
   const destIds = dests.map(d => d.id);
-  const { data: airportData, error: airportError } = await supabase
+
+  const { data: airportData, error: airportErr } = await supabase
     .from('destination_airports')
     .select('destination_id, iata_code')
     .in('destination_id', destIds)
     .eq('excluded', false);
 
-  if (airportError) throw new Error(`destination_airports query failed: ${airportError.message}`);
+  if (airportErr) throw new Error(`destination_airports query failed: ${airportErr.message}`);
 
   const airports = (airportData ?? []) as Array<{ destination_id: string; iata_code: string }>;
-  console.log(`[snapshot] destination_airports query: ${airports.length} row(s) returned`);
+  console.log(`[snapshot] destination_airports: ${airports.length} row(s)`);
 
-  if (airports.length === 0) {
-    console.warn(`[snapshot] WARNING: no airports found with excluded=false for ${dests.length} destination(s)`);
-    return [];
-  }
-
-  // Group airports by destination_id
   const codesByDestId: Record<string, string[]> = {};
   for (const row of airports) {
-    if (!codesByDestId[row.destination_id]) codesByDestId[row.destination_id] = [];
-    codesByDestId[row.destination_id].push(row.iata_code);
+    (codesByDestId[row.destination_id] ??= []).push(row.iata_code);
   }
 
-  const pools: DestinationPool[] = dests
+  const pools = dests
     .map(d => ({ destinationId: d.id, slug: d.slug, airportCodes: codesByDestId[d.id] ?? [] }))
     .filter(d => d.airportCodes.length > 0);
 
   for (const dest of pools) {
-    console.log(`[snapshot] ${dest.slug}: airport pool = [${dest.airportCodes.join(', ')}]`);
+    console.log(`[snapshot] ${dest.slug}: pool = [${dest.airportCodes.join(', ')}]`);
   }
 
   return pools;
@@ -231,39 +214,15 @@ export function addDays(dateStr: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// ── Calendar pre-filter (Stage 1) ─────────────────────────────────────────────
-
-/**
- * Select up to MAX_PROMISING_DATES dates for Stage 2 detail calls.
- * Prioritises dates flagged is_lowest_price, then fills to cap by price ascending.
- */
-function selectPromisingDates(legs: CalendarLeg[], max = MAX_PROMISING_DATES): string[] {
-  const available = legs.filter(l => l.price !== null);
-  if (available.length === 0) return [];
-
-  const flagged = available.filter(l => l.isLowestPrice).map(l => l.date);
-  const remaining = available
-    .filter(l => !l.isLowestPrice)
-    .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
-    .map(l => l.date);
-
-  return [...new Set([...flagged, ...remaining])].slice(0, max);
-}
-
-// ── Time helpers for fare_snapshots columns ───────────────────────────────────
-
-/** Extract HH:MM from '2026-10-26 07:15', '2026-10-26T07:15', or '07:15'. */
-function extractTime(apiTime: string): string {
-  const parts = apiTime.trim().split(/[\sT]/);
-  return parts[parts.length - 1].slice(0, 5);
-}
-
-/** Detect overnight flight when API returns full datetime strings. */
-function isOvernight(depTime: string, arrTime: string): boolean {
-  const dep = depTime.trim().split(/[\sT]/);
-  const arr = arrTime.trim().split(/[\sT]/);
-  if (dep.length >= 2 && arr.length >= 2) return dep[0] !== arr[0];
-  return false;
+/** Generate every date from start to end inclusive. */
+function dateRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  let cur = start;
+  while (cur <= end) {
+    dates.push(cur);
+    cur = addDays(cur, 1);
+  }
+  return dates;
 }
 
 // ── fare_snapshots insert ─────────────────────────────────────────────────────
@@ -272,52 +231,46 @@ async function insertFareSnapshots(
   supabase: SupabaseClient,
   runId: string,
   snapshotType: string,
-  results: FlightResult[],
+  rows: FlightRow[],
   departureDate: string,
-  originIata: string,
-  destinationIata: string,
-  party: Party,
 ): Promise<{ ok: number; fail: number }> {
-  if (results.length === 0) return { ok: 0, fail: 0 };
+  if (rows.length === 0) return { ok: 0, fail: 0 };
 
-  // Track rank independently within each bucket (best / other)
-  let bestRank = 1;
-  let otherRank = 1;
-
-  const rows = results.map(r => ({
-    run_id: runId,
-    snapshot_type: snapshotType,
-    origin_iata: originIata,
-    destination_iata: destinationIata,
-    departure_date: departureDate,
-    flight_number: r.flightNumber,
-    airline_iata: r.airlineIata,
-    departure_time: extractTime(r.departureTime),
-    arrival_time: extractTime(r.arrivalTime),
-    duration_minutes: r.durationMinutes,
-    stops: r.stopCount,
-    is_overnight: isOvernight(r.departureTime, r.arrivalTime),
-    adults: party.adults,
-    children: party.children,
-    infants: party.infants,
-    party_total_gbp: r.price,
-    booking_token: r.bookingToken || null,
-    result_bucket: r.isBestFlight ? 'best' : 'other',
-    result_rank: r.isBestFlight ? bestRank++ : otherRank++,
-    raw_json: r.rawJson,
+  const records = rows.map(r => ({
+    run_id:           runId,
+    snapshot_type:    snapshotType,
+    departure_date:   departureDate,
+    origin_iata:      r.origin_iata,
+    destination_iata: r.destination_iata,
+    flight_number:    r.flight_number,
+    airline_iata:     r.airline_iata,
+    departure_time:   r.departure_time,
+    arrival_time:     r.arrival_time,
+    duration_minutes: r.duration_minutes,
+    stops:            r.stops,
+    aircraft_type:    r.aircraft_type,
+    is_overnight:     r.is_overnight,
+    adults:           r.adults,
+    children:         r.children,
+    infants:          r.infants,
+    party_total_gbp:  r.party_total_gbp,
+    booking_token:    r.booking_token,
+    result_bucket:    r.result_bucket,
+    result_rank:      r.result_rank,
+    raw_json:         r.raw_json,
   }));
 
   // Append-only — INSERT, never upsert
-  const { error } = await supabase.from('fare_snapshots').insert(rows);
+  const { error } = await supabase.from('fare_snapshots').insert(records);
 
   if (error) {
     console.error(
-      `[snapshot] fare_snapshots INSERT failed (${originIata}→${destinationIata} ${departureDate}): ${error.message}`,
+      `[snapshot] INSERT failed (${rows[0]?.origin_iata}→${rows[0]?.destination_iata} ${departureDate}): ${error.message}`,
     );
-    return { ok: 0, fail: rows.length };
+    return { ok: 0, fail: records.length };
   }
 
-  return { ok: rows.length, fail: 0 };
+  return { ok: records.length, fail: 0 };
 }
 
 // ── Retry wrapper ─────────────────────────────────────────────────────────────
@@ -344,123 +297,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ── One direction per airport × window ───────────────────────────────────────
-
-/**
- * Outbound: all 5 London airports → europeanIata.
- *   Calendar call uses comma-separated London origins (one API call covers all).
- *   Detail calls iterate each London airport individually.
- *
- * Return: europeanIata → all 5 London airports.
- *   Calendar call uses comma-separated London destinations (one API call covers all).
- *   Detail calls iterate each London airport individually.
- */
-async function runLegDirection(
-  supabase: SupabaseClient,
-  runId: string,
-  snapshotType: string,
-  europeanIata: string,
-  direction: 'outbound' | 'return',
-  dateStart: string,
-  dateEnd: string,
-  party: Party,
-  counters: CallCounters,
-): Promise<void> {
-  const londonBlock = LONDON_ORIGINS.join(',');
-  const calendarOrigin = direction === 'outbound' ? londonBlock : europeanIata;
-  const calendarDest   = direction === 'outbound' ? europeanIata : londonBlock;
-
-  // Stage 1 — calendar pre-filter (in-memory, never persisted)
-  const calendarLegs = await withRetry(
-    () => fetchCalendarLegs({
-      origin: calendarOrigin,
-      destination: calendarDest,
-      dateStart,
-      dateEnd,
-      currency: CURRENCY,
-    }),
-    `calendar ${direction} ${europeanIata} ${dateStart}..${dateEnd}`,
-  );
-
-  if (!calendarLegs || calendarLegs.length === 0) {
-    console.warn(`[snapshot] No calendar data — ${direction} ${europeanIata} ${dateStart}..${dateEnd}`);
-    return;
-  }
-
-  const promisingDates = selectPromisingDates(calendarLegs);
-  const pricedCount = calendarLegs.filter(l => l.price !== null).length;
-  console.log(
-    `[snapshot] ${direction} ${europeanIata}: ${promisingDates.length} promising dates` +
-    ` (from ${pricedCount} priced calendar entries)`,
-  );
-
-  // Stage 2 — detail calls per promising date × London airport
-  for (const date of promisingDates) {
-    for (const londonIata of LONDON_ORIGINS) {
-      const origin      = direction === 'outbound' ? londonIata   : europeanIata;
-      const destination = direction === 'outbound' ? europeanIata : londonIata;
-
-      counters.total++;
-      await sleep(API_DELAY_MS);
-
-      const results = await withRetry(
-        () => fetchFlights({
-          origin,
-          destination,
-          outboundDate: date,
-          adults: party.adults,
-          children: party.children,
-          currency: CURRENCY,
-        }),
-        `detail ${origin}→${destination} ${date}`,
-      );
-
-      if (!results) {
-        counters.failed++;
-        continue;
-      }
-
-      if (results.length === 0) {
-        console.log(`[snapshot] 0 results — ${origin}→${destination} ${date}`);
-        counters.success++;
-        continue;
-      }
-
-      const { ok, fail } = await insertFareSnapshots(
-        supabase, runId, snapshotType,
-        results, date, origin, destination, party,
-      );
-
-      console.log(
-        `[snapshot] ${origin}→${destination} ${date}: ${ok} rows inserted` +
-        (fail ? `, ${fail} failed` : ''),
-      );
-      if (fail > 0) counters.failed++; else counters.success++;
-    }
-  }
-}
-
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResult> {
-  const snapshotType = config.snapshotType ?? 'cross_sectional';
-  const party: Party = {
-    adults:   config.adults   ?? DEFAULT_ADULTS,
-    children: config.children ?? DEFAULT_CHILDREN,
-    infants:  config.infants  ?? DEFAULT_INFANTS,
-  };
+  const snapshotType   = config.snapshotType  ?? 'cross_sectional';
+  const compositions   = config.compositions  ?? [...STANDARD_COMPOSITIONS];
+  const destinationSlugs = config.destinationSlugs ?? [...PILOT_SLUGS];
 
   console.log('[snapshot] job started', new Date().toISOString());
   console.log(
     `[snapshot] type=${snapshotType}  ` +
-    `party=${party.adults}A+${party.children}C+${party.infants}I  ` +
+    `compositions=${compositions.length}  ` +
     `windows=${config.targetWindows.map(w => w.label).join(', ')}`,
   );
 
   const supabase = getSupabase();
-  const counters: CallCounters = { total: 0, success: 0, failed: 0 };
+  const counters: Counters = { total: 0, success: 0, failed: 0 };
 
-  // 1. Register run — every fare_snapshots row references this run_id
+  // 1. Register run
   let runId: string;
   try {
     runId = await startRun(supabase, snapshotType, config.targetWindows);
@@ -470,14 +324,12 @@ export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResu
     throw err;
   }
 
-  // 2. Load destination airport pools (pilot: barcelona, andalusian-corridor, malta only)
+  // 2. Load destination airport pools
   let destinations: DestinationPool[];
   try {
-    destinations = await loadDestinationAirports(supabase);
-    const totalAirports = destinations.reduce((n, d) => n + d.airportCodes.length, 0);
-    console.log(`[snapshot] ${destinations.length} destinations, ${totalAirports} airports in pools`);
+    destinations = await loadDestinationPools(supabase, destinationSlugs);
     if (destinations.length === 0) {
-      const msg = 'No airport pools loaded — seed destinations and destination_airports before running.';
+      const msg = 'No airport pools loaded — seed destinations and destination_airports first.';
       await finishRun(supabase, runId, counters, msg);
       console.error(`[snapshot] ${msg}`);
       return { runId, ...counters };
@@ -487,48 +339,82 @@ export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResu
     throw err;
   }
 
-  // 3. Main loop: windows × destinations × airport pairs × directions
-  //
-  // For each destination pool, all (airport_a, airport_b) pairs are valid trip combinations,
-  // including same-airport round trips. Because pairs share the same pool, the set of unique
-  // outbound airports and unique return airports both equal the pool itself — so we iterate
-  // the pool directly to avoid redundant API calls while covering all pair combinations.
+  // 3. Main loop: window × destination × airport × date × composition × direction
   try {
     for (const window of config.targetWindows) {
+      const dates = dateRange(window.dateStart, window.dateEnd);
       console.log(
-        `[snapshot] window ${window.label}` +
-        `  outbound ${window.outboundStart}..${window.outboundEnd}` +
-        `  return ${window.returnStart}..${window.returnEnd}`,
+        `[snapshot] window ${window.label}: ${dates.length} dates ` +
+        `(${window.dateStart} – ${window.dateEnd})`,
       );
 
       for (const dest of destinations) {
-        const pool = dest.airportCodes;
-        const pairCount = pool.length * pool.length;
-        console.log(
-          `[snapshot] ${dest.slug}: ${pool.length} airports → ${pairCount} pairs` +
-          ` (airport_a × airport_b, including same-airport round trips)`,
-        );
+        console.log(`[snapshot] ${dest.slug}: pool = [${dest.airportCodes.join(', ')}]`);
 
-        // Outbound: London → each airport in pool (covers airport_a for all pairs)
-        for (const airportA of pool) {
-          await runLegDirection(
-            supabase, runId, snapshotType,
-            airportA,
-            'outbound',
-            window.outboundStart, window.outboundEnd,
-            party, counters,
-          );
-        }
+        for (const europeanIata of dest.airportCodes) {
+          for (const date of dates) {
+            for (const comp of compositions) {
+              const compLabel = `${comp.adults}A+${comp.children}C+${comp.infants}I`;
 
-        // Return: each airport in pool → London (covers airport_b for all pairs)
-        for (const airportB of pool) {
-          await runLegDirection(
-            supabase, runId, snapshotType,
-            airportB,
-            'return',
-            window.returnStart, window.returnEnd,
-            party, counters,
-          );
+              // Outbound: LON → europeanIata
+              counters.total++;
+              await sleep(API_DELAY_MS);
+
+              const outbound = await withRetry(
+                () => fetchFlights({
+                  origin:      LON,
+                  destination: europeanIata,
+                  date,
+                  adults:   comp.adults,
+                  children: comp.children,
+                  infants:  comp.infants,
+                }),
+                `outbound LON→${europeanIata} ${date} ${compLabel}`,
+              );
+
+              if (!outbound) {
+                counters.failed++;
+              } else {
+                const { ok, fail } = await insertFareSnapshots(
+                  supabase, runId, snapshotType, outbound, date,
+                );
+                console.log(
+                  `[snapshot] LON→${europeanIata} ${date} ${compLabel}: ${ok} rows` +
+                  (fail ? ` (${fail} failed)` : ''),
+                );
+                if (fail > 0) counters.failed++; else counters.success++;
+              }
+
+              // Return: europeanIata → LON
+              counters.total++;
+              await sleep(API_DELAY_MS);
+
+              const inbound = await withRetry(
+                () => fetchFlights({
+                  origin:      europeanIata,
+                  destination: LON,
+                  date,
+                  adults:   comp.adults,
+                  children: comp.children,
+                  infants:  comp.infants,
+                }),
+                `return ${europeanIata}→LON ${date} ${compLabel}`,
+              );
+
+              if (!inbound) {
+                counters.failed++;
+              } else {
+                const { ok, fail } = await insertFareSnapshots(
+                  supabase, runId, snapshotType, inbound, date,
+                );
+                console.log(
+                  `[snapshot] ${europeanIata}→LON ${date} ${compLabel}: ${ok} rows` +
+                  (fail ? ` (${fail} failed)` : ''),
+                );
+                if (fail > 0) counters.failed++; else counters.success++;
+              }
+            }
+          }
         }
       }
     }
@@ -547,19 +433,17 @@ export async function runSnapshotJob(config: JobConfig): Promise<SnapshotJobResu
   return { runId, ...counters };
 }
 
-// Direct execution — pilot config for October 2026 half-term
-// Outbound: 22 Oct – 2 Nov 2026; trip durations 3–4 and 7–10 nights.
-// Return range: outboundStart + 3 nights → outboundEnd + 10 nights.
-// Production invocation goes through /pages/api/cron/flight-snapshot.ts
+// ── Direct execution — October 2026 half-term pilot ───────────────────────────
+
+export const OCTOBER_2026_HALFTERM: TargetWindow = {
+  label:     '2026-10-halfterm',
+  dateStart: '2026-10-22',
+  dateEnd:   '2026-11-02',   // 12 dates (window ±3 days around half-term)
+};
+
 if (require.main === module) {
   runSnapshotJob({
-    targetWindows: [{
-      label:         '2026-10-halfterm',
-      outboundStart: '2026-10-22',
-      outboundEnd:   '2026-11-02',
-      returnStart:   '2026-10-25', // 2026-10-22 + 3 nights
-      returnEnd:     '2026-11-12', // 2026-11-02 + 10 nights
-    }],
+    targetWindows: [OCTOBER_2026_HALFTERM],
   }).catch(err => {
     console.error('[snapshot] fatal:', err);
     process.exit(1);
