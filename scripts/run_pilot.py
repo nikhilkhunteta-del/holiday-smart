@@ -77,10 +77,10 @@ API_DELAY_S = 0.3   # delay between calls to stay within rate limits
 def crawlio_call(
     origin: str,
     destination: str,
-    flight_date: str,
+    date: str,
     adults: int,
     children: int,
-    infants: int,
+    infants: int = 0,
 ) -> dict:
     """
     Make one one-way flight search call to Crawlio (google-flights8 on RapidAPI).
@@ -91,10 +91,9 @@ def crawlio_call(
         raise EnvironmentError("RAPIDAPI_KEY env var is not set")
 
     params = {
-        "departure_id":  origin,
-        "arrival_id":    destination,
-        "outbound_date": flight_date,
-        "type":          2,          # 2 = one-way
+        "origin":        origin,
+        "destination":   destination,
+        "date":          date,
         "adults":        adults,
         "children":      children,
         "infants_on_lap": infants,
@@ -174,7 +173,7 @@ def parse_response(
     raw: dict,
     origin: str,
     destination: str,
-    flight_date: str,
+    date: str,
     adults: int,
     children: int,
     infants: int,
@@ -212,7 +211,7 @@ def parse_response(
         rows.append({
             "origin_iata":      (seg.get("from") or origin)[:3],
             "destination_iata": (seg.get("to")   or destination)[:3],
-            "departure_date":   flight_date,
+            "departure_date":   date,
             "flight_number":    None,
             "airline_iata":     extract_airline_iata(url),
             "departure_time":   dep_time,
@@ -343,10 +342,9 @@ def test_single_call() -> None:
     raw = crawlio_call(
         origin="LON",
         destination="BCN",
-        flight_date="2026-10-25",
+        date="2026-10-25",
         adults=2,
         children=2,
-        infants=0,
     )
     print("\n── Raw Crawlio response ───────────────────────────────")
     print(json.dumps(raw, indent=2))
@@ -412,7 +410,7 @@ def main() -> None:
                                 raw = crawlio_call(
                                     origin=origin,
                                     destination=destination,
-                                    flight_date=flight_date,
+                                    date=flight_date,
                                     adults=comp["adults"],
                                     children=comp["children"],
                                     infants=comp["infants"],
