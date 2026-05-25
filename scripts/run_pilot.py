@@ -71,15 +71,48 @@ COMPOSITIONS = [
 API_DELAY_S = 0.3   # delay between calls to stay within rate limits
 
 AIRLINE_IATA = {
-    'Vueling': 'VY', 'British Airways': 'BA', 'Iberia': 'IB',
-    'Wizz Air': 'W6', 'Eurowings': 'EW', 'easyJet': 'U2',
-    'Ryanair': 'FR', 'KLM': 'KL', 'Air France': 'AF',
-    'Lufthansa': 'LH', 'TAP Air Portugal': 'TP', 'Norwegian': 'DY',
-    'SWISS': 'LX', 'Turkish Airlines': 'TK', 'Condor': 'DE',
-    'ITA': 'AZ', 'Air Europa': 'UX', 'Scandinavian Airlines': 'SK',
-    'Air Malta': 'KM', 'Malta Air': 'KM', 'Jet2': 'LS',
-    'TUI Airways': 'BY', 'easyJet Switzerland': 'DS',
-    'Transavia': 'HV', 'Volotea': 'V7', 'Wizz Air Malta': 'W6',
+    # Major carriers
+    'Vueling': 'VY',
+    'British Airways': 'BA',
+    'Iberia': 'IB',
+    'Wizz Air': 'W6',
+    'Wizz Air Malta': 'W6',
+    'Eurowings': 'EW',
+    'easyJet': 'U2',
+    'easyJet Switzerland': 'DS',
+    'Ryanair': 'FR',
+    'Ryanair UK': 'RK',
+    'KLM': 'KL',
+    'Air France': 'AF',
+    'Lufthansa': 'LH',
+    'Lufthansa City Airlines': 'CL',
+    'Tap Air Portugal': 'TP',
+    'TAP Air Portugal': 'TP',
+    'Norwegian': 'DY',
+    'SWISS': 'LX',
+    'Turkish Airlines': 'TK',
+    'Condor': 'DE',
+    'ITA': 'AZ',
+    'Air Europa': 'UX',
+    'Scandinavian Airlines': 'SK',
+    'KM Malta Airlines': 'KM',
+    'Air Malta': 'KM',
+    'Malta Air': 'KM',
+    'Jet2': 'LS',
+    'TUI Airways': 'BY',
+    'Transavia': 'HV',
+    'Volotea': 'V7',
+    'Brussels Airlines': 'SN',
+    'Luxair': 'LG',
+    'Aegean': 'A3',
+    'Air Dolomiti': 'EN',
+    'Austrian': 'OS',
+    'LOT': 'LO',
+    'Finnair': 'AY',
+    'Edelweiss Air': 'WK',
+    'Discover Airlines': '4Y',
+    'Air Serbia': 'JU',
+    'Royal Air Maroc': 'AT',
 }
 
 # ── Crawlio API ───────────────────────────────────────────────────────────────
@@ -136,7 +169,7 @@ def lookup_airline_iata(name: Optional[str]) -> Optional[str]:
     if iata:
         return iata
     fallback = name[:2].upper()
-    log.warning(f"Unknown airline '{name}' — using fallback '{fallback}'. Add to AIRLINE_IATA.")
+    log.warning(f"[snapshot] WARNING: unknown airline name \"{name}\" — stored fallback code \"{fallback}\". Add to AIRLINE_IATA lookup.")
     return fallback
 
 
