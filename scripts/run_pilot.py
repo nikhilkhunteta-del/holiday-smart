@@ -22,10 +22,8 @@ Environment variables required:
 """
 
 import os
-import re
 import time
 import json
-import base64
 import logging
 from datetime import date, timedelta
 from urllib.parse import urlparse, parse_qs
@@ -72,6 +70,18 @@ COMPOSITIONS = [
 
 API_DELAY_S = 0.3   # delay between calls to stay within rate limits
 
+AIRLINE_IATA = {
+    'Vueling': 'VY', 'British Airways': 'BA', 'Iberia': 'IB',
+    'Wizz Air': 'W6', 'Eurowings': 'EW', 'easyJet': 'U2',
+    'Ryanair': 'FR', 'KLM': 'KL', 'Air France': 'AF',
+    'Lufthansa': 'LH', 'TAP Air Portugal': 'TP', 'Norwegian': 'DY',
+    'SWISS': 'LX', 'Turkish Airlines': 'TK', 'Condor': 'DE',
+    'ITA': 'AZ', 'Air Europa': 'UX', 'Scandinavian Airlines': 'SK',
+    'Air Malta': 'KM', 'Malta Air': 'KM', 'Jet2': 'LS',
+    'TUI Airways': 'BY', 'easyJet Switzerland': 'DS',
+    'Transavia': 'HV', 'Volotea': 'V7', 'Wizz Air Malta': 'W6',
+}
+
 # ── Crawlio API ───────────────────────────────────────────────────────────────
 
 def crawlio_call(
@@ -98,8 +108,7 @@ def crawlio_call(
         "children":      children,
         "infants_on_lap": infants,
         "currency":      "GBP",
-        "hl":            "en",
-        "sort_by":       1,          # 1 = price ascending
+        "sort_by":       "price",
     }
 
     headers = {
@@ -119,25 +128,16 @@ def crawlio_call(
 
 # ── Response parsing ──────────────────────────────────────────────────────────
 
-def extract_airline_iata(flight_url: str) -> Optional[str]:
-    """
-    Base64-decode the tfu URL param to extract the IATA airline code.
-    e.g. tfu=EgZGUjc4MDc → decoded bytes contain 'FR7807' → returns 'FR'
-    """
-    try:
-        parsed = urlparse(flight_url)
-        params = parse_qs(parsed.query)
-        tfu_list = params.get("tfu", [])
-        if not tfu_list:
-            return None
-        tfu = tfu_list[0]
-        # Add padding
-        padded = tfu + "=" * ((4 - len(tfu) % 4) % 4)
-        decoded = base64.b64decode(padded).decode("latin-1")
-        match = re.search(r"([A-Z][A-Z0-9])\d{2,5}", decoded)
-        return match.group(1) if match else None
-    except Exception:
+def lookup_airline_iata(name: Optional[str]) -> Optional[str]:
+    """Look up IATA code from airline name via AIRLINE_IATA dict."""
+    if not name:
         return None
+    iata = AIRLINE_IATA.get(name)
+    if iata:
+        return iata
+    fallback = name[:2].upper()
+    log.warning(f"Unknown airline '{name}' — using fallback '{fallback}'. Add to AIRLINE_IATA.")
+    return fallback
 
 
 def extract_booking_token(flight_url: str) -> Optional[str]:
@@ -200,6 +200,7 @@ def parse_response(
         last_seg = segments[-1]
         is_best = flight.get("is_best", False)
         url = flight.get("url", "")
+        airline_name = (flight.get("airlines") or [None])[0]
 
         dep_time = to_hhmm(first_seg.get("departure"))
         arr_time = to_hhmm(last_seg.get("arrival"))
@@ -215,7 +216,7 @@ def parse_response(
             "destination_iata": (last_seg.get("to")    or destination)[:3],
             "departure_date":   date,
             "flight_number":    None,
-            "airline_iata":     extract_airline_iata(url),
+            "airline_iata":     lookup_airline_iata(airline_name),
             "departure_time":   dep_time,
             "arrival_time":     arr_time,
             "duration_minutes": result.get("duration_min"),
@@ -319,6 +320,38 @@ def load_destination_pools(supabase: Client) -> dict[str, list[str]]:
     return pools
 
 
+def already_collected(
+    supabase: Client,
+    run_id: str,
+    origin: str,
+    destination: str,
+    date: str,
+    adults: int,
+    children: int,
+    infants: int,
+) -> bool:
+    """
+    Returns True if fare_snapshots already has rows for this call in the current run.
+    For outbound calls (origin=LON), matches on destination_iata = destination.
+    For return calls (destination=LON), matches on origin_iata = origin.
+    Allows the pilot to be re-run after a failure without creating duplicate rows.
+    """
+    q = (
+        supabase.table("fare_snapshots")
+        .select("id")
+        .eq("run_id", run_id)
+        .eq("departure_date", date)
+        .eq("adults", adults)
+        .eq("children", children)
+        .eq("infants", infants)
+    )
+    if origin == LON:
+        q = q.eq("destination_iata", destination)
+    else:
+        q = q.eq("origin_iata", origin)
+    return bool(q.limit(1).execute().data)
+
+
 def insert_rows(supabase: Client, run_id: str, rows: list[dict]) -> tuple[int, int]:
     if not rows:
         return 0, 0
@@ -405,6 +438,13 @@ def main() -> None:
                             ("outbound", LON,  iata),
                             ("return",   iata, LON),
                         ]:
+                            if already_collected(
+                                supabase, run_id, origin, destination,
+                                flight_date, comp["adults"], comp["children"], comp["infants"],
+                            ):
+                                log.info(f"skip (already collected): {origin}→{destination} {flight_date} {label}")
+                                continue
+
                             total += 1
                             time.sleep(API_DELAY_S)
 
