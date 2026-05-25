@@ -195,12 +195,14 @@ def parse_response(
         if not flight or not result:
             continue
 
-        seg = (result.get("segments") or [{}])[0]
+        segments = result.get("segments") or [{}]
+        first_seg = segments[0]
+        last_seg = segments[-1]
         is_best = flight.get("is_best", False)
         url = flight.get("url", "")
 
-        dep_time = to_hhmm(seg.get("departure"))
-        arr_time = to_hhmm(seg.get("arrival"))
+        dep_time = to_hhmm(first_seg.get("departure"))
+        arr_time = to_hhmm(last_seg.get("arrival"))
 
         # Skip rows where times are null if DB columns are still NOT NULL.
         # Remove this guard once departure_time / arrival_time are made nullable.
@@ -209,8 +211,8 @@ def parse_response(
             continue
 
         rows.append({
-            "origin_iata":      (seg.get("from") or origin)[:3],
-            "destination_iata": (seg.get("to")   or destination)[:3],
+            "origin_iata":      (first_seg.get("from") or origin)[:3],
+            "destination_iata": (last_seg.get("to")    or destination)[:3],
             "departure_date":   date,
             "flight_number":    None,
             "airline_iata":     extract_airline_iata(url),
@@ -218,8 +220,8 @@ def parse_response(
             "arrival_time":     arr_time,
             "duration_minutes": result.get("duration_min"),
             "stops":            result.get("stops", 0),
-            "aircraft_type":    seg.get("plane"),
-            "is_overnight":     is_overnight(seg.get("departure"), seg.get("arrival")),
+            "aircraft_type":    first_seg.get("plane"),
+            "is_overnight":     is_overnight(first_seg.get("departure"), last_seg.get("arrival")),
             "adults":           adults,
             "children":         children,
             "infants":          infants,
