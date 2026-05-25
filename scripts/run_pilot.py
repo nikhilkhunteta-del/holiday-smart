@@ -5,7 +5,8 @@ Holiday Smart — Pilot flight snapshot runner (Crawlio via RapidAPI).
 Reads airport pools from destination_airports table (NOT destination_legs — that table
 no longer exists). Uses LON city code for all London-side queries.
 Runs 4 family compositions per call: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
-Pilot scope: barcelona, andalusian-corridor, malta. October 2026 half-term only.
+Pilot scope: barcelona, andalusian-corridor, malta. October 2026 half-term.
+Date ranges are destination-type-aware: cities/resorts use a wider window, circuits a narrower outbound window.
 
 Usage (Colab):
   # Run this file as a cell to define all functions, then call manually:
@@ -52,12 +53,6 @@ LON = "LON"
 
 PILOT_SLUGS = ["barcelona", "andalusian-corridor", "malta"]
 
-# October 2026 half-term — 12 outbound date candidates (window ±3 days).
-# Same date range used for return leg queries.
-OCTOBER_2026_DATES = [
-    str(date(2026, 10, 22) + timedelta(days=i))
-    for i in range(12)   # 2026-10-22 through 2026-11-02
-]
 WINDOW_LABEL = "2026-10-halfterm"
 
 # 4 standard family compositions.
@@ -68,7 +63,7 @@ COMPOSITIONS = [
     {"adults": 2, "children": 0, "infants": 1, "label": "2A+1inf"},
 ]
 
-API_DELAY_S = 0.3   # delay between calls to stay within rate limits
+API_DELAY_SECS = 0.6   # delay between calls to stay within rate limits
 
 AIRLINE_IATA = {
     # Major carriers
@@ -310,14 +305,26 @@ def finish_run(supabase: Client, run_id: str, total: int, success: int, failed: 
     }).eq("id", run_id).execute()
 
 
-def load_destination_pools(supabase: Client) -> dict[str, list[str]]:
+def date_range(start: str, end: str) -> list[str]:
+    """Generate all YYYY-MM-DD strings from start to end inclusive."""
+    result = []
+    cur = date.fromisoformat(start)
+    last = date.fromisoformat(end)
+    while cur <= last:
+        result.append(str(cur))
+        cur += timedelta(days=1)
+    return result
+
+
+def load_destination_pools(supabase: Client) -> dict[str, dict]:
     """
-    Returns {slug: [iata_code, ...]} for pilot destinations.
+    Returns {slug: {"type": str, "airport_codes": [iata, ...]}} for pilot destinations.
     Reads from destination_airports — destination_legs no longer exists.
+    The type field drives per-destination date range selection in main().
     """
     dest_resp = (
         supabase.table("destinations")
-        .select("id, slug")
+        .select("id, slug, type")
         .in_("slug", PILOT_SLUGS)
         .execute()
     )
@@ -328,8 +335,8 @@ def load_destination_pools(supabase: Client) -> dict[str, list[str]]:
         log.warning(f"No destinations matched slugs: {PILOT_SLUGS}")
         return {}
 
-    dest_id_to_slug = {d["id"]: d["slug"] for d in dests}
-    dest_ids = list(dest_id_to_slug.keys())
+    dest_id_to_meta = {d["id"]: {"slug": d["slug"], "type": d.get("type")} for d in dests}
+    dest_ids = list(dest_id_to_meta.keys())
 
     airport_resp = (
         supabase.table("destination_airports")
@@ -341,14 +348,17 @@ def load_destination_pools(supabase: Client) -> dict[str, list[str]]:
     airports = airport_resp.data or []
     log.info(f"destination_airports: {len(airports)} row(s)")
 
-    pools: dict[str, list[str]] = {}
+    pools: dict[str, dict] = {}
     for row in airports:
-        slug = dest_id_to_slug.get(row["destination_id"])
-        if slug:
-            pools.setdefault(slug, []).append(row["iata_code"])
+        meta = dest_id_to_meta.get(row["destination_id"])
+        if meta:
+            slug = meta["slug"]
+            if slug not in pools:
+                pools[slug] = {"type": meta["type"], "airport_codes": []}
+            pools[slug]["airport_codes"].append(row["iata_code"])
 
-    for slug, codes in pools.items():
-        log.info(f"  {slug}: pool = {codes}")
+    for slug, info in pools.items():
+        log.info(f"  {slug} (type={info['type']}): pool = {info['airport_codes']}")
 
     return pools
 
@@ -436,11 +446,35 @@ def test_single_call() -> None:
 
 # ── Full pilot run ────────────────────────────────────────────────────────────
 
+def _dates_for_type(dest_type: Optional[str]) -> tuple[list[str], list[str]]:
+    """
+    Return (outbound_dates, return_dates) for a destination based on its type.
+
+    Cities / resorts: wide window to capture weekend-to-weekend trips.
+      outbound 2026-10-21 – 2026-11-01  (12 dates)
+      return   2026-10-24 – 2026-11-04  (12 dates)
+
+    Circuits: narrow outbound (short departure window) + wide return.
+      outbound 2026-10-21 – 2026-10-26  (6 dates)
+      return   2026-10-28 – 2026-11-04  (8 dates)
+    """
+    if dest_type == "circuit":
+        return (
+            date_range("2026-10-21", "2026-10-26"),
+            date_range("2026-10-28", "2026-11-04"),
+        )
+    # city, resort, or unknown — use wide window
+    return (
+        date_range("2026-10-21", "2026-11-01"),
+        date_range("2026-10-24", "2026-11-04"),
+    )
+
+
 def main() -> None:
     """
     Run the full October 2026 half-term pilot.
     Destinations: barcelona, andalusian-corridor, malta.
-    Dates: 2026-10-22 – 2026-11-02 (12 dates).
+    Date ranges: type-aware — cities/resorts use a wider window, circuits a narrower one.
     Compositions: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
     Directions: outbound (LON → airport) + return (airport → LON).
 
@@ -459,57 +493,99 @@ def main() -> None:
     inserted_rows = 0
 
     try:
-        for slug, airport_codes in pools.items():
-            log.info(f"destination: {slug}  airports: {airport_codes}")
+        for slug, dest_info in pools.items():
+            airport_codes = dest_info["airport_codes"]
+            outbound_dates, return_dates = _dates_for_type(dest_info["type"])
+            log.info(
+                f"destination: {slug} (type={dest_info['type']})  airports: {airport_codes}  "
+                f"outbound_dates: {outbound_dates[0]}–{outbound_dates[-1]}  "
+                f"return_dates: {return_dates[0]}–{return_dates[-1]}"
+            )
 
             for iata in airport_codes:
-                for flight_date in OCTOBER_2026_DATES:
+                # Outbound: LON → iata
+                for flight_date in outbound_dates:
                     for comp in COMPOSITIONS:
                         label = comp["label"]
 
-                        for direction, origin, destination in [
-                            ("outbound", LON,  iata),
-                            ("return",   iata, LON),
-                        ]:
-                            if already_collected(
-                                supabase, run_id, origin, destination,
-                                flight_date, comp["adults"], comp["children"], comp["infants"],
-                            ):
-                                log.info(f"skip (already collected): {origin}→{destination} {flight_date} {label}")
-                                continue
+                        if already_collected(
+                            supabase, run_id, LON, iata,
+                            flight_date, comp["adults"], comp["children"], comp["infants"],
+                        ):
+                            log.info(f"skip (already collected): LON→{iata} {flight_date} {label}")
+                            continue
 
-                            total += 1
-                            time.sleep(API_DELAY_S)
+                        total += 1
+                        time.sleep(API_DELAY_SECS)
 
-                            try:
-                                raw = crawlio_call(
-                                    origin=origin,
-                                    destination=destination,
-                                    date=flight_date,
-                                    adults=comp["adults"],
-                                    children=comp["children"],
-                                    infants=comp["infants"],
-                                )
-                                rows = parse_response(
-                                    raw, origin, destination, flight_date,
-                                    comp["adults"], comp["children"], comp["infants"],
-                                )
-                                ok, fail = insert_rows(supabase, run_id, rows)
-                                inserted_rows += ok
-                                log.info(
-                                    f"{origin}→{destination} {flight_date} {label}: "
-                                    f"{ok} rows inserted"
-                                    + (f" ({fail} failed)" if fail else "")
-                                )
-                                if fail:
-                                    failed += 1
-                                else:
-                                    success += 1
-                            except Exception as exc:
-                                log.error(
-                                    f"{origin}→{destination} {flight_date} {label}: {exc}"
-                                )
+                        try:
+                            raw = crawlio_call(
+                                origin=LON,
+                                destination=iata,
+                                date=flight_date,
+                                adults=comp["adults"],
+                                children=comp["children"],
+                                infants=comp["infants"],
+                            )
+                            rows = parse_response(
+                                raw, LON, iata, flight_date,
+                                comp["adults"], comp["children"], comp["infants"],
+                            )
+                            ok, fail = insert_rows(supabase, run_id, rows)
+                            inserted_rows += ok
+                            log.info(
+                                f"LON→{iata} {flight_date} {label}: {ok} rows inserted"
+                                + (f" ({fail} failed)" if fail else "")
+                            )
+                            if fail:
                                 failed += 1
+                            else:
+                                success += 1
+                        except Exception as exc:
+                            log.error(f"LON→{iata} {flight_date} {label}: {exc}")
+                            failed += 1
+
+                # Return: iata → LON
+                for flight_date in return_dates:
+                    for comp in COMPOSITIONS:
+                        label = comp["label"]
+
+                        if already_collected(
+                            supabase, run_id, iata, LON,
+                            flight_date, comp["adults"], comp["children"], comp["infants"],
+                        ):
+                            log.info(f"skip (already collected): {iata}→LON {flight_date} {label}")
+                            continue
+
+                        total += 1
+                        time.sleep(API_DELAY_SECS)
+
+                        try:
+                            raw = crawlio_call(
+                                origin=iata,
+                                destination=LON,
+                                date=flight_date,
+                                adults=comp["adults"],
+                                children=comp["children"],
+                                infants=comp["infants"],
+                            )
+                            rows = parse_response(
+                                raw, iata, LON, flight_date,
+                                comp["adults"], comp["children"], comp["infants"],
+                            )
+                            ok, fail = insert_rows(supabase, run_id, rows)
+                            inserted_rows += ok
+                            log.info(
+                                f"{iata}→LON {flight_date} {label}: {ok} rows inserted"
+                                + (f" ({fail} failed)" if fail else "")
+                            )
+                            if fail:
+                                failed += 1
+                            else:
+                                success += 1
+                        except Exception as exc:
+                            log.error(f"{iata}→LON {flight_date} {label}: {exc}")
+                            failed += 1
 
     finally:
         finish_run(supabase, run_id, total, success, failed)
