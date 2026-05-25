@@ -65,6 +65,8 @@ COMPOSITIONS = [
 
 API_DELAY_SECS = 0.6   # delay between calls to stay within rate limits
 
+RESUME_MODE = False  # set True only when resuming a failed/interrupted run
+
 AIRLINE_IATA = {
     # Major carriers
     'Vueling': 'VY',
@@ -365,6 +367,7 @@ def load_destination_pools(supabase: Client) -> dict[str, dict]:
 
 def already_collected(
     supabase: Client,
+    run_id: str,
     origin: str,
     destination: str,
     date: str,
@@ -373,14 +376,15 @@ def already_collected(
     infants: int,
 ) -> bool:
     """
-    Returns True if fare_snapshots already has any row for this combination.
+    Returns True if fare_snapshots already has rows for this combination within the current run.
     For outbound calls (origin=LON), matches on destination_iata = destination.
     For return calls (destination=LON), matches on origin_iata = origin.
-    Prevents duplicates across multiple runs, not just within a single run.
+    Only called when RESUME_MODE = True.
     """
     q = (
         supabase.table("fare_snapshots")
         .select("id")
+        .eq("run_id", run_id)
         .eq("departure_date", date)
         .eq("adults", adults)
         .eq("children", children)
@@ -506,11 +510,11 @@ def main() -> None:
                     for comp in COMPOSITIONS:
                         label = comp["label"]
 
-                        if already_collected(
-                            supabase, LON, iata,
+                        if RESUME_MODE and already_collected(
+                            supabase, run_id, LON, iata,
                             flight_date, comp["adults"], comp["children"], comp["infants"],
                         ):
-                            log.info(f"skip (already collected): LON→{iata} {flight_date} {label}")
+                            log.info(f"skip (resume mode): LON→{iata} {flight_date} {label}")
                             continue
 
                         total += 1
@@ -548,11 +552,11 @@ def main() -> None:
                     for comp in COMPOSITIONS:
                         label = comp["label"]
 
-                        if already_collected(
-                            supabase, iata, LON,
+                        if RESUME_MODE and already_collected(
+                            supabase, run_id, iata, LON,
                             flight_date, comp["adults"], comp["children"], comp["infants"],
                         ):
-                            log.info(f"skip (already collected): {iata}→LON {flight_date} {label}")
+                            log.info(f"skip (resume mode): {iata}→LON {flight_date} {label}")
                             continue
 
                         total += 1
