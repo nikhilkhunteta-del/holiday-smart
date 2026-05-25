@@ -365,7 +365,6 @@ def load_destination_pools(supabase: Client) -> dict[str, dict]:
 
 def already_collected(
     supabase: Client,
-    run_id: str,
     origin: str,
     destination: str,
     date: str,
@@ -374,15 +373,14 @@ def already_collected(
     infants: int,
 ) -> bool:
     """
-    Returns True if fare_snapshots already has rows for this call in the current run.
+    Returns True if fare_snapshots already has any row for this combination.
     For outbound calls (origin=LON), matches on destination_iata = destination.
     For return calls (destination=LON), matches on origin_iata = origin.
-    Allows the pilot to be re-run after a failure without creating duplicate rows.
+    Prevents duplicates across multiple runs, not just within a single run.
     """
     q = (
         supabase.table("fare_snapshots")
         .select("id")
-        .eq("run_id", run_id)
         .eq("departure_date", date)
         .eq("adults", adults)
         .eq("children", children)
@@ -509,7 +507,7 @@ def main() -> None:
                         label = comp["label"]
 
                         if already_collected(
-                            supabase, run_id, LON, iata,
+                            supabase, LON, iata,
                             flight_date, comp["adults"], comp["children"], comp["infants"],
                         ):
                             log.info(f"skip (already collected): LON→{iata} {flight_date} {label}")
@@ -551,7 +549,7 @@ def main() -> None:
                         label = comp["label"]
 
                         if already_collected(
-                            supabase, run_id, iata, LON,
+                            supabase, iata, LON,
                             flight_date, comp["adults"], comp["children"], comp["infants"],
                         ):
                             log.info(f"skip (already collected): {iata}→LON {flight_date} {label}")
