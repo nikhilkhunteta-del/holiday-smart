@@ -1,6 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+
+export interface FamilyComposition {
+  adults: number;
+  children: number;
+  childAges: number[];
+  infants: number;
+}
 
 export interface BreakCalendarRevealProps {
   schoolName: string;
@@ -11,6 +18,7 @@ export interface BreakCalendarRevealProps {
   insetDays: { date: string }[];
   dataSource: 'school' | 'borough';
   onTripStyleSelect?: (style: 'circuit' | 'base') => void;
+  onCompositionChange?: (composition: FamilyComposition) => void;
 }
 
 // --- Date helpers (always local midnight, no UTC drift) ---
@@ -128,6 +136,79 @@ const SCENARIO_PANEL_AMBER: React.CSSProperties = {
   color: '#704b00',
 };
 
+// --- CompStepper (inline styles, matches landing page aesthetic) ---
+
+function CompStepper({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '12px 16px',
+      background: '#ffffff',
+      border: '1px solid #e6e8e8',
+      borderRadius: '0.75rem',
+    }}>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#191c1d', letterSpacing: '0.01em' }}>
+        {label}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(min, value - 1))}
+          disabled={value <= min}
+          aria-label={`Decrease ${label}`}
+          style={{
+            width: 28, height: 28,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `1px solid ${value <= min ? '#e6e8e8' : '#bfc8c9'}`,
+            borderRadius: '0.5rem',
+            background: '#ffffff',
+            cursor: value <= min ? 'not-allowed' : 'pointer',
+            color: value <= min ? '#bfc8c9' : '#004349',
+            fontSize: 18, lineHeight: 1,
+          }}
+        >
+          −
+        </button>
+        <span style={{ width: 20, textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 600, color: '#191c1d', userSelect: 'none' }}>
+          {value}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(Math.min(max, value + 1))}
+          disabled={value >= max}
+          aria-label={`Increase ${label}`}
+          style={{
+            width: 28, height: 28,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `1px solid ${value >= max ? '#e6e8e8' : '#bfc8c9'}`,
+            borderRadius: '0.5rem',
+            background: '#ffffff',
+            cursor: value >= max ? 'not-allowed' : 'pointer',
+            color: value >= max ? '#bfc8c9' : '#004349',
+            fontSize: 18, lineHeight: 1,
+          }}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- Component ---
 
 export default function BreakCalendarReveal({
@@ -139,8 +220,40 @@ export default function BreakCalendarReveal({
   insetDays,
   dataSource,
   onTripStyleSelect,
+  onCompositionChange,
 }: BreakCalendarRevealProps) {
   const [tripStyle, setTripStyle] = useState<'circuit' | 'base' | null>(null);
+
+  // ── Composition state (defaults: 2 adults, 1 child aged 5, 0 infants) ──
+  const [adults,    setAdults]    = useState(2);
+  const [children,  setChildren]  = useState(1);
+  const [childAges, setChildAges] = useState<number[]>([5]);
+  const [infants,   setInfants]   = useState(0);
+
+  // Emit composition on every change so the parent always has current values
+  useEffect(() => {
+    onCompositionChange?.({ adults, children, childAges, infants });
+  }, [adults, children, childAges, infants, onCompositionChange]);
+
+  function handleAdultsChange(v: number) {
+    setAdults(v);
+    if (infants > v) setInfants(v);
+  }
+
+  function handleChildrenChange(v: number) {
+    setChildren(v);
+    if (v > childAges.length) {
+      setChildAges([...childAges, ...Array<number>(v - childAges.length).fill(5)]);
+    } else {
+      setChildAges(childAges.slice(0, v));
+    }
+  }
+
+  function handleAgeChange(idx: number, age: number) {
+    const next = [...childAges];
+    next[idx] = age;
+    setChildAges(next);
+  }
 
   const insetDaySet = useMemo(() => new Set(insetDays.map(d => d.date)), [insetDays]);
 
@@ -497,6 +610,99 @@ export default function BreakCalendarReveal({
           })}
         </div>
       </div>
+
+      {/* Family composition — appears once trip style is chosen */}
+      {tripStyle && (
+        <div style={{ marginTop: 8, paddingTop: 24, borderTop: '1px solid #e6e8e8' }}>
+          <p style={{
+            fontFamily: 'Newsreader, serif',
+            fontSize: 22,
+            fontWeight: 500,
+            lineHeight: 1.4,
+            color: '#191c1d',
+            marginBottom: 16,
+          }}>
+            Who&apos;s travelling?
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+            {/* Adults */}
+            <CompStepper label="Adults" value={adults} min={1} max={4} onChange={handleAdultsChange} />
+
+            {/* Children */}
+            <div>
+              <CompStepper label="Children (2–11)" value={children} min={0} max={4} onChange={handleChildrenChange} />
+              {children > 0 && (
+                <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {Array.from({ length: children }, (_, i) => (
+                    <div key={i}>
+                      <label
+                        htmlFor={`child-age-${i}`}
+                        style={{
+                          display: 'block',
+                          fontFamily: 'Inter, sans-serif',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                          color: '#6f797a',
+                          marginBottom: 4,
+                        }}
+                      >
+                        Child {i + 1}
+                      </label>
+                      <select
+                        id={`child-age-${i}`}
+                        value={childAges[i] ?? 5}
+                        onChange={(e) => handleAgeChange(i, parseInt(e.target.value))}
+                        style={{
+                          border: '1px solid #bfc8c9',
+                          borderRadius: '0.75rem',
+                          padding: '7px 10px',
+                          fontFamily: 'Inter, sans-serif',
+                          fontSize: 14,
+                          fontWeight: 500,
+                          color: '#191c1d',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          outline: 'none',
+                        }}
+                      >
+                        {Array.from({ length: 10 }, (_, age) => age + 2).map(age => (
+                          <option key={age} value={age}>{age} yrs</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Infants */}
+            <div>
+              <CompStepper
+                label="Infants (under 2)"
+                value={infants}
+                min={0}
+                max={Math.min(2, adults)}
+                onChange={setInfants}
+              />
+              <p style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 12,
+                fontWeight: 400,
+                color: '#6f797a',
+                marginTop: 6,
+                lineHeight: 1.4,
+              }}>
+                Lap-sitting — one per adult maximum
+              </p>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

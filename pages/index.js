@@ -64,6 +64,11 @@ export default function Home() {
   const [insetDays, setInsetDays] = useState([]);
   const [tripStyle, setTripStyle] = useState(null);
 
+  // ── Family composition (defaults match DB composition 2A+1C) ─────────────
+  const [familyComposition, setFamilyComposition] = useState({
+    adults: 2, children: 1, childAges: [5], infants: 0,
+  });
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const activePill     = pills.find(p => p.key === selectedPillKey) || null;
   const currentBorough = lockedSchool?.borough || selectedBorough || '';
@@ -221,11 +226,17 @@ export default function Home() {
   function handleCTA() {
     if (!canSubmit || !activePill) return;
     const p = new URLSearchParams({
-      borough: currentBorough,
-      break:   activePill.label,
-      start:   activePill.start,
-      end:     activePill.end,
+      borough:  currentBorough,
+      break:    activePill.label,
+      start:    activePill.start,
+      end:      activePill.end,
+      adults:   String(familyComposition.adults),
+      children: String(familyComposition.children),
+      infants:  String(familyComposition.infants),
     });
+    if (familyComposition.childAges.length > 0) {
+      p.set('childAges', familyComposition.childAges.join(','));
+    }
     if (currentUrn)    p.set('urn',    currentUrn);
     if (currentSchool) p.set('school', currentSchool);
     window.location.href = '/results/flight-insights?' + p.toString();
@@ -368,6 +379,7 @@ export default function Home() {
                   insetDays={insetDays}
                   dataSource={activePill.source === 'borough' ? 'borough' : 'school'}
                   onTripStyleSelect={style => setTripStyle(style)}
+                  onCompositionChange={comp => setFamilyComposition(comp)}
                 />
               )}
 
