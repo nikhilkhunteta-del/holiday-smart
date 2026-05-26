@@ -213,13 +213,12 @@ def test_single_call() -> None:
     print(json.dumps(raw, indent=2))
     print("───────────────────────────────────────────────────────")
 
-    flights = raw.get("flights", [])
     results = raw.get("results", [])
-    log.info(f"flights[]: {len(flights)} items  |  results[]: {len(results)} items")
+    log.info(f"results[]: {len(results)} items")
 
     if results:
         first = results[0]
-        airline_name = (flights[0].get("airlines") or [None])[0] if flights else None
+        airline_name = (first.get("airlines") or [None])[0]
         log.info(
             f"Cheapest: price=£{first.get('price')}  "
             f"stops={first.get('stops')}  "
