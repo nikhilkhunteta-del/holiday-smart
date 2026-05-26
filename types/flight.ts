@@ -1,8 +1,9 @@
-// ── Party composition (set via TravellerBanner before results render) ────────
+// ── Party composition (captured on landing page, passed via URL params) ──────
 export interface Party {
   adults: number;
   children: number;
-  childAges: number[]; // length === children, values 0–17
+  childAges: number[]; // length === children, values 2–11
+  infants?: number;    // under 2, lap-sitting; max = min(2, adults)
 }
 
 // ── Search context (passed from landing page via query params) ─────────────
