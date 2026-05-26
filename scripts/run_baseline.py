@@ -263,7 +263,6 @@ def run_baseline() -> None:
                     infants=comp['infants'],
                 )
 
-                flights = raw.get("flights", [])
                 results = raw.get("results", [])
 
                 if not results:
@@ -272,8 +271,7 @@ def run_baseline() -> None:
                     continue
 
                 best_result = results[0]
-                best_flight = flights[0] if flights else {}
-                airline_name = (best_flight.get("airlines") or [None])[0]
+                airline_name = (best_result.get("airlines") or [None])[0]
                 airline_iata = lookup_airline_iata(airline_name)
                 price = best_result.get("price")
                 stops = best_result.get("stops", 0)
@@ -292,7 +290,7 @@ def run_baseline() -> None:
                     "airline_iata":      airline_iata,
                     "stops":             stops,
                     "duration_min":      duration_min,
-                    "raw_json":          raw,
+                    "raw_json":          {"result": best_result},
                 }
 
                 insert_baseline(supabase, row)
