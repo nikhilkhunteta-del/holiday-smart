@@ -13,11 +13,6 @@
 --
 -- Composition matching:
 --   Input mapped to nearest of (1A+1C, 2A+1C, 2A+2C, 2A+1inf). Never errors.
---
--- school_airport_transit duration fields (not used in this function, but noted
--- here for all callers of that table):
---   cheapest_duration_secs — stored in MINUTES despite the name; use as-is for display.
---   drive_duration_secs    — stored in SECONDS; divide by 60 for display in minutes.
 
 CREATE OR REPLACE FUNCTION get_savings_breakdown(
   p_destination_slug     text,
@@ -40,8 +35,8 @@ DECLARE
   v_dest_airports text[];
 
   -- School
-  v_postcode  text;
-  v_borough   text;
+  v_postcode_district text;
+  v_borough           text;
 
   -- Matched composition
   v_adults   smallint;
@@ -116,8 +111,8 @@ BEGIN
 
   -- ── 2. School metadata ──────────────────────────────────────────────────────
 
-  SELECT postcode, borough
-    INTO v_postcode, v_borough
+  SELECT postcode_district, borough
+    INTO v_postcode_district, v_borough
     FROM all_schools
    WHERE urn = p_school_urn;
 
@@ -226,7 +221,7 @@ BEGIN
 
   -- ══ LEVER 1: London airport arbitrage ═══════════════════════════════════════
   -- Net-of-transport cost per airport = flight fare + public transport cost.
-  -- Transport cost from school_airport_transit; null when data absent (sorts last).
+  -- Transport cost from district_airport_transit; null when data absent (sorts last).
   -- Saving = LHR net − best alternative net. Only fires when a non-LHR airport wins.
 
   SELECT MIN(fs.party_total_gbp)
@@ -241,14 +236,14 @@ BEGIN
      AND fs.infants          = v_infants;
 
   SELECT CASE
-           WHEN cheapest_fare_pence IS NOT NULL
-           THEN cheapest_fare_pence / 100.0
+           WHEN transit_offpeak_fare_pence IS NOT NULL
+           THEN transit_offpeak_fare_pence / 100.0
            ELSE NULL
          END
     INTO v_lhr_transport
-    FROM school_airport_transit
-   WHERE school_postcode = v_postcode
-     AND airport_code    = 'LHR'
+    FROM district_airport_transit
+   WHERE postcode_district = v_postcode_district
+     AND airport_code      = 'LHR'
    LIMIT 1;
 
   v_lhr_net := v_lhr_fare + v_lhr_transport;
@@ -259,8 +254,8 @@ BEGIN
       SELECT
         fares.origin_iata                    AS airport_iata,
         fares.min_fare + CASE
-                           WHEN sat.cheapest_fare_pence IS NOT NULL
-                           THEN sat.cheapest_fare_pence / 100.0
+                           WHEN dat.transit_offpeak_fare_pence IS NOT NULL
+                           THEN dat.transit_offpeak_fare_pence / 100.0
                            ELSE NULL
                          END                 AS net_total
       FROM (
@@ -275,9 +270,9 @@ BEGIN
            AND fs.infants          = v_infants
          GROUP BY fs.origin_iata
       ) fares
-      LEFT JOIN school_airport_transit sat
-             ON sat.school_postcode = v_postcode
-            AND sat.airport_code    = fares.origin_iata
+      LEFT JOIN district_airport_transit dat
+             ON dat.postcode_district = v_postcode_district
+            AND dat.airport_code      = fares.origin_iata
     ) ranked
    ORDER BY net_total ASC NULLS LAST
    LIMIT 1;
