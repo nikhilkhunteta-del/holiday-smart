@@ -15,14 +15,12 @@
 --   baggage_is_estimate = true always (curated table, not live API data).
 --
 -- Transfer cost:
---   school_airport_transit keyed by school postcode + outbound airport.
---   p_transport_mode = 'public' → cheapest_fare_pence / 100.
---   p_transport_mode = 'uber'   → midpoint of taxi_fare_low/high_pence / 100.
+--   district_airport_transit keyed by postcode district + outbound airport.
+--   p_transport_mode = 'public' → transit_offpeak_fare_pence / 100.
+--   p_transport_mode = 'uber'   → midpoint of uber_low/high_pence / 100.
 --   Both modes always returned for UI toggle; allin_total uses the requested mode.
 --
--- school_airport_transit duration field notes (see seed_airline_baggage_fees.sql):
---   cheapest_duration_secs — stored in MINUTES despite the name; used as-is.
---   drive_duration_secs    — stored in SECONDS; divide by 60 for display.
+-- district_airport_transit duration fields are already in minutes — no conversion needed.
 --
 -- party_size: adults + children only. Infants are lap-carried (no seat purchased).
 -- Fine and term-date data are not needed here — those belong to Function 2.
@@ -44,7 +42,7 @@ AS $$
 DECLARE
   v_dest_id       uuid;
   v_dest_airports text[];
-  v_postcode      text;
+  v_postcode_district text;
   v_run_id        uuid;
   v_adults        smallint;
   v_children      smallint;
@@ -70,9 +68,9 @@ BEGIN
     RETURN jsonb_build_object('error', 'no airport pool for: ' || p_destination_slug);
   END IF;
 
-  -- ── 2. School postcode (transfer cost lookup) ───────────────────────────────
+  -- ── 2. School postcode district (transfer cost lookup) ──────────────────────
 
-  SELECT postcode INTO v_postcode FROM all_schools WHERE urn = p_school_urn;
+  SELECT postcode_district INTO v_postcode_district FROM all_schools WHERE urn = p_school_urn;
 
   -- ── 3. Composition matching ─────────────────────────────────────────────────
 
@@ -168,7 +166,7 @@ BEGIN
       ) cr ON true
       WHERE COALESCE(br.ret_fare, cr.ret_fare) IS NOT NULL
     ),
-    -- Join baggage fees for both carriers and school transit for the outbound airport
+    -- Join baggage fees for both carriers and district transit for the outbound airport
     with_costs AS (
       SELECT
         cp.out_carrier,
@@ -205,26 +203,23 @@ BEGIN
         abf_out.bundle_name                        AS bundle_name,
         abf_out.bundle_price_delta_gbp             AS bundle_price_delta_gbp,
         abf_out.bundle_includes_checked            AS bundle_includes_checked,
-        -- Transfer: school postcode → outbound airport, both modes always returned
-        -- cheapest_duration_secs is in MINUTES despite the name; used as-is for display
+        -- Transfer: postcode district → outbound airport, both modes always returned
         CASE
-          WHEN sat.cheapest_fare_pence IS NOT NULL
-          THEN sat.cheapest_fare_pence / 100.0
+          WHEN dat.transit_offpeak_fare_pence IS NOT NULL
+          THEN dat.transit_offpeak_fare_pence / 100.0
           ELSE NULL
         END                                        AS public_transfer_gbp,
-        sat.cheapest_legs_summary                  AS public_transfer_desc,
-        sat.cheapest_duration_secs                 AS public_transfer_mins,
-        -- drive_duration_secs is in SECONDS; divide by 60 for display
-        ROUND((sat.drive_duration_secs / 60.0)::numeric, 0)
-                                                   AS drive_duration_mins,
+        dat.transit_offpeak_route_summary          AS public_transfer_desc,
+        dat.transit_offpeak_duration_mins          AS public_transfer_mins,
+        dat.uber_duration_offpeak_mins             AS drive_duration_mins,
         CASE
-          WHEN sat.taxi_fare_low_pence IS NOT NULL
-           AND sat.taxi_fare_high_pence IS NOT NULL
-          THEN (sat.taxi_fare_low_pence + sat.taxi_fare_high_pence) / 2.0 / 100.0
+          WHEN dat.uber_low_pence IS NOT NULL
+           AND dat.uber_high_pence IS NOT NULL
+          THEN (dat.uber_low_pence + dat.uber_high_pence) / 2.0 / 100.0
           ELSE NULL
         END                                        AS uber_transfer_gbp,
-        sat.taxi_fare_low_pence  / 100.0           AS uber_low_gbp,
-        sat.taxi_fare_high_pence / 100.0           AS uber_high_gbp,
+        dat.uber_low_pence  / 100.0                AS uber_low_gbp,
+        dat.uber_high_pence / 100.0                AS uber_high_gbp,
         -- Family split risk: LCCs use algorithmic seating that may separate families
         ((cp.out_carrier IN ('FR','U2','W6')
           OR cp.ret_carrier IN ('FR','U2','W6'))
@@ -241,9 +236,9 @@ BEGIN
       FROM carrier_pairs cp
       LEFT JOIN airline_baggage_fees abf_out ON abf_out.airline_iata = cp.out_carrier
       LEFT JOIN airline_baggage_fees abf_ret ON abf_ret.airline_iata = cp.ret_carrier
-      LEFT JOIN school_airport_transit sat
-             ON sat.school_postcode = v_postcode
-            AND sat.airport_code    = cp.best_airport
+      LEFT JOIN district_airport_transit dat
+             ON dat.postcode_district = v_postcode_district
+            AND dat.airport_code      = cp.best_airport
     ),
     -- Compute all-in total using requested transport mode
     with_total AS (

@@ -3,13 +3,11 @@
 --           Returns one row per London airport that has fare data for BOTH
 --           directions on the requested dates.
 --
--- Transfer data sourced from school_airport_transit (school postcode × airport).
--- If no transit row exists for a school × airport pair, transport fields are null
+-- Transfer data sourced from district_airport_transit (postcode district × airport).
+-- If no transit row exists for a district × airport pair, transport fields are null
 -- and allin totals are null — the airport still appears but sorts last.
 --
--- Duration field units (school_airport_transit):
---   cheapest_duration_secs — stored in MINUTES despite the name; returned as-is.
---   drive_duration_secs    — stored in SECONDS; divided by 60 before return.
+-- Duration fields are already in minutes — no conversion needed.
 --
 -- LHR is flagged is_baseline = true as the comparison reference (naive choice).
 -- Best-value airport (lowest allin_public) is flagged is_best_value = true.
@@ -31,7 +29,7 @@ AS $$
 DECLARE
   v_dest_id       uuid;
   v_dest_airports text[];
-  v_postcode      text;
+  v_postcode_district text;
   v_run_id        uuid;
   v_adults        smallint;
   v_children      smallint;
@@ -56,9 +54,9 @@ BEGIN
     RETURN jsonb_build_object('error', 'no airport pool for: ' || p_destination_slug);
   END IF;
 
-  -- ── 2. School postcode ──────────────────────────────────────────────────────
+  -- ── 2. School postcode district ─────────────────────────────────────────────
 
-  SELECT postcode INTO v_postcode FROM all_schools WHERE urn = p_school_urn;
+  SELECT postcode_district INTO v_postcode_district FROM all_schools WHERE urn = p_school_urn;
 
   -- ── 3. Composition matching ─────────────────────────────────────────────────
 
@@ -131,7 +129,7 @@ BEGIN
       FROM out_fares o
       JOIN ret_fares r ON r.airport_iata = o.airport_iata
     ),
-    -- Join school transit data; all transport fields null when no row exists
+    -- Join district transit data; all transport fields null when no row exists
     with_transit AS (
       SELECT
         ap.airport_iata,
@@ -140,39 +138,36 @@ BEGIN
         ap.total_fare,
         -- Public transport (null when transit row absent or field unpopulated)
         CASE
-          WHEN sat.cheapest_fare_pence IS NOT NULL
-          THEN sat.cheapest_fare_pence / 100.0
+          WHEN dat.transit_offpeak_fare_pence IS NOT NULL
+          THEN dat.transit_offpeak_fare_pence / 100.0
           ELSE NULL
         END                                        AS public_cost,
-        sat.cheapest_legs_summary                  AS public_method,
-        -- cheapest_duration_secs is in MINUTES despite the name; return as-is
-        sat.cheapest_duration_secs                 AS public_duration_mins,
+        dat.transit_offpeak_route_summary          AS public_method,
+        dat.transit_offpeak_duration_mins          AS public_duration_mins,
         -- Uber range
-        sat.taxi_fare_low_pence  / 100.0           AS uber_low,
-        sat.taxi_fare_high_pence / 100.0           AS uber_high,
-        -- drive_duration_secs is in SECONDS; divide by 60
-        ROUND((sat.drive_duration_secs / 60.0)::numeric, 0)
-                                                   AS drive_duration_mins,
-        sat.airport_code IS NOT NULL               AS has_transit_data,
+        dat.uber_low_pence  / 100.0                AS uber_low,
+        dat.uber_high_pence / 100.0                AS uber_high,
+        dat.uber_duration_offpeak_mins             AS drive_duration_mins,
+        dat.airport_code IS NOT NULL               AS has_transit_data,
         -- All-in totals: null when transit data absent so these airports sort last,
         -- preventing a misleading "cheapest" label on data-absent rows
         CASE
-          WHEN sat.airport_code IS NOT NULL
-           AND sat.cheapest_fare_pence IS NOT NULL
-          THEN ap.total_fare + sat.cheapest_fare_pence / 100.0
+          WHEN dat.airport_code IS NOT NULL
+           AND dat.transit_offpeak_fare_pence IS NOT NULL
+          THEN ap.total_fare + dat.transit_offpeak_fare_pence / 100.0
           ELSE NULL
         END                                        AS allin_public,
         CASE
-          WHEN sat.taxi_fare_low_pence  IS NOT NULL
-           AND sat.taxi_fare_high_pence IS NOT NULL
+          WHEN dat.uber_low_pence  IS NOT NULL
+           AND dat.uber_high_pence IS NOT NULL
           THEN ap.total_fare
-               + (sat.taxi_fare_low_pence + sat.taxi_fare_high_pence) / 2.0 / 100.0
+               + (dat.uber_low_pence + dat.uber_high_pence) / 2.0 / 100.0
           ELSE NULL
         END                                        AS allin_uber_mid
       FROM airport_pairs ap
-      LEFT JOIN school_airport_transit sat
-             ON sat.school_postcode = v_postcode
-            AND sat.airport_code    = ap.airport_iata
+      LEFT JOIN district_airport_transit dat
+             ON dat.postcode_district = v_postcode_district
+            AND dat.airport_code      = ap.airport_iata
     ),
     ranked AS (
       SELECT
