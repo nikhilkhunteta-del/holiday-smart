@@ -18,10 +18,8 @@
 --   net_saving = fare_saving − transfer_cost_gbp.
 --   When transfer_cost_gbp IS NULL: net_saving = fare_saving, transfer_cost_excluded = true.
 --
--- Schema note: spec referenced transfer_notes and drive_time_minutes columns on
---   destination_airports. Only transfer_cost_gbp exists in the current schema.
---   data-model.md §4 describes drive time as planned but not yet implemented.
---   These fields are absent from the return JSON until the schema is extended.
+-- transfer_notes and drive_time_minutes are included in the return JSON for each
+--   secondary airport (both columns exist on destination_airports).
 --
 -- above_threshold: net_saving ≥ £30 (consistent with all other saving levers).
 
@@ -202,10 +200,15 @@ BEGIN
         a.total_fare,
         v_primary_fare - a.total_fare                         AS fare_saving,
         da.transfer_cost_gbp,
+        da.transfer_notes,
+        da.drive_time_minutes,
         da.transfer_cost_gbp IS NULL                          AS transfer_cost_excluded,
-        -- Net saving: subtract transfer cost when available, else fare saving as-is
-        v_primary_fare - a.total_fare
-          - COALESCE(da.transfer_cost_gbp, 0)                 AS net_saving
+        -- Net saving: subtract transfer cost when known; flag excluded when null
+        CASE
+          WHEN da.transfer_cost_gbp IS NOT NULL
+          THEN v_primary_fare - a.total_fare - da.transfer_cost_gbp
+          ELSE v_primary_fare - a.total_fare
+        END                                                   AS net_saving
       FROM assembled a
       LEFT JOIN destination_airports da
              ON da.destination_id = v_dest_id
@@ -220,6 +223,8 @@ BEGIN
         'total_fare',              ROUND(t.total_fare,   2),
         'fare_saving',             ROUND(t.fare_saving,  2),
         'transfer_cost_gbp',       t.transfer_cost_gbp,
+        'transfer_notes',          t.transfer_notes,
+        'drive_time_minutes',      t.drive_time_minutes,
         'transfer_cost_excluded',  t.transfer_cost_excluded,
         'net_saving',              ROUND(t.net_saving,   2),
         'above_threshold',         t.net_saving >= 30

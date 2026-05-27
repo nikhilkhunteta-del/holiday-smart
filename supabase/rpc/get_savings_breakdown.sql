@@ -211,8 +211,8 @@ BEGIN
   SELECT cheapest_fare_pence / 100.0
     INTO v_lhr_transport
     FROM school_airport_transit
-   WHERE postcode    = v_postcode
-     AND airport_iata = 'LHR'
+   WHERE school_postcode = v_postcode
+     AND airport_code    = 'LHR'
    LIMIT 1;
 
   v_lhr_net := v_lhr_fare + COALESCE(v_lhr_transport, 0);
@@ -236,8 +236,8 @@ BEGIN
          GROUP BY fs.origin_iata
       ) fares
       LEFT JOIN school_airport_transit sat
-             ON sat.postcode    = v_postcode
-            AND sat.airport_iata = fares.origin_iata
+             ON sat.school_postcode = v_postcode
+            AND sat.airport_code    = fares.origin_iata
     ) ranked
    ORDER BY net_total ASC
    LIMIT 1;
@@ -424,7 +424,7 @@ BEGIN
          AND fs.children         = v_children
          AND fs.infants          = v_infants;
 
-      SELECT COALESCE(transfer_cost_gbp, 0)
+      SELECT transfer_cost_gbp
         INTO v_primary_transfer
         FROM destination_airports
        WHERE destination_id = v_dest_id AND iata_code = v_primary_iata;
@@ -432,8 +432,9 @@ BEGIN
       FOR v_rec IN
         SELECT
           da.iata_code,
-          COALESCE(da.transfer_cost_gbp, 0) AS xfer,
-          MIN(fs.party_total_gbp)            AS fare
+          da.transfer_cost_gbp                 AS xfer,
+          da.transfer_cost_gbp IS NULL         AS xfer_excluded,
+          MIN(fs.party_total_gbp)              AS fare
         FROM destination_airports da
         JOIN fare_snapshots fs
           ON fs.destination_iata  = da.iata_code
@@ -450,21 +451,32 @@ BEGIN
       LOOP
         IF v_primary_fare IS NOT NULL
            AND (v_primary_fare + COALESCE(v_primary_transfer, 0))
-               > (v_rec.fare + v_rec.xfer)
+               > (v_rec.fare + COALESCE(v_rec.xfer, 0))
         THEN
           v_levers := v_levers || jsonb_build_object(
             'label',              'Destination airport (' || v_rec.iata_code
                                    || ' vs ' || v_primary_iata || ')',
             'winner',             v_rec.iata_code,
             'saving',             ROUND(
-                                    (v_primary_fare + COALESCE(v_primary_transfer, 0))
-                                    - (v_rec.fare + v_rec.xfer),
+                                    CASE
+                                      WHEN v_rec.xfer IS NOT NULL
+                                      THEN (v_primary_fare + COALESCE(v_primary_transfer, 0))
+                                           - (v_rec.fare + v_rec.xfer)
+                                      ELSE (v_primary_fare + COALESCE(v_primary_transfer, 0))
+                                           - v_rec.fare
+                                    END,
                                     2
                                   ),
             'above_threshold',    (
-                                    (v_primary_fare + COALESCE(v_primary_transfer, 0))
-                                    - (v_rec.fare + v_rec.xfer)
+                                    CASE
+                                      WHEN v_rec.xfer IS NOT NULL
+                                      THEN (v_primary_fare + COALESCE(v_primary_transfer, 0))
+                                           - (v_rec.fare + v_rec.xfer)
+                                      ELSE (v_primary_fare + COALESCE(v_primary_transfer, 0))
+                                           - v_rec.fare
+                                    END
                                   ) >= 30,
+            'transfer_cost_excluded', v_rec.xfer_excluded,
             'is_borough_specific', false
           );
         END IF;

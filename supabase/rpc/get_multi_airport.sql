@@ -149,11 +149,11 @@ BEGIN
         -- drive_duration_secs is in SECONDS; divide by 60
         ROUND((sat.drive_duration_secs / 60.0)::numeric, 0)
                                                    AS drive_duration_mins,
-        sat.airport_iata IS NOT NULL               AS has_transit_data,
+        sat.airport_code IS NOT NULL               AS has_transit_data,
         -- All-in totals: null when transit data absent so these airports sort last,
         -- preventing a misleading "cheapest" label on data-absent rows
         CASE
-          WHEN sat.airport_iata IS NOT NULL
+          WHEN sat.airport_code IS NOT NULL
            AND sat.cheapest_fare_pence IS NOT NULL
           THEN ap.total_fare + sat.cheapest_fare_pence / 100.0
           ELSE NULL
@@ -167,8 +167,8 @@ BEGIN
         END                                        AS allin_uber_mid
       FROM airport_pairs ap
       LEFT JOIN school_airport_transit sat
-             ON sat.postcode     = v_postcode
-            AND sat.airport_iata  = ap.airport_iata
+             ON sat.school_postcode = v_postcode
+            AND sat.airport_code    = ap.airport_iata
     ),
     ranked AS (
       SELECT

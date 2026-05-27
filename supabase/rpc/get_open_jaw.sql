@@ -49,8 +49,12 @@ DECLARE
   v_sym_price       numeric;
   v_saving          numeric;
 
-  v_out_transfer    numeric;
-  v_ret_transfer    numeric;
+  v_out_transfer          numeric;
+  v_out_transfer_notes    text;
+  v_out_drive_time_mins   integer;
+  v_ret_transfer          numeric;
+  v_ret_transfer_notes    text;
+  v_ret_drive_time_mins   integer;
 BEGIN
 
   -- ── 1. Destination type guard ────────────────────────────────────────────────
@@ -191,11 +195,13 @@ BEGIN
 
   -- ── 6. Destination-side transfer costs for winning airports ─────────────────
 
-  SELECT transfer_cost_gbp INTO v_out_transfer
+  SELECT transfer_cost_gbp, transfer_notes, drive_time_minutes
+    INTO v_out_transfer, v_out_transfer_notes, v_out_drive_time_mins
     FROM destination_airports
    WHERE destination_id = v_dest_id AND iata_code = v_oj_out_airport;
 
-  SELECT transfer_cost_gbp INTO v_ret_transfer
+  SELECT transfer_cost_gbp, transfer_notes, drive_time_minutes
+    INTO v_ret_transfer, v_ret_transfer_notes, v_ret_drive_time_mins
     FROM destination_airports
    WHERE destination_id = v_dest_id AND iata_code = v_oj_ret_airport;
 
@@ -209,11 +215,16 @@ BEGIN
     'return_fare',                  ROUND(v_oj_ret_fare,  2),
     'open_jaw_price',               ROUND(v_oj_price,     2),
     'symmetric_price',              ROUND(v_sym_price,    2),
+    'sym_price_available',          v_sym_price IS NOT NULL,
     'saving',                       ROUND(v_saving,       2),
     'above_threshold',              v_saving >= 30,
     'recommended',                  CASE WHEN v_saving > 0 THEN 'open_jaw' ELSE 'symmetric' END,
-    'outbound_airport_transfer_cost_gbp', v_out_transfer,
-    'return_airport_transfer_cost_gbp',   v_ret_transfer
+    'outbound_airport_transfer_cost_gbp',   v_out_transfer,
+    'outbound_airport_transfer_notes',      v_out_transfer_notes,
+    'outbound_airport_drive_time_minutes',  v_out_drive_time_mins,
+    'return_airport_transfer_cost_gbp',     v_ret_transfer,
+    'return_airport_transfer_notes',        v_ret_transfer_notes,
+    'return_airport_drive_time_minutes',    v_ret_drive_time_mins
   );
 
 END;
