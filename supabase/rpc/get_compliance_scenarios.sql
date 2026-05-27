@@ -167,16 +167,16 @@ BEGIN
       SELECT date AS d
         FROM school_inset_days
        WHERE urn  = p_school_urn
-         AND date BETWEEN v_window_start - 3 AND v_window_start + 1
+         AND date BETWEEN v_window_start - 3 AND v_window_end + 3
     ),
     -- Borough-proxy fallback: distinct inset days from other schools in the same
-    -- borough, used only when this school has no entries in the range above
+    -- borough, used only when this school genuinely has no inset days at all
     borough_inset AS (
       SELECT DISTINCT sid.date AS d
         FROM school_inset_days sid
         JOIN all_schools sch ON sch.urn = sid.urn AND sch.borough = v_borough
-       WHERE sid.date BETWEEN v_window_start - 3 AND v_window_start + 1
-         AND NOT EXISTS (SELECT 1 FROM school_inset)
+       WHERE sid.date BETWEEN v_window_start - 3 AND v_window_end + 3
+         AND NOT EXISTS (SELECT 1 FROM school_inset_days WHERE urn = p_school_urn)
     ),
     -- Effective inset days: school-first, borough fallback
     inset_days AS (
@@ -248,8 +248,12 @@ BEGIN
           - (SELECT COUNT(*)::int FROM inset_days id
               WHERE id.d >= f.dep_date AND id.d < v_window_start)
         ) AS dep_absence,
-        -- Return-side absence: calendar days the child returns after break ends
-        GREATEST(0, f.ret_date - v_window_end) AS ret_absence,
+        -- Return-side absence: calendar days after break ends, minus any inset days
+        GREATEST(0,
+          (f.ret_date - v_window_end)
+          - (SELECT COUNT(*)::int FROM inset_days id
+              WHERE id.d > v_window_end AND id.d <= f.ret_date)
+        ) AS ret_absence,
         EXISTS(SELECT 1 FROM inset_days id WHERE id.d = f.dep_date) AS uses_inset_day
       FROM fares f
       WHERE f.out_fare IS NOT NULL

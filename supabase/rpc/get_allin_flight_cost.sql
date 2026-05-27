@@ -157,7 +157,7 @@ BEGIN
         bo.out_fare,
         COALESCE(br.airline_iata, cr.airline_iata)  AS ret_carrier,
         COALESCE(br.ret_fare,     cr.ret_fare)       AS ret_fare,
-        br.airline_iata IS NULL                     AS split_carrier
+        COALESCE(br.airline_iata, cr.airline_iata) <> bo.airline_iata AS split_carrier
       FROM best_out bo
       LEFT JOIN best_ret br ON br.airline_iata = bo.airline_iata
       LEFT JOIN LATERAL (
@@ -238,8 +238,8 @@ BEGIN
       LEFT JOIN airline_baggage_fees abf_out ON abf_out.airline_iata = cp.out_carrier
       LEFT JOIN airline_baggage_fees abf_ret ON abf_ret.airline_iata = cp.ret_carrier
       LEFT JOIN school_airport_transit sat
-             ON sat.postcode     = v_postcode
-            AND sat.airport_iata  = cp.best_airport
+             ON sat.school_postcode = v_postcode
+            AND sat.airport_code    = cp.best_airport
     ),
     -- Compute all-in total using requested transport mode
     with_total AS (
