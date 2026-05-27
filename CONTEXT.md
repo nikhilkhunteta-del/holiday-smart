@@ -1,7 +1,7 @@
 # Holiday Smart — Project Context
 *Read this at the start of every new chat. Update when decisions change.*
 
-Last updated: May 2026 (post Phase A validation)
+Last updated: May 2026 (post Layer 3 RPC validation)
 
 ---
 
@@ -130,18 +130,14 @@ Two-tier: Tier 1 (launch) cites published industry research. Tier 2 uses own tra
 - Borough term dates: ✅ live in Supabase
 - Inset days (~hundreds of schools): ✅ live in Supabase
 - Schools database (~1,000+): ✅ live in Supabase
-- Transport cost matrix (199 districts × 5 airports): ✅ live in Supabase
+- `district_airport_transit` table: ✅ live in Supabase — keyed by `postcode_district` × airport_code
 - `airports` table: ✅ seeded in Supabase (all London origins + European destinations)
-- `destinations` table: ✅ created in Supabase
-- `destination_legs` table: ✅ created in Supabase
-- `snapshot_runs` table: ✅ created in Supabase
-- `airline_baggage_fees` table: ✅ created in Supabase — **needs manual data entry for FR, U2, W6, VY, TP, BA**
-- `fare_snapshots` table: ✅ created in Supabase
-
-**Still to populate:**
-- `destinations` — seed 21 destination rows
-- `destination_legs` — seed leg pairs per destination
-- `airline_baggage_fees` — hand-enter baggage fee data per carrier
+- `destinations` table: ✅ seeded — pilot destinations live (barcelona, andalusian-corridor, malta)
+- `destination_airports` table: ✅ live in Supabase (replaced `destination_legs`)
+- `snapshot_runs` table: ✅ live in Supabase
+- `airline_baggage_fees` table: ✅ live in Supabase (FR, U2, W6, VY, TP, BA)
+- `fare_snapshots` table: ✅ live in Supabase
+- `baseline_snapshots` table: ✅ live in Supabase — 12 rows, canonical pilot run 39409974
 
 ---
 
@@ -176,17 +172,36 @@ Key fields (see data-model.md for full schema):
 
 ---
 
-### Layer 3 — Derived / Serving Data (pre-computed on schedule)
+### Layer 3 — Derived / Serving Data
 
-- `destination_window_data` — borough-independent payload per destination × window
-- `borough_overlay` — thin borough layer: window dates, inset saving, fine offset, ground transport
-- `leaderboard` — ranked destinations per borough × window × duration × family composition
-- `narratives` — Sonnet 4.6 generated copy per destination/insight
+**RPC functions: ✅ Complete and validated.** All 7 functions + shared helper deployed to Supabase.
+Transit data sourced from `district_airport_transit` keyed by `postcode_district` (not `school_airport_transit`).
+
+#### RPC Function Signatures
+
+| # | Function | Purpose |
+|---|---|---|
+| 1 | `get_savings_breakdown(p_destination_slug, p_school_urn, p_window_start, p_window_end, p_trip_duration_nights, p_adults, p_children, p_infants)` | Headline savings table — baseline vs smart price, yield, and saving levers. Self-discovers optimal dates from fare_snapshots. |
+| 2 | `get_compliance_scenarios(p_destination_slug, p_school_urn, p_adults, p_children, p_infants)` | Departure × return date matrix with fine, gross saving, net saving per combination. |
+| 3 | `get_allin_flight_cost(p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants, p_transport_mode)` | True all-in per carrier: fare + baggage + seat + district transit. |
+| 4 | `get_multi_airport(p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants)` | All 5 London airports compared on net-of-transit all-in cost. |
+| 5 | `get_open_jaw(p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants)` | Open-jaw vs symmetric saving for circuit destinations. Returns NULL for non-circuit. |
+| 6 | `get_nearby_destination_airports(p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants)` | Secondary destination airports cheaper than primary (outbound-leg only comparison). |
+| 7 | `get_bucket_split(p_destination_slug, p_origin_iata, p_outbound_date, p_return_date, p_adults, p_children, p_infants)` | Whether 2×(1A+1C) beats 1×(2A+2C) or 1×(2A+1C). NULL for other compositions. |
+| — | `calculate_absence_fine(p_dep_date, p_ret_date, p_window_start, p_window_end, p_school_urn, p_adults, p_children)` | Shared helper — weekday-only absence counting + £80-per-period fine. Used by functions 1 and 2. |
+
+**Canonical pilot run:** `39409974`
 
 **Baseline vs Smart (leaderboard yield):**
 - Baseline = naive: LHR, Saturday departure, 4 seats together, return
 - Smart = optimised: best net-of-transport airport, inset-day departure, open-jaw where applicable, baggage true-cost applied
 - Yield = Baseline − Smart
+
+**Planned (not yet built):**
+- `destination_window_data` — borough-independent payload per destination × window
+- `borough_overlay` — thin borough layer: window dates, inset saving, fine offset, ground transport
+- `leaderboard` — ranked destinations per borough × window × duration × family composition
+- `narratives` — Sonnet 4.6 generated copy per destination/insight
 
 ---
 
@@ -339,14 +354,9 @@ CLAUDE.md                            ← Claude Code session instructions
 - **Itinerary builder is Year 2.**
 - **Community features are Year 2.**
 - **Monetisation: undecided** — revisit after first 50 real users.
-- - **Destination airport pool: 250km radius, Option B architecture.** `destination_legs`
-  replaced by `destination_airports` — a pool of valid European airports per destination.
-  Job generates all pairs (including identical pairs for round trips) at query time.
-  Pool defined by 250km driving distance. Ground transport cost stored per airport in
-  `destination_airports` for net saving calculation. SearchAPI has no nearby airports
-  endpoint — pool is manually seeded.
-- **Flight provider: Crawlio via RapidAPI** — $9/month for 15,000 calls. LON city code used for all London-side queries — returns all 5 London airports in one call, individual airport attribution visible in response. Replaced SearchAPI ($40/month, 10,000 calls).
-- **destination_legs replaced by destination_airports** — pool of valid European airports per destination. Job generates all pairs at query time. London endpoints injected by job, never stored.
+- **Destination airport pool: 250km radius, Option B architecture.** `destination_airports` table holds a pool of valid European airports per destination. Job generates all pairs at query time. Pool defined by 250km driving distance. Ground transport cost stored per airport in `destination_airports` for net saving calculation. Pool is manually seeded (`destination_legs` table dropped).
+- **Flight provider: Crawlio via RapidAPI** — $9/month for 15,000 calls. LON city code used for all London-side queries — returns all 5 London airports in one call, individual airport attribution visible in response.
+- **Transit data: `district_airport_transit` keyed by `postcode_district`** — not `school_airport_transit`. RPC functions join on `all_schools.postcode_district`.
 - **4 family compositions per snapshot run** — 1A+1C, 2A+1C, 2A+2C, 2A+1inf. Bucket splitter saving derivable arithmetically without extra calls.
 - **price_insights fields dropped** — price_level, typical_price_low_gbp, typical_price_high_gbp removed from fare_snapshots. Crawlio does not provide this data.
 - **Results sorted by price** — not Google's default "best" ranking. Leaderboard is purely financial.
@@ -404,24 +414,24 @@ CLAUDE.md                            ← Claude Code session instructions
 - [x] Borough term dates — live in Supabase
 - [x] Inset days — live in Supabase
 - [x] Schools database — live in Supabase
-- [x] Transport cost matrix — live in Supabase
-- [x] Layer 1 tables created — airports, destinations, destination_legs, snapshot_runs, airline_baggage_fees, fare_snapshots
+- [x] `district_airport_transit` table — live in Supabase (keyed by `postcode_district`)
+- [x] Layer 1 tables created — airports, destinations, destination_airports, snapshot_runs, airline_baggage_fees, fare_snapshots, baseline_snapshots
 - [x] airports table seeded (all London origins + European destinations)
 - [x] Phase A — flight provider validated (Crawlio via RapidAPI)
 - [x] fare_snapshots schema updated for Crawlio
-- [x] destination_legs migrated to destination_airports
+- [x] destination_legs replaced by destination_airports (pool architecture)
 - [x] Pilot destinations seeded (barcelona, andalusian-corridor, malta)
-- [x] Airport pools seeded (3 BCN pool, 4 Andalusia pool, 1 Malta)
+- [x] Airport pools seeded (BCN, Andalusia, Malta)
+- [x] airline_baggage_fees populated (FR, U2, W6, VY, TP, BA)
+- [x] baseline_snapshots populated — 12 rows, canonical pilot run 39409974
 - [x] Data model designed (data-model.md)
 - [x] types/flight.ts generated (price_insights fields removed)
-- [ ] **airline_baggage_fees table populated** ← TODO
-- [ ] **RAPIDAPI_KEY added to Vercel** ← TODO
-- [ ] fetchFlights.ts rewritten for Crawlio ← CURRENT TASK
-- [ ] run_pilot.py rewritten for Crawlio
-- [ ] Pilot run validated
+- [x] **Layer 3 — all 7 RPC functions + helper deployed and validated** ✅
+- [ ] Flight Insights page UI components ← **CURRENT TASK (Task 3)**
 - [ ] Scale to 21 destinations
-- [ ] Layer 3 derived data generation
-- [ ] Flight Insights page components
+- [ ] Layer 3 leaderboard / narrative generation
 
 ## Current Task
-*Rewrite `fetchFlights.ts` for Crawlio (RapidAPI google-flights8). Then rewrite `run_pilot.py`.*
+**Task 3 — Flight Insights page UI restructure.**
+Layer 3 RPC functions are complete. Build the 11 UI components that consume them.
+Read `FlightInsights.md` before writing any component.
