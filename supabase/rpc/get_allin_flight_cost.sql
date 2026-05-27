@@ -207,7 +207,11 @@ BEGIN
         abf_out.bundle_includes_checked            AS bundle_includes_checked,
         -- Transfer: school postcode → outbound airport, both modes always returned
         -- cheapest_duration_secs is in MINUTES despite the name; used as-is for display
-        sat.cheapest_fare_pence  / 100.0           AS public_transfer_gbp,
+        CASE
+          WHEN sat.cheapest_fare_pence IS NOT NULL
+          THEN sat.cheapest_fare_pence / 100.0
+          ELSE NULL
+        END                                        AS public_transfer_gbp,
         sat.cheapest_legs_summary                  AS public_transfer_desc,
         sat.cheapest_duration_secs                 AS public_transfer_mins,
         -- drive_duration_secs is in SECONDS; divide by 60 for display
@@ -245,21 +249,23 @@ BEGIN
     with_total AS (
       SELECT
         wc.*,
-        -- Transfer cost used for allin_total (and returned so UI knows which was applied)
+        wc.public_transfer_gbp IS NOT NULL                         AS transfer_cost_known,
+        -- Transfer cost: null when transport cost is unknown for the active mode
         CASE p_transport_mode
-          WHEN 'uber' THEN COALESCE(wc.uber_transfer_gbp, wc.public_transfer_gbp, 0)
-          ELSE             COALESCE(wc.public_transfer_gbp, 0)
-        END                                           AS transfer_cost,
-        -- All-in total: baggage/seat null treated as 0 for ranking;
-        -- allin_is_complete flags whether the figure includes all components
+          WHEN 'uber' THEN COALESCE(wc.uber_transfer_gbp, wc.public_transfer_gbp)
+          ELSE             wc.public_transfer_gbp
+        END                                                        AS transfer_cost,
+        -- All-in total: null when transfer cost unknown; sorts last via NULLS LAST
         wc.base_fare_total
           + COALESCE(wc.baggage_cost, 0)
           + COALESCE(wc.seat_cost,    0)
           + CASE p_transport_mode
-              WHEN 'uber' THEN COALESCE(wc.uber_transfer_gbp, wc.public_transfer_gbp, 0)
-              ELSE             COALESCE(wc.public_transfer_gbp, 0)
-            END                                       AS allin_total,
-        (wc.has_out_baggage_data AND wc.has_ret_baggage_data) AS allin_is_complete
+              WHEN 'uber' THEN COALESCE(wc.uber_transfer_gbp, wc.public_transfer_gbp)
+              ELSE             wc.public_transfer_gbp
+            END                                                    AS allin_total,
+        (wc.has_out_baggage_data
+         AND wc.has_ret_baggage_data
+         AND wc.public_transfer_gbp IS NOT NULL)                   AS allin_is_complete
       FROM with_costs wc
     ),
     ranked AS (
@@ -289,6 +295,7 @@ BEGIN
         'bundle_price_delta_gbp',  r.bundle_price_delta_gbp,
         'bundle_includes_checked', r.bundle_includes_checked,
         'transfer_mode',           p_transport_mode,
+        'transfer_cost_known',     r.transfer_cost_known,
         'transfer_cost',           r.transfer_cost,
         'public_transfer_gbp',     r.public_transfer_gbp,
         'public_transfer_desc',    r.public_transfer_desc,
