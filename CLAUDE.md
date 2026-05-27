@@ -16,6 +16,8 @@ A parent has selected their borough and school break. The page surfaces flight
 intelligence across 11 feature components.
 
 School data is live in Supabase. Flight data provider confirmed: Crawlio via RapidAPI (google-flights8).
+Layer 3 RPC functions: ✅ complete and validated (all 7 functions + helper deployed to Supabase).
+Current task: **Task 3 — Flight Insights page UI restructure.**
 
 ---
 
@@ -26,9 +28,31 @@ School data is live in Supabase. Flight data provider confirmed: Crawlio via Rap
 | School / borough data | ✅ Live in Supabase | Serving real data to frontend |
 | Anthropic narrative generation | Pre-generate via Batch API nightly → Supabase | No Claude API calls per user visit |
 | Flight data | ✅ Crawlio via RapidAPI | google-flights8, $9/month, RAPIDAPI_KEY env var |
+| Layer 3 RPC functions | ✅ Complete and validated | 7 functions + calculate_absence_fine helper |
+| Baseline snapshots | ✅ Live in Supabase | 12 rows — canonical pilot run 39409974 |
 | Open-Meteo (weather) | Real-time | Free, no key required |
 | FCDO (safety) | Real-time | Free API |
 | Supabase | Live | Primary data store |
+
+### Layer 3 — RPC Functions (Complete)
+
+All 7 functions deployed to Supabase. Shared helper `calculate_absence_fine` used by functions 1 and 2.
+Transit data sourced from `district_airport_transit` keyed by `postcode_district` (not `school_airport_transit`).
+
+| # | Function | Key parameters |
+|---|---|---|
+| 1 | `get_savings_breakdown` | `p_destination_slug, p_school_urn, p_window_start, p_window_end, p_trip_duration_nights, p_adults, p_children, p_infants` |
+| 2 | `get_compliance_scenarios` | `p_destination_slug, p_school_urn, p_adults, p_children, p_infants` |
+| 3 | `get_allin_flight_cost` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants, p_transport_mode` |
+| 4 | `get_multi_airport` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
+| 5 | `get_open_jaw` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
+| 6 | `get_nearby_destination_airports` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
+| 7 | `get_bucket_split` | `p_destination_slug, p_origin_iata, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
+| — | `calculate_absence_fine` (helper) | `p_dep_date, p_ret_date, p_window_start, p_window_end, p_school_urn, p_adults, p_children` |
+
+`get_savings_breakdown` self-discovers optimal dates from `fare_snapshots` — callers pass `p_window_start/end` and `p_trip_duration_nights`, not fixed dates.
+
+---
 
 ### Flight API Abstraction Rule
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
@@ -121,7 +145,8 @@ Read `FlightInsights.md` before writing any UI component. Summary:
 - All flight calls go through `lib/flights/fetchFlights.ts` — never direct to a provider SDK.
 - Read `FlightInsights.md` before writing any UI component.
 - Check in after each component is complete before proceeding to the next.
-- Read from destination_airports, never destination_legs (table dropped).
+- Read from `destination_airports`, never `destination_legs` (table dropped).
+- Transit data from `district_airport_transit` keyed by `postcode_district` — never `school_airport_transit`.
 - Use LON as origin city code for all London-side queries — not individual airport codes.
 - 4 family compositions per run: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
 - Sort all Crawlio calls by price, not Google default ranking.
@@ -129,13 +154,19 @@ Read `FlightInsights.md` before writing any UI component. Summary:
 ---
 
 ## Build Status
-*Tick off as features are completed. Move the IN PROGRESS marker each session.*
+
+### Layer 3 — RPC Functions ✅ Complete
+All 7 functions + helper deployed and validated against live Supabase data.
+Canonical pilot run: **39409974**.
+
+### Task 3 — Flight Insights Page UI ← CURRENT TASK
+*Tick off as components are completed.*
 
 - [ ] Feature 1 — Inset + School Calendar Engine
 - [ ] Feature 2 — Compliance Calculus Calculator
 - [ ] Feature 3 — All-in Family Cost Normalisation
 - [ ] Feature 4 — Party-Size Capacity Warning
-- [ ] Feature 5 — Multi-Airport London Search  ← IN PROGRESS
+- [ ] Feature 5 — Multi-Airport London Search
 - [ ] Feature 6 — Open-Jaw / Split-City Search
 - [ ] Feature 7 — Stopover & Long-Layover Routing
 - [ ] Feature 8 — Nearby Destination Airports
