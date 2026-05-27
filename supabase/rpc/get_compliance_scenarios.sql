@@ -233,52 +233,54 @@ BEGIN
         ) AS ret_fare
       FROM combos c
     ),
-    -- Absence + inset classification; skip combos with no fare data
+    -- Absence + inset classification; skip combos with no fare data.
+    -- Fine fields delegated to calculate_absence_fine for consistency with
+    -- get_savings_breakdown. Weekday-only counting; no borough inset fallback
+    -- (helper uses school-specific inset days only).
     calcs AS (
       SELECT
         f.dep_date,
         f.ret_date,
         f.out_fare,
         f.ret_fare,
-        f.out_fare + f.ret_fare AS total_fare,
-        -- Departure-side absence: calendar days before official start, minus inset days
-        -- (inset days are non-teaching days and do not count as unauthorised absence)
-        GREATEST(0,
-          (v_window_start - f.dep_date)
-          - (SELECT COUNT(*)::int FROM inset_days id
-              WHERE id.d >= f.dep_date AND id.d < v_window_start)
-        ) AS dep_absence,
-        -- Return-side absence: calendar days after break ends, minus any inset days
-        GREATEST(0,
-          (f.ret_date - v_window_end)
-          - (SELECT COUNT(*)::int FROM inset_days id
-              WHERE id.d > v_window_end AND id.d <= f.ret_date)
-        ) AS ret_absence,
+        f.out_fare + f.ret_fare                    AS total_fare,
+        fine_calc.departure_absence_days::smallint AS dep_absence,
+        fine_calc.return_absence_days::smallint    AS ret_absence,
+        fine_calc.fine_gbp                         AS fine_gbp,
+        fine_calc.requires_absence                 AS requires_absence,
         EXISTS(SELECT 1 FROM inset_days id WHERE id.d = f.dep_date) AS uses_inset_day
       FROM fares f
+      LEFT JOIN LATERAL (
+        SELECT *
+          FROM jsonb_to_record(
+            calculate_absence_fine(
+              f.dep_date,
+              f.ret_date,
+              v_window_start,
+              v_window_end,
+              p_school_urn,
+              p_adults,
+              p_children
+            )
+          ) AS x(
+            departure_absence_days smallint,
+            return_absence_days    smallint,
+            total_absence_days     smallint,
+            fine_gbp               numeric,
+            fine_is_estimate       boolean,
+            requires_absence       boolean
+          )
+      ) fine_calc ON true
       WHERE f.out_fare IS NOT NULL
         AND f.ret_fare IS NOT NULL
     ),
-    -- Fine calculation and savings
+    -- Savings; fine fields come directly from calcs (via helper)
     with_fine AS (
       SELECT
         c.*,
-        c.dep_absence + c.ret_absence AS total_absence_days,
-        (c.dep_absence > 0 OR c.ret_absence > 0) AS requires_absence,
-        -- Fine: £80 per parent per child per absence period (not per day).
-        -- Uses caller's actual adults/children, not the matched fare-lookup composition.
-        -- Maximum 2 periods (one departure-side + one return-side).
-        80 * p_adults * p_children
-          * (CASE WHEN c.dep_absence > 0 THEN 1 ELSE 0 END
-           + CASE WHEN c.ret_absence > 0 THEN 1 ELSE 0 END) AS fine_gbp,
-        ROUND(v_baseline - c.total_fare, 2) AS gross_saving,
-        ROUND(
-          v_baseline - c.total_fare
-          - 80 * p_adults * p_children
-            * (CASE WHEN c.dep_absence > 0 THEN 1 ELSE 0 END
-             + CASE WHEN c.ret_absence > 0 THEN 1 ELSE 0 END),
-          2
-        ) AS net_saving
+        c.dep_absence + c.ret_absence               AS total_absence_days,
+        ROUND(v_baseline - c.total_fare, 2)         AS gross_saving,
+        ROUND(v_baseline - c.total_fare - c.fine_gbp, 2) AS net_saving
       FROM calcs c
     ),
     -- Mark the single best row (highest net saving)

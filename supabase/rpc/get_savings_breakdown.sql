@@ -61,8 +61,7 @@ DECLARE
   v_yield     numeric;
 
   -- Fine-aware yield
-  v_dep_absence smallint;
-  v_ret_absence smallint;
+  v_fine_result jsonb;
   v_fine        numeric;
   v_net_yield   numeric;
 
@@ -207,37 +206,18 @@ BEGIN
   END;
 
   -- ── Fine-aware yield ────────────────────────────────────────────────────────
-  -- Departure absence: school days before p_window_start, net of inset days.
-  -- Return absence:    school days after  p_window_end,   net of inset days.
-  -- Fine = £80 × adults × children × number of absence periods (max 2).
-  -- Applies only when p_children > 0; zero otherwise.
 
-  SELECT GREATEST(0,
-    CASE WHEN v_best_outbound_date < p_window_start
-    THEN (p_window_start - v_best_outbound_date)
-         - (SELECT COUNT(*)::int FROM school_inset_days
-             WHERE urn  = p_school_urn
-               AND date >= v_best_outbound_date
-               AND date <  p_window_start)
-    ELSE 0 END
-  )::smallint INTO v_dep_absence;
+  v_fine_result := calculate_absence_fine(
+    v_best_outbound_date,
+    v_best_return_date,
+    p_window_start,
+    p_window_end,
+    p_school_urn,
+    p_adults,
+    p_children
+  );
 
-  SELECT GREATEST(0,
-    CASE WHEN v_best_return_date > p_window_end
-    THEN (v_best_return_date - p_window_end)
-         - (SELECT COUNT(*)::int FROM school_inset_days
-             WHERE urn  = p_school_urn
-               AND date >  p_window_end
-               AND date <= v_best_return_date)
-    ELSE 0 END
-  )::smallint INTO v_ret_absence;
-
-  v_fine := 80.0
-    * p_adults
-    * p_children
-    * ((CASE WHEN v_dep_absence > 0 THEN 1 ELSE 0 END)
-     + (CASE WHEN v_ret_absence > 0 THEN 1 ELSE 0 END));
-
+  v_fine      := (v_fine_result->>'fine_gbp')::numeric;
   v_net_yield := CASE
     WHEN v_yield IS NOT NULL
     THEN v_yield - COALESCE(v_fine, 0)
@@ -550,9 +530,9 @@ BEGIN
     'fine_gbp',               v_fine,
     'fine_is_estimate',       true,
     'net_yield',              v_net_yield,
-    'requires_absence',       (COALESCE(v_dep_absence, 0) > 0 OR COALESCE(v_ret_absence, 0) > 0),
-    'departure_absence_days', v_dep_absence,
-    'return_absence_days',    v_ret_absence,
+    'requires_absence',       (v_fine_result->>'requires_absence')::boolean,
+    'departure_absence_days', (v_fine_result->>'departure_absence_days')::smallint,
+    'return_absence_days',    (v_fine_result->>'return_absence_days')::smallint,
     'levers',                 v_levers
   );
 
