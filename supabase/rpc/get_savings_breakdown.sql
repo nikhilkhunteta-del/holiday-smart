@@ -57,8 +57,14 @@ DECLARE
   v_smart               numeric;
 
   -- Core prices
-  v_baseline numeric;
-  v_yield    numeric;
+  v_baseline  numeric;
+  v_yield     numeric;
+
+  -- Fine-aware yield
+  v_dep_absence smallint;
+  v_ret_absence smallint;
+  v_fine        numeric;
+  v_net_yield   numeric;
 
   -- Levers accumulator
   v_levers jsonb := '[]'::jsonb;
@@ -197,6 +203,44 @@ BEGIN
   v_yield := CASE
     WHEN v_baseline IS NOT NULL AND v_smart IS NOT NULL
     THEN v_baseline - v_smart
+    ELSE NULL
+  END;
+
+  -- ── Fine-aware yield ────────────────────────────────────────────────────────
+  -- Departure absence: school days before p_window_start, net of inset days.
+  -- Return absence:    school days after  p_window_end,   net of inset days.
+  -- Fine = £80 × adults × children × number of absence periods (max 2).
+  -- Applies only when p_children > 0; zero otherwise.
+
+  SELECT GREATEST(0,
+    CASE WHEN v_best_outbound_date < p_window_start
+    THEN (p_window_start - v_best_outbound_date)
+         - (SELECT COUNT(*)::int FROM school_inset_days
+             WHERE urn  = p_school_urn
+               AND date >= v_best_outbound_date
+               AND date <  p_window_start)
+    ELSE 0 END
+  )::smallint INTO v_dep_absence;
+
+  SELECT GREATEST(0,
+    CASE WHEN v_best_return_date > p_window_end
+    THEN (v_best_return_date - p_window_end)
+         - (SELECT COUNT(*)::int FROM school_inset_days
+             WHERE urn  = p_school_urn
+               AND date >  p_window_end
+               AND date <= v_best_return_date)
+    ELSE 0 END
+  )::smallint INTO v_ret_absence;
+
+  v_fine := 80.0
+    * p_adults
+    * p_children
+    * ((CASE WHEN v_dep_absence > 0 THEN 1 ELSE 0 END)
+     + (CASE WHEN v_ret_absence > 0 THEN 1 ELSE 0 END));
+
+  v_net_yield := CASE
+    WHEN v_yield IS NOT NULL
+    THEN v_yield - COALESCE(v_fine, 0)
     ELSE NULL
   END;
 
@@ -498,12 +542,18 @@ BEGIN
   -- ── Return ──────────────────────────────────────────────────────────────────
 
   RETURN jsonb_build_object(
-    'best_outbound_date', v_best_outbound_date,
-    'best_return_date',   v_best_return_date,
-    'baseline_price',     v_baseline,
-    'smart_price',        v_smart,
-    'total_yield',        v_yield,
-    'levers',             v_levers
+    'best_outbound_date',     v_best_outbound_date,
+    'best_return_date',       v_best_return_date,
+    'baseline_price',         v_baseline,
+    'smart_price',            v_smart,
+    'total_yield',            v_yield,
+    'fine_gbp',               v_fine,
+    'fine_is_estimate',       true,
+    'net_yield',              v_net_yield,
+    'requires_absence',       (COALESCE(v_dep_absence, 0) > 0 OR COALESCE(v_ret_absence, 0) > 0),
+    'departure_absence_days', v_dep_absence,
+    'return_absence_days',    v_ret_absence,
+    'levers',                 v_levers
   );
 
 END;
