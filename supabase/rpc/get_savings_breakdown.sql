@@ -4,13 +4,15 @@
 --           active saving lever. Every other Flight Insights section is detail
 --           behind these numbers.
 --
--- Composition matching:
---   Input composition is mapped to the nearest of the 4 snapshot compositions
---   (1A+1C, 2A+1C, 2A+2C, 2A+1inf) by minimising total pax distance. Never errors.
+-- Smart price:
+--   Scans all outbound dates available in fare_snapshots for this destination,
+--   run, and matched composition. For each candidate outbound date pairs it with
+--   outbound_date + p_trip_duration_nights as the return date. Picks the pair
+--   with the lowest assembled price. Winning dates returned as
+--   best_outbound_date / best_return_date.
 --
--- Term-date fallback (Lever 2):
---   Mirrors the two-tier pattern in pages/api/term-dates.js and
---   pages/api/borough-dates.js: school_term_dates first, then borough_term_dates.
+-- Composition matching:
+--   Input mapped to nearest of (1A+1C, 2A+1C, 2A+2C, 2A+1inf). Never errors.
 --
 -- school_airport_transit duration fields (not used in this function, but noted
 -- here for all callers of that table):
@@ -18,13 +20,14 @@
 --   drive_duration_secs    — stored in SECONDS; divide by 60 for display in minutes.
 
 CREATE OR REPLACE FUNCTION get_savings_breakdown(
-  p_destination_slug text,
-  p_school_urn       text,
-  p_outbound_date    date,
-  p_return_date      date,
-  p_adults           smallint,
-  p_children         smallint,
-  p_infants          smallint
+  p_destination_slug     text,
+  p_school_urn           text,
+  p_window_start         date,
+  p_window_end           date,
+  p_trip_duration_nights smallint,
+  p_adults               smallint,
+  p_children             smallint,
+  p_infants              smallint
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -48,11 +51,13 @@ DECLARE
   -- Latest run
   v_run_id uuid;
 
+  -- Smart price — best outbound+return pair found internally
+  v_best_outbound_date  date;
+  v_best_return_date    date;
+  v_smart               numeric;
+
   -- Core prices
   v_baseline numeric;
-  v_best_out numeric;
-  v_best_ret numeric;
-  v_smart    numeric;
   v_yield    numeric;
 
   -- Levers accumulator
@@ -66,9 +71,8 @@ DECLARE
   v_best_ap_net   numeric;
 
   -- Lever 2 — date arbitrage
-  v_official_start date;
-  v_is_inset_day   boolean := false;
-  v_official_fare  numeric;
+  v_official_assembled  numeric;
+  v_is_inset_day        boolean := false;
 
   -- Lever 3 — open-jaw
   v_sym_best numeric;
@@ -105,7 +109,7 @@ BEGIN
     RETURN jsonb_build_object('error', 'no airport pool for: ' || p_destination_slug);
   END IF;
 
-  -- ── 2. School metadata (postcode drives transit lookup; borough drives fallback) ─
+  -- ── 2. School metadata ──────────────────────────────────────────────────────
 
   SELECT postcode, borough
     INTO v_postcode, v_borough
@@ -141,7 +145,7 @@ BEGIN
     RETURN jsonb_build_object('error', 'no completed cross-sectional run found');
   END IF;
 
-  -- ── 5. Baseline price (LHR, Saturday, cheapest round-trip, matched composition) ─
+  -- ── 5. Baseline price ───────────────────────────────────────────────────────
 
   SELECT party_total_gbp
     INTO v_baseline
@@ -152,39 +156,43 @@ BEGIN
      AND infants          = v_infants
    LIMIT 1;
 
-  -- ── 6. Best outbound fare (any LDN → any pool airport, matched date + comp) ─
+  -- ── 6. Smart price: find cheapest available outbound + return pair ───────────
+  -- For every outbound date in fare_snapshots, attempt to pair it with
+  -- outbound_date + p_trip_duration_nights as the return date.
+  -- Only pairs where both legs have fare data are considered.
+  -- The cheapest assembled price wins.
 
-  SELECT MIN(party_total_gbp)
-    INTO v_best_out
-    FROM fare_snapshots
-   WHERE run_id           = v_run_id
-     AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
-     AND destination_iata  = ANY(v_dest_airports)
-     AND departure_date   = p_outbound_date
-     AND adults           = v_adults
-     AND children         = v_children
-     AND infants          = v_infants;
-
-  -- ── 7. Best return fare (any pool airport → any LDN, matched date + comp) ───
-
-  SELECT MIN(party_total_gbp)
-    INTO v_best_ret
-    FROM fare_snapshots
-   WHERE run_id           = v_run_id
-     AND origin_iata       = ANY(v_dest_airports)
-     AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-     AND departure_date   = p_return_date
-     AND adults           = v_adults
-     AND children         = v_children
-     AND infants          = v_infants;
-
-  -- ── 8. Smart price + total yield ────────────────────────────────────────────
-
-  v_smart := CASE
-    WHEN v_best_out IS NOT NULL AND v_best_ret IS NOT NULL
-    THEN v_best_out + v_best_ret
-    ELSE NULL
-  END;
+  SELECT
+    dep_date,
+    dep_date + p_trip_duration_nights,
+    out_fare + ret_fare
+  INTO v_best_outbound_date, v_best_return_date, v_smart
+  FROM (
+    SELECT
+      fs_out.departure_date                AS dep_date,
+      MIN(fs_out.party_total_gbp)          AS out_fare,
+      (SELECT MIN(party_total_gbp)
+         FROM fare_snapshots
+        WHERE run_id           = v_run_id
+          AND origin_iata       = ANY(v_dest_airports)
+          AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
+          AND departure_date   = fs_out.departure_date + p_trip_duration_nights
+          AND adults   = v_adults
+          AND children = v_children
+          AND infants  = v_infants
+      )                                    AS ret_fare
+    FROM fare_snapshots fs_out
+    WHERE fs_out.run_id           = v_run_id
+      AND fs_out.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
+      AND fs_out.destination_iata  = ANY(v_dest_airports)
+      AND fs_out.adults   = v_adults
+      AND fs_out.children = v_children
+      AND fs_out.infants  = v_infants
+    GROUP BY fs_out.departure_date
+  ) dated_pairs
+  WHERE ret_fare IS NOT NULL
+  ORDER BY out_fare + ret_fare ASC
+  LIMIT 1;
 
   v_yield := CASE
     WHEN v_baseline IS NOT NULL AND v_smart IS NOT NULL
@@ -194,8 +202,8 @@ BEGIN
 
   -- ══ LEVER 1: London airport arbitrage ═══════════════════════════════════════
   -- Net-of-transport cost per airport = flight fare + public transport cost.
-  -- Transport cost sourced from school_airport_transit (cheapest_fare_pence / 100).
-  -- Saving = LHR net − best alternative net. Only surfaced when a non-LHR airport wins.
+  -- Transport cost from school_airport_transit; null when data absent (sorts last).
+  -- Saving = LHR net − best alternative net. Only fires when a non-LHR airport wins.
 
   SELECT MIN(fs.party_total_gbp)
     INTO v_lhr_fare
@@ -203,7 +211,7 @@ BEGIN
    WHERE fs.run_id           = v_run_id
      AND fs.origin_iata      = 'LHR'
      AND fs.destination_iata  = ANY(v_dest_airports)
-     AND fs.departure_date   = p_outbound_date
+     AND fs.departure_date   = v_best_outbound_date
      AND fs.adults           = v_adults
      AND fs.children         = v_children
      AND fs.infants          = v_infants;
@@ -225,19 +233,19 @@ BEGIN
     INTO v_best_ap_iata, v_best_ap_net
     FROM (
       SELECT
-        fares.origin_iata                                              AS airport_iata,
+        fares.origin_iata                    AS airport_iata,
         fares.min_fare + CASE
                            WHEN sat.cheapest_fare_pence IS NOT NULL
                            THEN sat.cheapest_fare_pence / 100.0
                            ELSE NULL
-                         END                                           AS net_total
+                         END                 AS net_total
       FROM (
         SELECT fs.origin_iata, MIN(fs.party_total_gbp) AS min_fare
           FROM fare_snapshots fs
          WHERE fs.run_id           = v_run_id
            AND fs.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
            AND fs.destination_iata  = ANY(v_dest_airports)
-           AND fs.departure_date   = p_outbound_date
+           AND fs.departure_date   = v_best_outbound_date
            AND fs.adults           = v_adults
            AND fs.children         = v_children
            AND fs.infants          = v_infants
@@ -264,64 +272,61 @@ BEGIN
   END IF;
 
   -- ══ LEVER 2: Departure-day arbitrage ════════════════════════════════════════
-  -- Official break start via two-tier fallback: school_term_dates → borough_term_dates.
-  -- Mirrors pages/api/term-dates.js + pages/api/borough-dates.js on the landing page.
-  -- Saving = fare on official start − fare on p_outbound_date (user flies earlier).
-  -- is_borough_specific = true when p_outbound_date is a school inset day.
-
-  SELECT start_date
-    INTO v_official_start
-    FROM school_term_dates
-   WHERE urn        = p_school_urn
-     AND start_date BETWEEN p_outbound_date - 14 AND p_outbound_date + 14
-   ORDER BY abs(start_date - p_outbound_date) ASC
-   LIMIT 1;
-
-  IF v_official_start IS NULL AND v_borough IS NOT NULL THEN
-    SELECT start_date
-      INTO v_official_start
-      FROM borough_term_dates
-     WHERE borough    = v_borough
-       AND start_date BETWEEN p_outbound_date - 14 AND p_outbound_date + 14
-     ORDER BY abs(start_date - p_outbound_date) ASC
-     LIMIT 1;
-  END IF;
+  -- Compares the smart trip (cheapest found internally) against the assembled
+  -- fare on the official window start (p_window_start + p_trip_duration_nights).
+  -- Lever fires only when smart date is cheaper than official start.
+  -- is_borough_specific = true when the smart outbound date is an inset day.
 
   SELECT EXISTS(
     SELECT 1 FROM school_inset_days
      WHERE urn  = p_school_urn
-       AND date = p_outbound_date
+       AND date = v_best_outbound_date
   ) INTO v_is_inset_day;
 
-  IF v_official_start IS NOT NULL AND v_official_start <> p_outbound_date THEN
-    SELECT MIN(party_total_gbp)
-      INTO v_official_fare
-      FROM fare_snapshots
-     WHERE run_id           = v_run_id
-       AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
-       AND destination_iata  = ANY(v_dest_airports)
-       AND departure_date   = v_official_start
-       AND adults           = v_adults
-       AND children         = v_children
-       AND infants          = v_infants;
+  IF v_smart IS NOT NULL AND v_best_outbound_date IS DISTINCT FROM p_window_start THEN
 
-    IF v_official_fare IS NOT NULL AND v_best_out IS NOT NULL THEN
+    SELECT out_fare + ret_fare
+      INTO v_official_assembled
+      FROM (
+        SELECT
+          (SELECT MIN(party_total_gbp)
+             FROM fare_snapshots
+            WHERE run_id           = v_run_id
+              AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
+              AND destination_iata  = ANY(v_dest_airports)
+              AND departure_date   = p_window_start
+              AND adults   = v_adults
+              AND children = v_children
+              AND infants  = v_infants
+          ) AS out_fare,
+          (SELECT MIN(party_total_gbp)
+             FROM fare_snapshots
+            WHERE run_id           = v_run_id
+              AND origin_iata       = ANY(v_dest_airports)
+              AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
+              AND departure_date   = p_window_start + p_trip_duration_nights
+              AND adults   = v_adults
+              AND children = v_children
+              AND infants  = v_infants
+          ) AS ret_fare
+      ) official;
+
+    IF v_official_assembled IS NOT NULL AND v_official_assembled > v_smart THEN
       v_levers := v_levers || jsonb_build_object(
         'label',              'Departure day ('
-                               || to_char(p_outbound_date, 'Mon DD')
-                               || ' vs ' || to_char(v_official_start, 'Mon DD') || ')',
-        'winner',             to_char(p_outbound_date, 'Mon DD'),
-        'saving',             ROUND(v_official_fare - v_best_out, 2),
-        'above_threshold',    (v_official_fare - v_best_out) >= 30,
+                               || to_char(v_best_outbound_date, 'Mon DD')
+                               || ' vs ' || to_char(p_window_start, 'Mon DD') || ')',
+        'winner',             to_char(v_best_outbound_date, 'Mon DD'),
+        'saving',             ROUND(v_official_assembled - v_smart, 2),
+        'above_threshold',    (v_official_assembled - v_smart) >= 30,
         'is_borough_specific', v_is_inset_day
       );
     END IF;
   END IF;
 
   -- ══ LEVER 3: Open-jaw routing (circuit destinations only) ═══════════════════
-  -- Open-jaw best = v_smart (best outbound to any pool airport + best return from
-  -- any pool airport, independently chosen — already the optimum mix).
-  -- Symmetric best = cheapest price when outbound and return use the same airport.
+  -- Open-jaw best = v_smart (independently cheapest outbound + return airports).
+  -- Symmetric best = cheapest price when both legs use the same airport.
   -- Saving = symmetric_best − open_jaw_best (positive = open-jaw wins).
 
   IF v_dest_type = 'circuit'
@@ -338,7 +343,7 @@ BEGIN
              WHERE fs.run_id           = v_run_id
                AND fs.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
                AND fs.destination_iata  = da.iata_code
-               AND fs.departure_date   = p_outbound_date
+               AND fs.departure_date   = v_best_outbound_date
                AND fs.adults = v_adults AND fs.children = v_children AND fs.infants = v_infants
           ) AS out_fare,
           (
@@ -346,7 +351,7 @@ BEGIN
              WHERE fs.run_id           = v_run_id
                AND fs.origin_iata       = da.iata_code
                AND fs.destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-               AND fs.departure_date   = p_return_date
+               AND fs.departure_date   = v_best_return_date
                AND fs.adults = v_adults AND fs.children = v_children AND fs.infants = v_infants
           ) AS ret_fare
         FROM destination_airports da
@@ -367,7 +372,6 @@ BEGIN
 
   -- ══ LEVER 4: Bucket split (2A+2C composition only) ══════════════════════════
   -- Checks whether booking as 2×(1A+1C) beats 1×(2A+2C).
-  -- Both compositions are always collected in the snapshot run, so no extra API calls.
 
   IF v_adults = 2 AND v_children = 2 AND v_infants = 0 AND v_smart IS NOT NULL THEN
     SELECT MIN(party_total_gbp)
@@ -376,7 +380,7 @@ BEGIN
      WHERE run_id           = v_run_id
        AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
        AND destination_iata  = ANY(v_dest_airports)
-       AND departure_date   = p_outbound_date
+       AND departure_date   = v_best_outbound_date
        AND adults = 1 AND children = 1 AND infants = 0;
 
     SELECT MIN(party_total_gbp)
@@ -385,7 +389,7 @@ BEGIN
      WHERE run_id           = v_run_id
        AND origin_iata       = ANY(v_dest_airports)
        AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-       AND departure_date   = p_return_date
+       AND departure_date   = v_best_return_date
        AND adults = 1 AND children = 1 AND infants = 0;
 
     IF v_split_out IS NOT NULL
@@ -405,9 +409,8 @@ BEGIN
   -- ══ LEVER 5: Nearby destination airport ═════════════════════════════════════
   -- Only when the destination pool has multiple airports.
   -- Primary = airport with most rows in fare_snapshots for this run (most-served).
-  -- Net total = flight fare + transfer_cost_gbp (destination-side ground transport).
-  -- transfer_cost_gbp nullable — treated as 0 when absent.
-  -- Saving = primary_net − secondary_net. Only surfaced when secondary wins.
+  -- Net total = flight fare + transfer_cost_gbp; CASE handles null explicitly.
+  -- Saving = primary_net − secondary_net. Only fires when secondary wins.
 
   IF array_length(v_dest_airports, 1) > 1 THEN
     SELECT fs.destination_iata
@@ -427,7 +430,7 @@ BEGIN
        WHERE fs.run_id           = v_run_id
          AND fs.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
          AND fs.destination_iata  = v_primary_iata
-         AND fs.departure_date   = p_outbound_date
+         AND fs.departure_date   = v_best_outbound_date
          AND fs.adults           = v_adults
          AND fs.children         = v_children
          AND fs.infants          = v_infants;
@@ -448,7 +451,7 @@ BEGIN
           ON fs.destination_iata  = da.iata_code
          AND fs.run_id            = v_run_id
          AND fs.origin_iata       IN ('LHR','LGW','STN','LTN','LCY')
-         AND fs.departure_date    = p_outbound_date
+         AND fs.departure_date    = v_best_outbound_date
          AND fs.adults            = v_adults
          AND fs.children          = v_children
          AND fs.infants           = v_infants
@@ -495,10 +498,12 @@ BEGIN
   -- ── Return ──────────────────────────────────────────────────────────────────
 
   RETURN jsonb_build_object(
-    'baseline_price', v_baseline,
-    'smart_price',    v_smart,
-    'total_yield',    v_yield,
-    'levers',         v_levers
+    'best_outbound_date', v_best_outbound_date,
+    'best_return_date',   v_best_return_date,
+    'baseline_price',     v_baseline,
+    'smart_price',        v_smart,
+    'total_yield',        v_yield,
+    'levers',             v_levers
   );
 
 END;
