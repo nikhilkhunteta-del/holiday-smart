@@ -8,8 +8,10 @@
 --   most established airport that a parent would naively book.
 --
 -- Secondary airports:
---   Every non-primary airport in the pool that has both outbound and return fare data.
---   For each secondary: assembled round-trip fare, fare saving vs primary, destination-
+--   Every non-primary airport in the pool that has outbound fare data.
+--   Comparison is outbound-leg only — the parent can fly home from any airport
+--   they choose, so return leg is excluded from the saving calculation.
+--   For each secondary: outbound fare, fare saving vs primary outbound, destination-
 --   side transfer cost (net saving adjustment), and above_threshold flag.
 --
 -- Transfer cost (net saving):
@@ -22,6 +24,7 @@
 --   secondary airport (both columns exist on destination_airports).
 --
 -- above_threshold: net_saving ≥ £30 (consistent with all other saving levers).
+-- comparison_basis: 'outbound_leg_only' — surfaced in JSON so the UI can label clearly.
 
 CREATE OR REPLACE FUNCTION get_nearby_destination_airports(
   p_destination_slug text,
@@ -120,29 +123,20 @@ BEGIN
     );
   END IF;
 
-  -- ── 5. Primary airport assembled fare (outbound + return) ───────────────────
+  -- ── 5. Primary airport outbound fare ────────────────────────────────────────
 
-  SELECT
-    (SELECT MIN(party_total_gbp)
-       FROM fare_snapshots
-      WHERE run_id           = v_run_id
-        AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
-        AND destination_iata  = v_primary_iata
-        AND departure_date   = p_outbound_date
-        AND adults   = v_adults AND children = v_children AND infants = v_infants)
-    +
-    (SELECT MIN(party_total_gbp)
-       FROM fare_snapshots
-      WHERE run_id           = v_run_id
-        AND origin_iata       = v_primary_iata
-        AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-        AND departure_date   = p_return_date
-        AND adults   = v_adults AND children = v_children AND infants = v_infants)
-  INTO v_primary_fare;
+  SELECT MIN(party_total_gbp)
+    INTO v_primary_fare
+    FROM fare_snapshots
+   WHERE run_id           = v_run_id
+     AND origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
+     AND destination_iata  = v_primary_iata
+     AND departure_date   = p_outbound_date
+     AND adults   = v_adults AND children = v_children AND infants = v_infants;
 
   IF v_primary_fare IS NULL THEN
     RETURN jsonb_build_object(
-      'error', 'incomplete fare data for primary airport: ' || v_primary_iata
+      'error', 'no outbound fare data for primary airport: ' || v_primary_iata
     );
   END IF;
 
@@ -165,38 +159,20 @@ BEGIN
          AND fs.infants  = v_infants
        GROUP BY fs.destination_iata
     ),
-    -- Best return fare per destination airport (dest airport → London)
-    ret_fares AS (
-      SELECT
-        fs.origin_iata                    AS orig_ap,
-        MIN(fs.party_total_gbp)           AS ret_fare
-        FROM fare_snapshots fs
-       WHERE fs.run_id           = v_run_id
-         AND fs.origin_iata       = ANY(v_dest_airports)
-         AND fs.origin_iata       <> v_primary_iata
-         AND fs.destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-         AND fs.departure_date   = p_return_date
-         AND fs.adults   = v_adults
-         AND fs.children = v_children
-         AND fs.infants  = v_infants
-       GROUP BY fs.origin_iata
-    ),
-    -- Assembled round-trip: only airports with both directions
+    -- Outbound-only comparison: return leg excluded (parent can fly home from any airport)
     assembled AS (
       SELECT
-        o.dest_ap                         AS airport,
-        o.out_fare,
-        r.ret_fare,
-        o.out_fare + r.ret_fare           AS total_fare
+        o.dest_ap      AS airport,
+        o.out_fare     AS outbound_fare,
+        NULL::numeric  AS return_fare,
+        o.out_fare     AS total_fare
       FROM out_fares o
-      JOIN ret_fares r ON r.orig_ap = o.dest_ap
     ),
     -- Join destination-side transfer costs
     with_transfer AS (
       SELECT
         a.airport,
-        a.out_fare,
-        a.ret_fare,
+        a.outbound_fare,
         a.total_fare,
         v_primary_fare - a.total_fare                         AS fare_saving,
         da.transfer_cost_gbp,
@@ -218,16 +194,15 @@ BEGIN
     jsonb_agg(
       jsonb_build_object(
         'airport',                 t.airport,
-        'outbound_fare',           ROUND(t.out_fare,     2),
-        'return_fare',             ROUND(t.ret_fare,     2),
-        'total_fare',              ROUND(t.total_fare,   2),
+        'outbound_fare',           ROUND(t.total_fare,   2),
         'fare_saving',             ROUND(t.fare_saving,  2),
         'transfer_cost_gbp',       t.transfer_cost_gbp,
         'transfer_notes',          t.transfer_notes,
         'drive_time_minutes',      t.drive_time_minutes,
         'transfer_cost_excluded',  t.transfer_cost_excluded,
         'net_saving',              ROUND(t.net_saving,   2),
-        'above_threshold',         t.net_saving >= 30
+        'above_threshold',         t.net_saving >= 30,
+        'comparison_basis',        'outbound_leg_only'
       )
       ORDER BY t.net_saving DESC NULLS LAST
     ),
@@ -237,9 +212,10 @@ BEGIN
   FROM with_transfer t;
 
   RETURN jsonb_build_object(
-    'primary_airport',    v_primary_iata,
-    'primary_total_fare', ROUND(v_primary_fare, 2),
-    'secondary_airports', v_result
+    'primary_airport',        v_primary_iata,
+    'primary_outbound_fare',  ROUND(v_primary_fare, 2),
+    'comparison_basis',       'outbound_leg_only',
+    'secondary_airports',     v_result
   );
 
 END;
