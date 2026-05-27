@@ -208,21 +208,29 @@ BEGIN
      AND fs.children         = v_children
      AND fs.infants          = v_infants;
 
-  SELECT cheapest_fare_pence / 100.0
+  SELECT CASE
+           WHEN cheapest_fare_pence IS NOT NULL
+           THEN cheapest_fare_pence / 100.0
+           ELSE NULL
+         END
     INTO v_lhr_transport
     FROM school_airport_transit
    WHERE school_postcode = v_postcode
      AND airport_code    = 'LHR'
    LIMIT 1;
 
-  v_lhr_net := v_lhr_fare + COALESCE(v_lhr_transport, 0);
+  v_lhr_net := v_lhr_fare + v_lhr_transport;
 
   SELECT airport_iata, net_total
     INTO v_best_ap_iata, v_best_ap_net
     FROM (
       SELECT
         fares.origin_iata                                              AS airport_iata,
-        fares.min_fare + COALESCE(sat.cheapest_fare_pence / 100.0, 0) AS net_total
+        fares.min_fare + CASE
+                           WHEN sat.cheapest_fare_pence IS NOT NULL
+                           THEN sat.cheapest_fare_pence / 100.0
+                           ELSE NULL
+                         END                                           AS net_total
       FROM (
         SELECT fs.origin_iata, MIN(fs.party_total_gbp) AS min_fare
           FROM fare_snapshots fs
@@ -239,7 +247,7 @@ BEGIN
              ON sat.school_postcode = v_postcode
             AND sat.airport_code    = fares.origin_iata
     ) ranked
-   ORDER BY net_total ASC
+   ORDER BY net_total ASC NULLS LAST
    LIMIT 1;
 
   IF v_lhr_net IS NOT NULL

@@ -139,7 +139,11 @@ BEGIN
         ap.ret_fare,
         ap.total_fare,
         -- Public transport (null when transit row absent or field unpopulated)
-        sat.cheapest_fare_pence  / 100.0           AS public_cost,
+        CASE
+          WHEN sat.cheapest_fare_pence IS NOT NULL
+          THEN sat.cheapest_fare_pence / 100.0
+          ELSE NULL
+        END                                        AS public_cost,
         sat.cheapest_legs_summary                  AS public_method,
         -- cheapest_duration_secs is in MINUTES despite the name; return as-is
         sat.cheapest_duration_secs                 AS public_duration_mins,
