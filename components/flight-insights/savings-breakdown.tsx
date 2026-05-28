@@ -86,12 +86,12 @@ export function SavingsBreakdown({ data, adults, children }: Props) {
         {/* Saving */}
         <div
           className="flex flex-col gap-xs rounded-md p-md"
-          style={{ background: 'rgba(13,92,99,0.05)' }}
+          style={{ background: 'rgba(13,92,99,0.06)' }}
         >
           <span className="font-inter text-label-sm uppercase tracking-widest" style={{ color: '#004349' }}>
             {hasAbsence ? 'Net saving' : 'You save'}
           </span>
-          <span className="font-newsreader text-display-md" style={{ color: '#004349' }}>
+          <span className="font-newsreader text-display-lg" style={{ color: '#004349' }}>
             {fmt(heroSaving)}
           </span>
           {hasAbsence && (
