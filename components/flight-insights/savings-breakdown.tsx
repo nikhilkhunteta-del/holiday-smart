@@ -59,6 +59,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
   baselineRet.setDate(baselineDep.getDate() + tripDurationNights);
   const baselineDateRange = `${fmtShort(baselineDep)} → ${fmtShort(baselineRet)}`;
 
+  const airportLever = data.levers?.find((l: any) => l.label?.startsWith('London airport'));
+  const smartAirport = airportLever?.winner ?? 'LHR';
+
   return (
     <section
       className="bg-white rounded-lg p-lg"
@@ -84,12 +87,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             {fmt(data.baseline_price)}
           </span>
           <span className="font-inter text-label-sm text-outline">
-            Sat dep · LHR · {partySize} seats
+            LHR · {baselineDateRange}
           </span>
-          <span className="font-inter text-label-sm text-outline">
-            {baselineDateRange}
-          </span>
-          <span className="font-inter text-label-sm" style={{ color: '#6f797a', fontSize: 12 }}>
+          <span className="font-inter text-label-sm mt-2" style={{ color: '#6f797a', fontSize: 12 }}>
             Baseline is what most families pay — Saturday departure, Heathrow, no route optimisation.
           </span>
         </div>
@@ -103,7 +103,7 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             {fmt(data.smart_price)}
           </span>
           <span className="font-inter text-label-sm text-on-surface-variant">
-            {fmtDate(data.best_outbound_date)} → {fmtDate(data.best_return_date)}
+            {smartAirport} · {fmtDate(data.best_outbound_date)} → {fmtDate(data.best_return_date)}
           </span>
         </div>
 
@@ -144,12 +144,43 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             >
               {/* Label + winner */}
               <div className="flex flex-col gap-xs min-w-0">
-                <span className="font-inter text-label-md text-on-surface truncate">
-                  {lever.label}
-                </span>
-                <span className="font-inter text-label-sm text-primary">
-                  → {lever.winner}
-                </span>
+                {lever.label?.startsWith('London airport') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      We checked all 5 London airports
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      Flying from {lever.winner} saves £{Math.round(lever.saving)} net of your transport cost
+                    </span>
+                  </>
+                ) : lever.label?.startsWith('Departure day') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      Flexible departure date saves £{Math.round(lever.saving)}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      Flying {lever.winner} instead of the first day of the window
+                    </span>
+                  </>
+                ) : lever.label?.startsWith('Open-jaw') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      Flying into a different airport saves £{Math.round(lever.saving)}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      {lever.label}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface truncate">
+                      {lever.label}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      → {lever.winner}
+                    </span>
+                  </>
+                )}
               </div>
 
               {/* Saving + threshold badge */}
@@ -182,7 +213,7 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
           style={{ background: '#fffbf0', borderLeft: '3px solid #fdba49' }}
         >
           <p className="font-inter text-label-md text-on-surface">
-            This saving involves school absence
+            This option involves term-time absence
           </p>
           <div className="flex flex-wrap gap-md">
             {data.departure_absence_days > 0 && (
@@ -204,6 +235,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
               * Fine amounts are estimates based on current borough penalty notice rates. Confirm with your school.
             </p>
           )}
+          <p className="font-inter" style={{ fontSize: 12, color: '#6f797a' }}>
+            Holiday Smart does not recommend taking children out of school during term time. This information is provided for transparency only.
+          </p>
         </div>
       )}
     </section>
