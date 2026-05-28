@@ -213,7 +213,7 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
           style={{ background: '#fffbf0', borderLeft: '3px solid #fdba49' }}
         >
           <p className="font-inter text-label-md text-on-surface">
-            This saving involves school absence
+            This option involves term-time absence
           </p>
           <div className="flex flex-wrap gap-md">
             {data.departure_absence_days > 0 && (
@@ -235,6 +235,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
               * Fine amounts are estimates based on current borough penalty notice rates. Confirm with your school.
             </p>
           )}
+          <p className="font-inter" style={{ fontSize: 12, color: '#6f797a' }}>
+            Holiday Smart does not recommend taking children out of school during term time. This information is provided for transparency only.
+          </p>
         </div>
       )}
     </section>
