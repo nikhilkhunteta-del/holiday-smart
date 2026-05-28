@@ -1,5 +1,6 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
+import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 
 export const dynamic = 'force-dynamic';
 
@@ -159,6 +160,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
         <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} tripDurationNights={tripDurationNights} />
+        {complianceResult.data && (
+          <ComplianceCalculator data={complianceResult.data as any} />
+        )}
       </div>
     </main>
   );
