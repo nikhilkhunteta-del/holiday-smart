@@ -19,6 +19,9 @@ export interface SavingsData {
   departure_absence_days: number;
   return_absence_days: number;
   levers: Lever[];
+  party_size?: number;
+  adults?: number;
+  children?: number;
 }
 
 interface Props {
@@ -37,6 +40,7 @@ function fmtDate(iso: string) {
 export function SavingsBreakdown({ data }: Props) {
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
+  const partySize  = data.party_size ?? ((data.adults ?? 0) + (data.children ?? 0));
 
   return (
     <section
@@ -63,7 +67,7 @@ export function SavingsBreakdown({ data }: Props) {
             {fmt(data.baseline_price)}
           </span>
           <span className="font-inter text-label-sm text-outline">
-            Sat dep · LHR · 4 seats
+            Sat dep · LHR · {partySize} seats
           </span>
         </div>
 
