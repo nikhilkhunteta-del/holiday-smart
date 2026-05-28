@@ -59,6 +59,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
   baselineRet.setDate(baselineDep.getDate() + tripDurationNights);
   const baselineDateRange = `${fmtShort(baselineDep)} → ${fmtShort(baselineRet)}`;
 
+  const airportLever = data.levers?.find((l: any) => l.label?.startsWith('London airport'));
+  const smartAirport = airportLever?.winner ?? 'LHR';
+
   return (
     <section
       className="bg-white rounded-lg p-lg"
@@ -84,12 +87,9 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             {fmt(data.baseline_price)}
           </span>
           <span className="font-inter text-label-sm text-outline">
-            Sat dep · LHR · {partySize} seats
+            LHR · {baselineDateRange}
           </span>
-          <span className="font-inter text-label-sm text-outline">
-            {baselineDateRange}
-          </span>
-          <span className="font-inter text-label-sm" style={{ color: '#6f797a', fontSize: 12 }}>
+          <span className="font-inter text-label-sm mt-2" style={{ color: '#6f797a', fontSize: 12 }}>
             Baseline is what most families pay — Saturday departure, Heathrow, no route optimisation.
           </span>
         </div>
@@ -103,7 +103,7 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             {fmt(data.smart_price)}
           </span>
           <span className="font-inter text-label-sm text-on-surface-variant">
-            {fmtDate(data.best_outbound_date)} → {fmtDate(data.best_return_date)}
+            {smartAirport} · {fmtDate(data.best_outbound_date)} → {fmtDate(data.best_return_date)}
           </span>
         </div>
 
