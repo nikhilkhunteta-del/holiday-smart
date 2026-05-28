@@ -144,12 +144,43 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
             >
               {/* Label + winner */}
               <div className="flex flex-col gap-xs min-w-0">
-                <span className="font-inter text-label-md text-on-surface truncate">
-                  {lever.label}
-                </span>
-                <span className="font-inter text-label-sm text-primary">
-                  → {lever.winner}
-                </span>
+                {lever.label?.startsWith('London airport') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      We checked all 5 London airports
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      Flying from {lever.winner} saves £{Math.round(lever.saving)} net of your transport cost
+                    </span>
+                  </>
+                ) : lever.label?.startsWith('Departure day') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      Flexible departure date saves £{Math.round(lever.saving)}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      Flying {lever.winner} instead of the first day of the window
+                    </span>
+                  </>
+                ) : lever.label?.startsWith('Open-jaw') ? (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface">
+                      Flying into a different airport saves £{Math.round(lever.saving)}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      {lever.label}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-inter text-label-md text-on-surface truncate">
+                      {lever.label}
+                    </span>
+                    <span className="font-inter text-label-sm text-primary">
+                      → {lever.winner}
+                    </span>
+                  </>
+                )}
               </div>
 
               {/* Saving + threshold badge */}
