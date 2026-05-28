@@ -75,10 +75,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   }
 
   // ── Extract optimal dates from Wave 1 ─────────────────────────────────────
-  const firstRow       = (savingsResult.data as Record<string, unknown>[])[0];
-  const bestOutboundDate = firstRow?.best_outbound_date as string | undefined;
-  const bestReturnDate   = firstRow?.best_return_date   as string | undefined;
-  const bestOriginIata   = (firstRow?.best_origin_iata  as string | undefined) ?? 'LHR';
+  const savingsData      = (savingsResult.data as Record<string, unknown>[])[0];
+  const bestOutboundDate = savingsData?.best_outbound_date as string | undefined;
+  const bestReturnDate   = savingsData?.best_return_date   as string | undefined;
+
+  const airportLever   = (savingsData?.levers as { label?: string; winner?: string }[] | undefined)
+    ?.find(l => l.label?.startsWith('London airport'));
+  const bestOriginIata = airportLever?.winner ?? 'LHR';
 
   if (!bestOutboundDate || !bestReturnDate) {
     console.error('[FlightInsights] best_outbound_date or best_return_date missing. savingsResult.data shape:', JSON.stringify(savingsResult.data, null, 2));
