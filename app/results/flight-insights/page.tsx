@@ -1,4 +1,5 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
+import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,16 +156,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   // Wave 2 errors are non-fatal — null means that section won't render
   return (
-    <pre style={{ padding: 24, fontSize: 12 }}>
-      {JSON.stringify({
-        savings:       savingsResult.data,
-        compliance:    complianceResult.data,
-        allin:         allinResult.data,
-        multiAirport:  multiAirportResult.data,
-        bucketSplit:   bucketSplitResult.data,
-        openJaw:       openJawResult.data,
-        nearbyAirports: nearbyAirportsResult.data,
-      }, null, 2)}
-    </pre>
+    <main className="min-h-screen bg-background">
+      <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} tripDurationNights={tripDurationNights} />
+      </div>
+    </main>
   );
 }
