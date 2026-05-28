@@ -25,6 +25,8 @@ interface Props {
   data: SavingsData;
   adults: number;
   children: number;
+  windowStart: string;
+  tripDurationNights: number;
 }
 
 function fmt(n: number) {
@@ -36,10 +38,26 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function SavingsBreakdown({ data, adults, children }: Props) {
+const DAY_ABBR   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function fmtShort(d: Date) {
+  return `${DAY_ABBR[d.getDay()]} ${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
+}
+
+export function SavingsBreakdown({ data, adults, children, windowStart, tripDurationNights }: Props) {
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
   const partySize  = adults + children;
+
+  // Baseline departure: Saturday on or before windowStart
+  const windowDate = new Date(windowStart + 'T00:00:00');
+  const diff = (windowDate.getDay() + 1) % 7; // days since last Saturday
+  const baselineDep = new Date(windowDate);
+  baselineDep.setDate(windowDate.getDate() - diff);
+  const baselineRet = new Date(baselineDep);
+  baselineRet.setDate(baselineDep.getDate() + tripDurationNights);
+  const baselineDateRange = `${fmtShort(baselineDep)} → ${fmtShort(baselineRet)}`;
 
   return (
     <section
@@ -67,6 +85,12 @@ export function SavingsBreakdown({ data, adults, children }: Props) {
           </span>
           <span className="font-inter text-label-sm text-outline">
             Sat dep · LHR · {partySize} seats
+          </span>
+          <span className="font-inter text-label-sm text-outline">
+            {baselineDateRange}
+          </span>
+          <span className="font-inter text-label-sm" style={{ color: '#6f797a', fontSize: 12 }}>
+            Baseline is what most families pay — Saturday departure, Heathrow, no route optimisation.
           </span>
         </div>
 

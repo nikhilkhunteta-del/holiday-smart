@@ -158,7 +158,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
-        <SavingsBreakdown data={savingsData} adults={adults} children={children} />
+        <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} tripDurationNights={tripDurationNights} />
       </div>
     </main>
   );
