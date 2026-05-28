@@ -19,13 +19,12 @@ export interface SavingsData {
   departure_absence_days: number;
   return_absence_days: number;
   levers: Lever[];
-  party_size?: number;
-  adults?: number;
-  children?: number;
 }
 
 interface Props {
   data: SavingsData;
+  adults: number;
+  children: number;
 }
 
 function fmt(n: number) {
@@ -37,10 +36,10 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function SavingsBreakdown({ data }: Props) {
+export function SavingsBreakdown({ data, adults, children }: Props) {
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
-  const partySize  = data.party_size ?? ((data.adults ?? 0) + (data.children ?? 0));
+  const partySize  = adults + children;
 
   return (
     <section
