@@ -239,6 +239,7 @@ export default function Home() {
     }
     if (currentUrn)    p.set('urn',    currentUrn);
     if (currentSchool) p.set('school', currentSchool);
+    p.set('tripStyle', tripStyle);
     window.location.href = '/results/flight-insights?' + p.toString();
   }
 

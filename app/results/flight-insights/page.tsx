@@ -1,58 +1,170 @@
-import { FlightInsightsClient } from './FlightInsightsClient';
+import { supabaseServer as supabase } from '@/lib/supabase-server';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-function fmtDateRange(start: string, end: string): string {
-  const s = new Date(start + 'T00:00:00');
-  const e = new Date(end   + 'T00:00:00');
-  const sy = s.getFullYear(), ey = e.getFullYear();
-  const sf = `${s.getDate()} ${MONTHS[s.getMonth()]}${sy !== ey ? ' ' + sy : ''}`;
-  const ef = `${e.getDate()} ${MONTHS[e.getMonth()]} ${ey}`;
-  return `${sf} – ${ef}`;
-}
-
-// ── Page (server component — reads searchParams) ───────────────────────────────
+export const dynamic = 'force-dynamic';
 
 interface PageProps {
   searchParams: {
-    school?: string;
     urn?: string;
-    borough?: string;
-    break?: string;
     start?: string;
     end?: string;
     adults?: string;
     children?: string;
-    childAges?: string;
     infants?: string;
+    tripStyle?: string;
+    school?: string;
+    borough?: string;
+    break?: string;
   };
 }
 
-export default function FlightInsightsPage({ searchParams }: PageProps) {
-  const start = searchParams.start ?? '';
-  const end   = searchParams.end   ?? '';
+export default async function FlightInsightsPage({ searchParams }: PageProps) {
+  const urn         = searchParams.urn;
+  const windowStart = searchParams.start;
+  const windowEnd   = searchParams.end;
+  const adults      = Number(searchParams.adults   ?? 2);
+  const children    = Number(searchParams.children ?? 0);
+  const infants     = Number(searchParams.infants  ?? 0);
+  const tripStyle   = searchParams.tripStyle; // 'circuit' | 'base'
 
-  const adults   = Math.max(1, parseInt(searchParams.adults   ?? '2') || 2);
-  const children = Math.max(0, parseInt(searchParams.children ?? '1') || 0);
-  const infants  = Math.max(0, parseInt(searchParams.infants  ?? '0') || 0);
-  const childAges = (searchParams.childAges ?? '')
-    .split(',')
-    .filter(Boolean)
-    .map(s => Math.max(2, Math.min(11, parseInt(s) || 5)))
-    .slice(0, children);
-  while (childAges.length < children) childAges.push(5);
+  // TEMP: hardcoded to 4 until destination type drives this
+  const tripDurationNights = 4;
 
+  // TEMP: hardcoded until leaderboard passes destination slug
+  const destinationSlug = 'barcelona';
+
+  if (!urn || !windowStart || !windowEnd) {
+    return (
+      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+        <strong>Missing required parameters:</strong> urn, start, and end are all required.
+        <pre style={{ marginTop: 12, fontSize: 12 }}>
+          {JSON.stringify({ urn, windowStart, windowEnd }, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  // ── Wave 1: savings breakdown + compliance (no date dependencies) ──────────
+  const [savingsResult, complianceResult] = await Promise.all([
+    supabase.rpc('get_savings_breakdown', {
+      p_destination_slug:     destinationSlug,
+      p_school_urn:           urn,
+      p_window_start:         windowStart,
+      p_window_end:           windowEnd,
+      p_trip_duration_nights: tripDurationNights,
+      p_adults:               adults,
+      p_children:             children,
+      p_infants:              infants,
+    }),
+    supabase.rpc('get_compliance_scenarios', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    }),
+  ]);
+
+  if (savingsResult.error || !savingsResult.data) {
+    return (
+      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+        <strong>Savings breakdown failed.</strong>
+        <pre style={{ marginTop: 12, fontSize: 12 }}>
+          {JSON.stringify({ error: savingsResult.error, data: savingsResult.data }, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  // ── Extract optimal dates from Wave 1 ─────────────────────────────────────
+  const savingsData      = savingsResult.data as any;
+  const bestOutboundDate = savingsData?.best_outbound_date as string | undefined;
+  const bestReturnDate   = savingsData?.best_return_date   as string | undefined;
+
+  const airportLever   = savingsData?.levers?.find(
+    (l: any) => l.label?.startsWith('London airport')
+  );
+  const bestOriginIata = airportLever?.winner ?? 'LHR';
+
+  if (!bestOutboundDate || !bestReturnDate) {
+    console.error('[FlightInsights] best_outbound_date or best_return_date missing. savingsResult.data shape:', JSON.stringify(savingsResult.data, null, 2));
+    return (
+      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+        <strong>Could not extract optimal dates from savings breakdown.</strong>
+        <pre style={{ marginTop: 12, fontSize: 12 }}>
+          {JSON.stringify(savingsResult.data, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
+  const [
+    allinResult,
+    multiAirportResult,
+    bucketSplitResult,
+    openJawResult,
+    nearbyAirportsResult,
+  ] = await Promise.all([
+    supabase.rpc('get_allin_flight_cost', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_outbound_date:    bestOutboundDate,
+      p_return_date:      bestReturnDate,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+      p_transport_mode:   'public_transport',
+    }),
+    supabase.rpc('get_multi_airport', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_outbound_date:    bestOutboundDate,
+      p_return_date:      bestReturnDate,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    }),
+    supabase.rpc('get_bucket_split', {
+      p_destination_slug: destinationSlug,
+      p_origin_iata:      bestOriginIata,
+      p_outbound_date:    bestOutboundDate,
+      p_return_date:      bestReturnDate,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    }),
+    supabase.rpc('get_open_jaw', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_outbound_date:    bestOutboundDate,
+      p_return_date:      bestReturnDate,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    }),
+    supabase.rpc('get_nearby_destination_airports', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_outbound_date:    bestOutboundDate,
+      p_return_date:      bestReturnDate,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    }),
+  ]);
+
+  // Wave 2 errors are non-fatal — null means that section won't render
   return (
-    <FlightInsightsClient
-      schoolContext={{
-        school:     searchParams.school || searchParams.urn || 'Your school',
-        borough:    searchParams.borough  || 'Your borough',
-        breakLabel: searchParams.break    || 'Your break',
-        dateRange:  start && end ? fmtDateRange(start, end) : '',
-      }}
-      party={{ adults, children, childAges, infants }}
-    />
+    <pre style={{ padding: 24, fontSize: 12 }}>
+      {JSON.stringify({
+        savings:       savingsResult.data,
+        compliance:    complianceResult.data,
+        allin:         allinResult.data,
+        multiAirport:  multiAirportResult.data,
+        bucketSplit:   bucketSplitResult.data,
+        openJaw:       openJawResult.data,
+        nearbyAirports: nearbyAirportsResult.data,
+      }, null, 2)}
+    </pre>
   );
 }
