@@ -26,9 +26,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const children    = Number(searchParams.children ?? 0);
   const infants     = Number(searchParams.infants  ?? 0);
   const tripStyle   = searchParams.tripStyle; // 'circuit' | 'base'
-
-  // TEMP: hardcoded to 4 until destination type drives this
-  const tripDurationNights = 4;
+  const tripType    = tripStyle === 'circuit' ? 'circuit' : 'city';
 
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
@@ -47,18 +45,19 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // ── Wave 1: savings breakdown + compliance (no date dependencies) ──────────
   const [savingsResult, complianceResult] = await Promise.all([
     supabase.rpc('get_savings_breakdown', {
-      p_destination_slug:     destinationSlug,
-      p_school_urn:           urn,
-      p_window_start:         windowStart,
-      p_window_end:           windowEnd,
-      p_trip_duration_nights: tripDurationNights,
-      p_adults:               adults,
-      p_children:             children,
-      p_infants:              infants,
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_window_start:     windowStart,
+      p_window_end:       windowEnd,
+      p_trip_type:        tripType,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
     }),
     supabase.rpc('get_compliance_scenarios', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
+      p_trip_type:        tripType,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -158,7 +157,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
-        <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} tripDurationNights={tripDurationNights} />
+        <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} />
       </div>
     </main>
   );

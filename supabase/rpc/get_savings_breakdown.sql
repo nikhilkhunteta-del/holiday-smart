@@ -5,21 +5,26 @@
 --           behind these numbers.
 --
 -- Smart price:
---   Scans all outbound dates available in fare_snapshots for this destination,
---   run, and matched composition. For each candidate outbound date pairs it with
---   outbound_date + p_trip_duration_nights as the return date. Picks the pair
---   with the lowest assembled price. Winning dates returned as
---   best_outbound_date / best_return_date.
+--   Scans all outbound + return date pairs in fare_snapshots for this destination,
+--   run, and matched composition within the allowed date windows for the given
+--   trip type. Picks the pair with the lowest assembled price. Winning dates
+--   returned as best_outbound_date / best_return_date.
+--
+-- Trip types:
+--   'circuit' — 7–10 nights, depart up to 4 days before window start.
+--   'city'    — 3–4 nights, depart any time in window.
 --
 -- Composition matching:
 --   Input mapped to nearest of (1A+1C, 2A+1C, 2A+2C, 2A+1inf). Never errors.
+
+DROP FUNCTION IF EXISTS get_savings_breakdown(text, text, date, date, smallint, smallint, smallint, smallint);
 
 CREATE OR REPLACE FUNCTION get_savings_breakdown(
   p_destination_slug     text,
   p_school_urn           text,
   p_window_start         date,
   p_window_end           date,
-  p_trip_duration_nights smallint,
+  p_trip_type            text,
   p_adults               smallint,
   p_children             smallint,
   p_infants              smallint
@@ -86,6 +91,14 @@ DECLARE
   v_primary_fare     numeric;
   v_primary_transfer numeric;
   v_rec              record;
+
+  -- Trip type date ranges
+  v_dep_earliest date;
+  v_dep_latest   date;
+  v_ret_earliest date;
+  v_ret_latest   date;
+  v_min_nights   smallint;
+  v_max_nights   smallint;
 BEGIN
 
   -- ── 1. Resolve destination ──────────────────────────────────────────────────
@@ -115,6 +128,23 @@ BEGIN
     INTO v_postcode_district, v_borough
     FROM all_schools
    WHERE urn = p_school_urn;
+
+  -- ── Trip type date ranges ───────────────────────────────────────────────────
+
+  IF p_trip_type = 'circuit' THEN
+    v_dep_earliest := p_window_start - 4;
+    v_dep_latest   := p_window_start;
+    v_min_nights   := 7;
+    v_max_nights   := 10;
+  ELSE -- city
+    v_dep_earliest := p_window_start - 4;
+    v_dep_latest   := p_window_end;
+    v_min_nights   := 3;
+    v_max_nights   := 4;
+  END IF;
+
+  v_ret_earliest := v_dep_earliest + v_min_nights;
+  v_ret_latest   := v_dep_latest + v_max_nights;
 
   -- ── 3. Composition matching ─────────────────────────────────────────────────
 
@@ -156,41 +186,38 @@ BEGIN
      AND infants          = v_infants
    LIMIT 1;
 
-  -- ── 6. Smart price: find cheapest available outbound + return pair ───────────
-  -- For every outbound date in fare_snapshots, attempt to pair it with
-  -- outbound_date + p_trip_duration_nights as the return date.
-  -- Only pairs where both legs have fare data are considered.
-  -- The cheapest assembled price wins.
+  -- ── 6. Smart price: find cheapest outbound + return pair ─────────────────────
 
   SELECT
     dep_date,
-    dep_date + p_trip_duration_nights,
+    ret_date,
     out_fare + ret_fare
   INTO v_best_outbound_date, v_best_return_date, v_smart
   FROM (
     SELECT
-      fs_out.departure_date                AS dep_date,
-      MIN(fs_out.party_total_gbp)          AS out_fare,
-      (SELECT MIN(party_total_gbp)
-         FROM fare_snapshots
-        WHERE run_id           = v_run_id
-          AND origin_iata       = ANY(v_dest_airports)
-          AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-          AND departure_date   = fs_out.departure_date + p_trip_duration_nights
-          AND adults   = v_adults
-          AND children = v_children
-          AND infants  = v_infants
-      )                                    AS ret_fare
+      fs_out.departure_date AS dep_date,
+      fs_ret.departure_date AS ret_date,
+      MIN(fs_out.party_total_gbp) AS out_fare,
+      MIN(fs_ret.party_total_gbp) AS ret_fare
     FROM fare_snapshots fs_out
+    JOIN fare_snapshots fs_ret
+      ON fs_ret.run_id           = v_run_id
+     AND fs_ret.origin_iata       = ANY(v_dest_airports)
+     AND fs_ret.destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
+     AND fs_ret.adults   = v_adults
+     AND fs_ret.children = v_children
+     AND fs_ret.infants  = v_infants
+     AND fs_ret.departure_date BETWEEN v_ret_earliest AND v_ret_latest
+     AND (fs_ret.departure_date - fs_out.departure_date) BETWEEN v_min_nights AND v_max_nights
     WHERE fs_out.run_id           = v_run_id
       AND fs_out.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
       AND fs_out.destination_iata  = ANY(v_dest_airports)
       AND fs_out.adults   = v_adults
       AND fs_out.children = v_children
       AND fs_out.infants  = v_infants
-    GROUP BY fs_out.departure_date
-  ) dated_pairs
-  WHERE ret_fare IS NOT NULL
+      AND fs_out.departure_date BETWEEN v_dep_earliest AND v_dep_latest
+    GROUP BY fs_out.departure_date, fs_ret.departure_date
+  ) pairs
   ORDER BY out_fare + ret_fare ASC
   LIMIT 1;
 
@@ -292,7 +319,7 @@ BEGIN
 
   -- ══ LEVER 2: Departure-day arbitrage ════════════════════════════════════════
   -- Compares the smart trip (cheapest found internally) against the assembled
-  -- fare on the official window start (p_window_start + p_trip_duration_nights).
+  -- fare on the official window start (p_window_start + v_min_nights).
   -- Lever fires only when smart date is cheaper than official start.
   -- is_borough_specific = true when the smart outbound date is an inset day.
 
@@ -323,7 +350,7 @@ BEGIN
             WHERE run_id           = v_run_id
               AND origin_iata       = ANY(v_dest_airports)
               AND destination_iata  IN ('LHR','LGW','STN','LTN','LCY')
-              AND departure_date   = p_window_start + p_trip_duration_nights
+              AND departure_date   = p_window_start + v_min_nights
               AND adults   = v_adults
               AND children = v_children
               AND infants  = v_infants
