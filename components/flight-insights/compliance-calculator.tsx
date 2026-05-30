@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import type { ComplianceScenario, Party } from '@/types/flight';
 
 function isEligible(
   scenario: any,
@@ -33,12 +32,13 @@ function isEligible(
   return true
 }
 
-interface Props {
-  scenarios: ComplianceScenario[];
-  borough: string;
-  party: Party;
-  windowStart: string;
-  windowEnd: string;
+interface ComplianceCalculatorProps {
+  data: {
+    window_start: string
+    window_end: string
+    baseline_price: number
+    scenarios: any[]
+  }
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -54,27 +54,27 @@ function gbp(n: number) {
   return n === 0 ? '£0' : `£${n.toLocaleString('en-GB')}`;
 }
 
-// Fine = £80 per parent, per child (UK statutory scheme)
-function computedFine(finePerParent: number, adults: number, children: number) {
-  return finePerParent * adults * children;
-}
-
 type Tab = 'table' | 'detail';
 
-export function ComplianceCalculatorSection({ scenarios, borough, party, windowStart, windowEnd }: Props) {
+export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
   const [activeIdx, setActiveIdx] = useState(1);
   const [tab, setTab] = useState<Tab>('table');
 
-  const eligibleScenarios = scenarios.filter(s =>
-    isEligible(s, windowStart, windowEnd)
+  const eligibleScenarios = data.scenarios.filter(s =>
+    isEligible(s, data.window_start, data.window_end)
   )
 
-  // Re-derive totals from actual party composition
-  const derived = eligibleScenarios.map((s) => {
-    const totalFine = computedFine(s.finePerParent, party.adults, party.children);
-    const netSaving = s.grossSaving - totalFine;
-    return { ...s, totalFine, netSaving, parents: party.adults, children: party.children };
-  });
+  // Map RPC snake_case fields to camelCase rendering fields
+  const derived = eligibleScenarios.map((s) => ({
+    ...s,
+    daysEarly:     s.departure_absence_days ?? 0,
+    departureDate: s.departure_date,
+    returnDate:    s.return_date,
+    flightCost:    s.total_fare,
+    grossSaving:   s.gross_saving,
+    totalFine:     s.fine_gbp,
+    netSaving:     s.net_saving_vs_baseline,
+  }));
 
   const active = derived[activeIdx];
   const bestNetSaving = Math.max(...derived.map((s) => s.netSaving));
@@ -102,7 +102,7 @@ export function ComplianceCalculatorSection({ scenarios, borough, party, windowS
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
         <span>
-          <strong>Legal disclaimer:</strong> Taking children out of school during term time without authorisation may result in a fixed-penalty notice. Fine amounts shown are based on current {borough} council rates (£80/parent per child for up to 5 days, rising to £160 if unpaid within 21 days). Shown for {party.adults} adult{party.adults !== 1 ? 's' : ''}, {party.children} child{party.children !== 1 ? 'ren' : ''}. Holiday Smart does not endorse term-time absence. This tool is for information only.
+          <strong>Legal disclaimer:</strong> Taking children out of school during term time without authorisation may result in a fixed-penalty notice. Fine amounts shown are based on current council rates (£80/parent per child for up to 5 days, rising to £160 if unpaid within 21 days). Holiday Smart does not endorse term-time absence. This tool is for information only.
         </span>
       </div>
 
@@ -132,9 +132,7 @@ export function ComplianceCalculatorSection({ scenarios, borough, party, windowS
                 <th className="text-left px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Scenario</th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Depart</th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Flight cost</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">
-                  Fine ({party.adults}A × {party.children}C)
-                </th>
+                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Fine</th>
                 <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Net saving</th>
               </tr>
             </thead>
@@ -227,12 +225,12 @@ export function ComplianceCalculatorSection({ scenarios, borough, party, windowS
 
             <div className="grid grid-cols-2 gap-md">
               {[
-                { label: 'Departure',              val: `${fmtDay(active.departureDate)} ${fmt(active.departureDate)}`, highlight: false },
-                { label: 'Return',                 val: fmt(active.returnDate),                                         highlight: false },
-                { label: 'Flight cost',            val: gbp(active.flightCost),                                         highlight: false },
-                { label: 'Flight saving',          val: active.grossSaving > 0 ? gbp(active.grossSaving) : '—',         highlight: true  },
-                { label: `Fine (£80 × ${party.adults}A × ${party.children}C)`, val: active.totalFine > 0 ? gbp(active.totalFine) : '—', highlight: false },
-                { label: 'Net saving',             val: active.netSaving > 0 ? gbp(active.netSaving) : active.netSaving < 0 ? gbp(active.netSaving) : '—', highlight: active.netSaving > 0 },
+                { label: 'Departure',     val: `${fmtDay(active.departureDate)} ${fmt(active.departureDate)}`, highlight: false },
+                { label: 'Return',        val: fmt(active.returnDate),                                          highlight: false },
+                { label: 'Flight cost',   val: gbp(active.flightCost),                                          highlight: false },
+                { label: 'Flight saving', val: active.grossSaving > 0 ? gbp(active.grossSaving) : '—',          highlight: true  },
+                { label: 'Fine',          val: active.totalFine > 0 ? gbp(active.totalFine) : '—',              highlight: false },
+                { label: 'Net saving',    val: active.netSaving > 0 ? gbp(active.netSaving) : active.netSaving < 0 ? gbp(active.netSaving) : '—', highlight: active.netSaving > 0 },
               ].map(({ label, val, highlight }) => (
                 <div key={label}>
                   <p className="font-inter text-label-sm uppercase tracking-wider text-outline mb-xs">{label}</p>
