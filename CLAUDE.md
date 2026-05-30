@@ -41,8 +41,8 @@ Transit data sourced from `district_airport_transit` keyed by `postcode_district
 
 | # | Function | Key parameters |
 |---|---|---|
-| 1 | `get_savings_breakdown` | `p_destination_slug, p_school_urn, p_window_start, p_window_end, p_trip_duration_nights, p_adults, p_children, p_infants` |
-| 2 | `get_compliance_scenarios` | `p_destination_slug, p_school_urn, p_adults, p_children, p_infants` |
+| 1 | `get_savings_breakdown` | `p_destination_slug, p_school_urn, p_window_start, p_window_end, p_trip_type, p_adults, p_children, p_infants` |
+| 2 | `get_compliance_scenarios` | `p_destination_slug, p_school_urn, p_trip_type, p_adults, p_children, p_infants` |
 | 3 | `get_allin_flight_cost` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants, p_transport_mode` |
 | 4 | `get_multi_airport` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
 | 5 | `get_open_jaw` | `p_destination_slug, p_school_urn, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
@@ -50,7 +50,8 @@ Transit data sourced from `district_airport_transit` keyed by `postcode_district
 | 7 | `get_bucket_split` | `p_destination_slug, p_origin_iata, p_outbound_date, p_return_date, p_adults, p_children, p_infants` |
 | — | `calculate_absence_fine` (helper) | `p_dep_date, p_ret_date, p_window_start, p_window_end, p_school_urn, p_adults, p_children` |
 
-`get_savings_breakdown` self-discovers optimal dates from `fare_snapshots` — callers pass `p_window_start/end` and `p_trip_duration_nights`, not fixed dates.
+`get_savings_breakdown` self-discovers optimal dates from `fare_snapshots` — callers pass `p_window_start/end` and `p_trip_type` ('circuit' | 'city'), not fixed dates or duration.
+`get_compliance_scenarios` derives its own date window from fare data; `p_trip_type` drives the departure/return candidate range and min/max nights.
 
 ---
 
