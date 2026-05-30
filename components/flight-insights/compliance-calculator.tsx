@@ -39,6 +39,7 @@ interface ComplianceCalculatorProps {
   }
   bestOutboundDate: string
   bestReturnDate: string
+  tripType: string
 }
 
 const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -53,59 +54,80 @@ function gbp(n: number) {
   return `£${Math.round(Math.abs(n)).toLocaleString('en-GB')}`;
 }
 
-// ── Sub-label helpers ─────────────────────────────────────────────────────────
+function getBaselineDates(windowStart: string, tripType: string) {
+  const windowDate = new Date(windowStart + 'T00:00:00');
+  const day  = windowDate.getDay();
+  const diff = (day + 1) % 7; // days back to last Saturday (Sat=6 → 0, Sun=0 → 1, Mon=1 → 2 …)
+  const dep  = new Date(windowDate);
+  dep.setDate(windowDate.getDate() - diff);
+  const minNights = tripType === 'circuit' ? 7 : 4;
+  const ret = new Date(dep);
+  ret.setDate(dep.getDate() + minNights);
+  return {
+    dep: dep.toISOString().split('T')[0],
+    ret: ret.toISOString().split('T')[0],
+  };
+}
 
-type DepSubLabel = { kind: 'inset' } | { kind: 'absence'; days: number } | null;
+function cellStyle(saving: number, isAbsence: boolean, isOurPick: boolean) {
+  if (isOurPick)     return { bg: '#E1F5EE', border: '1.5px solid #004349' }
+  if (isAbsence)     return { bg: '#FAEEDA', border: '1.5px solid #BA7517' }
+  if (saving >= 100) return { bg: '#1D9E75', border: 'none' }
+  if (saving >= 51)  return { bg: '#5DCAA5', border: 'none' }
+  if (saving >= 1)   return { bg: '#9FE1CB', border: 'none' }
+  if (saving === 0)  return { bg: '#f2f4f4', border: '1px solid #bfc8c9' }
+  return { bg: '#F1EFE8', border: 'none' }
+}
 
-function depSubLabel(eligible: any[], dep: string): DepSubLabel {
+type DepSub =
+  | { kind: 'inset' }
+  | { kind: 'absence'; days: number }
+  | { kind: 'window'; which: 'opens' | 'closes' }
+  | null;
+
+function getDepSub(eligible: any[], dep: string, windowStart: string, windowEnd: string): DepSub {
   const rows = eligible.filter((s) => s.departure_date === dep);
   if (rows.some((s) => s.uses_inset_day)) return { kind: 'inset' };
   const maxDays = Math.max(0, ...rows.map((s) => s.departure_absence_days ?? 0));
-  return maxDays > 0 ? { kind: 'absence', days: maxDays } : null;
+  if (maxDays > 0) return { kind: 'absence', days: maxDays };
+  if (dep === windowStart) return { kind: 'window', which: 'opens' };
+  if (dep === windowEnd)   return { kind: 'window', which: 'closes' };
+  return null;
 }
 
-function retSubLabel(eligible: any[], ret: string): number | null {
-  const rows = eligible.filter((s) => s.return_date === ret);
+function getRetSub(eligible: any[], ret: string): number | null {
+  const rows    = eligible.filter((s) => s.return_date === ret);
   const maxDays = Math.max(0, ...rows.map((s) => s.return_absence_days ?? 0));
   return maxDays > 0 ? maxDays : null;
 }
 
-// ── Cell ──────────────────────────────────────────────────────────────────────
+// ── Cells ──────────────────────────────────────────────────────────────────────
 
-function Cell({ s, isRec }: { s: any; isRec: boolean }) {
-  const isTerm    = s.requires_term_time_absence === true;
+function DataCell({ s, isRec }: { s: any; isRec: boolean }) {
+  const isAbsence = s.requires_term_time_absence === true;
   const netSaving = s.net_saving_vs_baseline ?? 0;
   const hasFine   = (s.fine_gbp ?? 0) > 0;
-
-  const bg = isTerm ? 'rgba(253,186,73,0.10)' : isRec ? 'rgba(13,92,99,0.08)' : '#ffffff';
-  const border = isRec ? '1.5px solid #004349' : '1px solid #e6e8e8';
+  const { bg, border } = cellStyle(netSaving, isAbsence, isRec);
+  const isDark    = !isRec && !isAbsence && netSaving >= 100;
+  const over      = isDark ? '#04342C' : null;
 
   return (
-    <td
-      style={{
-        minWidth: 110,
-        padding: 8,
-        verticalAlign: 'top',
-        background: bg,
-        border,
-        borderRadius: 6,
-      }}
-    >
+    <td style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6 }}>
       {isRec && (
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#004349', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 3 }}>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, fontWeight: 600, color: over ?? '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 2 }}>
           Our pick
         </span>
       )}
-      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#191c1d', display: 'block' }}>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: over ?? '#191c1d', display: 'block' }}>
         {gbp(s.total_fare)}
       </span>
       {netSaving !== 0 && (
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: netSaving > 0 ? '#004349' : '#6f797a', display: 'block' }}>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: over ?? (netSaving > 0 ? '#0F6E56' : '#6f797a'), display: 'block' }}>
           {netSaving > 0 ? `+${gbp(netSaving)} saving` : `-${gbp(netSaving)}`}
         </span>
       )}
       {hasFine && (
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#805600', display: 'block' }}>
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: over ?? '#BA7517', display: 'block' }}>
           Fine: {gbp(s.fine_gbp)}*
         </span>
       )}
@@ -115,22 +137,23 @@ function Cell({ s, isRec }: { s: any; isRec: boolean }) {
 
 function EmptyCell() {
   return (
-    <td
-      style={{
-        minWidth: 110,
-        padding: 8,
-        verticalAlign: 'top',
-        background: '#f2f4f4',
-        border: '1px solid #e6e8e8',
-        borderRadius: 6,
-      }}
-    />
+    <td style={{ minWidth: 100, padding: 8, background: '#f2f4f4', borderRadius: 6, border: '1px solid #bfc8c9' }} />
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Legend ─────────────────────────────────────────────────────────────────────
 
-export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }: ComplianceCalculatorProps) {
+const LEGEND = [
+  { bg: '#1D9E75', border: 'none',               label: '£100+ saving' },
+  { bg: '#5DCAA5', border: 'none',               label: '£51–100 saving' },
+  { bg: '#9FE1CB', border: 'none',               label: '£1–50 saving' },
+  { bg: '#FAEEDA', border: '1.5px solid #BA7517', label: 'Term-time (fine applies)' },
+  { bg: '#f2f4f4', border: '1px solid #bfc8c9',  label: 'No data / breakeven' },
+];
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate, tripType }: ComplianceCalculatorProps) {
   const eligible = data.scenarios.filter((s) =>
     isEligible(s, data.window_start, data.window_end)
   );
@@ -141,7 +164,9 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
   const cellMap = new Map<string, any>();
   eligible.forEach((s) => cellMap.set(`${s.departure_date}|${s.return_date}`, s));
 
-  const anyFine = eligible.some((s) => (s.fine_gbp ?? 0) > 0);
+  const baseline = getBaselineDates(data.window_start, tripType);
+
+  const STICKY = { position: 'sticky' as const, left: 0, background: '#ffffff', zIndex: 10 };
 
   return (
     <section
@@ -149,6 +174,7 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
       style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
       aria-labelledby="find-your-window-heading"
     >
+      {/* Header */}
       <h2
         id="find-your-window-heading"
         className="font-newsreader text-2xl font-medium mb-xs"
@@ -166,43 +192,23 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
         </p>
       ) : (
         <>
-          {/* ── Matrix ──────────────────────────────────────────────────────── */}
-          <div className="overflow-x-auto -mx-6 px-6">
-            <table style={{ borderCollapse: 'separate', borderSpacing: '5px 5px' }}>
+          {/* Matrix */}
+          <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
               <thead>
                 <tr>
-                  {/* Top-left corner — sticky, blank */}
-                  <th
-                    style={{
-                      position: 'sticky',
-                      left: 0,
-                      background: '#ffffff',
-                      zIndex: 10,
-                      minWidth: 130,
-                      padding: '0 16px 8px 0',
-                      verticalAlign: 'bottom',
-                      fontWeight: 'normal',
-                    }}
-                  />
+                  {/* Corner */}
+                  <th style={{ ...STICKY, minWidth: 130, padding: '0 16px 8px 0', verticalAlign: 'bottom', fontWeight: 'normal' }} />
                   {retDates.map((ret) => {
-                    const absenceDays = retSubLabel(eligible, ret);
+                    const absDays = getRetSub(eligible, ret);
                     return (
-                      <th
-                        key={ret}
-                        style={{
-                          minWidth: 110,
-                          padding: '0 8px 8px 8px',
-                          verticalAlign: 'bottom',
-                          textAlign: 'left',
-                          fontWeight: 'normal',
-                        }}
-                      >
-                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
+                      <th key={ret} style={{ minWidth: 100, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                           {fmtShort(ret)}
                         </span>
-                        {absenceDays !== null && (
-                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#805600', display: 'block', whiteSpace: 'nowrap' }}>
-                            {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}
+                        {absDays !== null && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#BA7517', display: 'block', whiteSpace: 'nowrap' }}>
+                            {absDays} absence {absDays === 1 ? 'day' : 'days'}
                           </span>
                         )}
                       </th>
@@ -211,42 +217,70 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
                 </tr>
               </thead>
               <tbody>
+                {/* ── Baseline reference row ── */}
+                <tr>
+                  <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 130 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', display: 'block' }}>
+                      Baseline
+                    </span>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                      Sat LHR, no optimisation
+                    </span>
+                  </td>
+                  {retDates.map((ret) =>
+                    ret === baseline.ret ? (
+                      <td
+                        key={ret}
+                        style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: '#f2f4f4', border: '1px solid #bfc8c9', borderRadius: 6 }}
+                      >
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#6f797a', display: 'block' }}>
+                          {gbp(data.baseline_price)}
+                        </span>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#6f797a', display: 'block' }}>
+                          What most families pay
+                        </span>
+                      </td>
+                    ) : (
+                      <EmptyCell key={ret} />
+                    )
+                  )}
+                </tr>
+
+                {/* ── Separator ── */}
+                <tr aria-hidden="true">
+                  <td colSpan={retDates.length + 1} style={{ height: 2, padding: 0 }} />
+                </tr>
+
+                {/* ── Departure rows ── */}
                 {depDates.map((dep) => {
-                  const sub = depSubLabel(eligible, dep);
+                  const sub = getDepSub(eligible, dep, data.window_start, data.window_end);
                   return (
                     <tr key={dep}>
-                      {/* Row header — sticky */}
-                      <td
-                        style={{
-                          position: 'sticky',
-                          left: 0,
-                          background: '#ffffff',
-                          zIndex: 10,
-                          padding: '8px 16px 8px 0',
-                          verticalAlign: 'top',
-                          minWidth: 130,
-                        }}
-                      >
-                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 130 }}>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
                           {fmtShort(dep)}
                         </span>
                         {sub?.kind === 'inset' && (
-                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#004349', display: 'block' }}>
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#0F6E56', display: 'block' }}>
                             Inset day
                           </span>
                         )}
                         {sub?.kind === 'absence' && (
-                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#805600', display: 'block' }}>
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#BA7517', display: 'block' }}>
                             {sub.days} absence {sub.days === 1 ? 'day' : 'days'}
                           </span>
                         )}
+                        {sub?.kind === 'window' && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                            Window {sub.which}
+                          </span>
+                        )}
                       </td>
-                      {/* Data cells */}
                       {retDates.map((ret) => {
-                        const s = cellMap.get(`${dep}|${ret}`);
+                        const s   = cellMap.get(`${dep}|${ret}`);
                         const isRec = dep === bestOutboundDate && ret === bestReturnDate;
                         return s
-                          ? <Cell key={ret} s={s} isRec={isRec} />
+                          ? <DataCell key={ret} s={s} isRec={isRec} />
                           : <EmptyCell key={ret} />;
                       })}
                     </tr>
@@ -256,13 +290,20 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
             </table>
           </div>
 
-          {/* ── Disclaimer ──────────────────────────────────────────────────── */}
-          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e6e8e8' }}>
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a' }}>
-              Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates.
-              {anyFine && ' *Fines are estimates based on £80/parent/child, rising to £160 if unpaid within 21 days.'}
-            </p>
+          {/* Legend */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid #e6e8e8' }}>
+            {LEGEND.map(({ bg, border, label }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: bg, border, flexShrink: 0 }} />
+                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a' }}>{label}</span>
+              </div>
+            ))}
           </div>
+
+          {/* Disclaimer */}
+          <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', marginTop: 10 }}>
+            Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates. *Fines are estimates based on £80/parent/child, rising to £160 if unpaid within 21 days.
+          </p>
         </>
       )}
     </section>
