@@ -26,7 +26,6 @@ interface Props {
   adults: number;
   children: number;
   windowStart: string;
-  tripDurationNights: number;
 }
 
 function fmt(n: number) {
@@ -45,7 +44,7 @@ function fmtShort(d: Date) {
   return `${DAY_ABBR[d.getDay()]} ${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
 }
 
-export function SavingsBreakdown({ data, adults, children, windowStart, tripDurationNights }: Props) {
+export function SavingsBreakdown({ data, adults, children, windowStart }: Props) {
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
   const partySize  = adults + children;
@@ -56,7 +55,7 @@ export function SavingsBreakdown({ data, adults, children, windowStart, tripDura
   const baselineDep = new Date(windowDate);
   baselineDep.setDate(windowDate.getDate() - diff);
   const baselineRet = new Date(baselineDep);
-  baselineRet.setDate(baselineDep.getDate() + tripDurationNights);
+  baselineRet.setDate(baselineDep.getDate() + 4);
   const baselineDateRange = `${fmtShort(baselineDep)} → ${fmtShort(baselineRet)}`;
 
   const airportLever = data.levers?.find((l: any) => l.label?.startsWith('London airport'));

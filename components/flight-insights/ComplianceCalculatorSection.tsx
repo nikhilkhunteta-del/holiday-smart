@@ -3,10 +3,42 @@
 import { useState } from 'react';
 import type { ComplianceScenario, Party } from '@/types/flight';
 
+function isEligible(
+  scenario: any,
+  windowStart: string,
+  windowEnd: string
+): boolean {
+  // Rule 1: hard cap at 2 absence days
+  if (scenario.total_absence_days > 2) return false
+
+  // Rule 2: zero absence — always eligible
+  if (scenario.total_absence_days === 0) return true
+
+  // Rule 3: absence must be adjacent to the window.
+  // The RPC correctly counts weekday-only absence days.
+  // We trust departure_absence_days and return_absence_days from the RPC.
+  // A scenario is adjacent if departure absence days account for ALL days
+  // between departure and window_start, and return absence days account for
+  // ALL days between window_end and return date.
+  // Since the RPC already enforces this via calculate_absence_fine,
+  // and the date ranges are now correctly constrained in the RPC,
+  // any scenario returned with total_absence_days <= 2 is by definition adjacent.
+  // The only remaining check: exclude scenarios where absence days are split
+  // across both ends (departure AND return both have absence) unless uses_inset_day.
+
+  if (scenario.departure_absence_days > 0 && scenario.return_absence_days > 0) {
+    return scenario.uses_inset_day === true
+  }
+
+  return true
+}
+
 interface Props {
   scenarios: ComplianceScenario[];
   borough: string;
   party: Party;
+  windowStart: string;
+  windowEnd: string;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -29,12 +61,16 @@ function computedFine(finePerParent: number, adults: number, children: number) {
 
 type Tab = 'table' | 'detail';
 
-export function ComplianceCalculatorSection({ scenarios, borough, party }: Props) {
+export function ComplianceCalculatorSection({ scenarios, borough, party, windowStart, windowEnd }: Props) {
   const [activeIdx, setActiveIdx] = useState(1);
   const [tab, setTab] = useState<Tab>('table');
 
+  const eligibleScenarios = scenarios.filter(s =>
+    isEligible(s, windowStart, windowEnd)
+  )
+
   // Re-derive totals from actual party composition
-  const derived = scenarios.map((s) => {
+  const derived = eligibleScenarios.map((s) => {
     const totalFine = computedFine(s.finePerParent, party.adults, party.children);
     const netSaving = s.grossSaving - totalFine;
     return { ...s, totalFine, netSaving, parents: party.adults, children: party.children };
