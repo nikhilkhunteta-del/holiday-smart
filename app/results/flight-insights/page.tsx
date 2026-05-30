@@ -166,6 +166,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             data={complianceData}
             bestOutboundDate={bestOutboundDate}
             bestReturnDate={bestReturnDate}
+            tripType={tripType}
           />
         )}
       </div>

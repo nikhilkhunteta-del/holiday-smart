@@ -17,7 +17,7 @@
 -- Composition matching:
 --   Input mapped to nearest of (1A+1C, 2A+1C, 2A+2C, 2A+1inf). Never errors.
 
-DROP FUNCTION IF EXISTS get_savings_breakdown(text, text, date, date, smallint, smallint, smallint, smallint);
+DROP FUNCTION IF EXISTS get_savings_breakdown(text, text, date, date, text, smallint, smallint, smallint);
 
 CREATE OR REPLACE FUNCTION get_savings_breakdown(
   p_destination_slug     text,
@@ -55,6 +55,7 @@ DECLARE
   v_best_outbound_date  date;
   v_best_return_date    date;
   v_smart               numeric;
+  v_net_saving_after_fine numeric;
 
   -- Core prices
   v_baseline  numeric;
@@ -186,19 +187,35 @@ BEGIN
      AND infants          = v_infants
    LIMIT 1;
 
-  -- ── 6. Smart price: find cheapest outbound + return pair ─────────────────────
+  -- ── 6. Smart price: find pair with highest net saving after fine ─────────────
 
   SELECT
     dep_date,
     ret_date,
-    out_fare + ret_fare
-  INTO v_best_outbound_date, v_best_return_date, v_smart
+    out_fare + ret_fare,
+    net_saving_after_fine
+  INTO v_best_outbound_date, v_best_return_date, v_smart, v_net_saving_after_fine
   FROM (
     SELECT
       fs_out.departure_date AS dep_date,
       fs_ret.departure_date AS ret_date,
       MIN(fs_out.party_total_gbp) AS out_fare,
-      MIN(fs_ret.party_total_gbp) AS ret_fare
+      MIN(fs_ret.party_total_gbp) AS ret_fare,
+      MIN(fs_out.party_total_gbp) + MIN(fs_ret.party_total_gbp) AS total_fare,
+      v_baseline - (MIN(fs_out.party_total_gbp) + MIN(fs_ret.party_total_gbp)) -
+        COALESCE(
+          (
+            SELECT (calculate_absence_fine(
+              fs_out.departure_date,
+              fs_ret.departure_date,
+              p_window_start,
+              p_window_end,
+              p_school_urn,
+              p_adults,
+              p_children
+            )->>'fine_gbp')::numeric
+          ), 0
+        ) AS net_saving_after_fine
     FROM fare_snapshots fs_out
     JOIN fare_snapshots fs_ret
       ON fs_ret.run_id           = v_run_id
@@ -218,7 +235,8 @@ BEGIN
       AND fs_out.departure_date BETWEEN v_dep_earliest AND v_dep_latest
     GROUP BY fs_out.departure_date, fs_ret.departure_date
   ) pairs
-  ORDER BY out_fare + ret_fare ASC
+  WHERE v_baseline IS NOT NULL
+  ORDER BY net_saving_after_fine DESC NULLS LAST
   LIMIT 1;
 
   v_yield := CASE

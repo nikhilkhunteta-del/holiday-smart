@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 function isEligible(
   scenario: any,
   windowStart: string,
@@ -41,12 +39,13 @@ interface ComplianceCalculatorProps {
   }
   bestOutboundDate: string
   bestReturnDate: string
+  tripType: string
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function fmtDate(iso: string) {
+function fmtShort(iso: string) {
   const d = new Date(iso + 'T00:00:00');
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
@@ -55,97 +54,137 @@ function gbp(n: number) {
   return `£${Math.round(Math.abs(n)).toLocaleString('en-GB')}`;
 }
 
-function ScenarioRow({ s, isRecommended }: { s: any; isRecommended: boolean }) {
-  const hasFine    = s.fine_gbp > 0;
-  const netSaving  = s.net_saving_vs_baseline ?? 0;
-  const isPositive = netSaving > 0;
-  const isNegative = netSaving < 0;
+function getBaselineDates(windowStart: string, tripType: string) {
+  const windowDate = new Date(windowStart + 'T00:00:00');
+  const day  = windowDate.getDay();
+  const diff = (day + 1) % 7; // days back to last Saturday (Sat=6 → 0, Sun=0 → 1, Mon=1 → 2 …)
+  const dep  = new Date(windowDate);
+  dep.setDate(windowDate.getDate() - diff);
+  const minNights = tripType === 'circuit' ? 7 : 4;
+  const ret = new Date(dep);
+  ret.setDate(dep.getDate() + minNights);
+  return {
+    dep: dep.toISOString().split('T')[0],
+    ret: ret.toISOString().split('T')[0],
+  };
+}
+
+function cellStyle(saving: number, isAbsence: boolean, isOurPick: boolean) {
+  let bg: string;
+  let textDark = false;
+
+  if (isAbsence) {
+    bg = '#FAEEDA';
+  } else if (saving >= 100) {
+    bg = '#1D9E75';
+    textDark = true;
+  } else if (saving >= 51) {
+    bg = '#5DCAA5';
+  } else if (saving >= 1) {
+    bg = '#9FE1CB';
+  } else if (saving === 0) {
+    bg = '#f2f4f4';
+  } else {
+    bg = '#F1EFE8';
+  }
+
+  const border = isOurPick
+    ? '1.5px solid #004349'
+    : isAbsence
+    ? '1.5px solid #BA7517'
+    : 'none';
+
+  return { bg, border, textDark };
+}
+
+type DepSub =
+  | { kind: 'inset' }
+  | { kind: 'absence'; days: number }
+  | { kind: 'window'; which: 'opens' | 'closes' }
+  | null;
+
+function getDepSub(eligible: any[], dep: string, windowStart: string, windowEnd: string): DepSub {
+  const rows = eligible.filter((s) => s.departure_date === dep);
+  if (rows.some((s) => s.uses_inset_day)) return { kind: 'inset' };
+  const maxDays = Math.max(0, ...rows.map((s) => s.departure_absence_days ?? 0));
+  if (maxDays > 0) return { kind: 'absence', days: maxDays };
+  if (dep === windowStart) return { kind: 'window', which: 'opens' };
+  if (dep === windowEnd)   return { kind: 'window', which: 'closes' };
+  return null;
+}
+
+function getRetSub(eligible: any[], ret: string): number | null {
+  const rows    = eligible.filter((s) => s.return_date === ret);
+  const maxDays = Math.max(0, ...rows.map((s) => s.return_absence_days ?? 0));
+  return maxDays > 0 ? maxDays : null;
+}
+
+// ── Cells ──────────────────────────────────────────────────────────────────────
+
+function DataCell({ s, isRec }: { s: any; isRec: boolean }) {
+  const isAbsence = s.requires_term_time_absence === true;
+  const netSaving = s.net_saving_vs_baseline ?? 0;
+  const hasFine   = (s.fine_gbp ?? 0) > 0;
+  const { bg, border, textDark } = cellStyle(netSaving, isAbsence, isRec);
+  const over = textDark ? '#04342C' : null;
 
   return (
-    <div
-      className="flex items-start justify-between gap-md px-md py-sm"
-      style={{ background: isRecommended ? 'rgba(13,92,99,0.04)' : 'transparent' }}
-    >
-      {/* Left: label + pills + date */}
-      <div className="flex flex-col gap-xs min-w-0">
-        <div className="flex items-center gap-xs flex-wrap">
-          <span className="font-inter text-body-md font-medium text-on-surface">
-            {s.label}
-          </span>
-          {isRecommended && (
-            <span
-              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
-              style={{ background: 'rgba(13,92,99,0.12)', color: '#004349' }}
-            >
-              Best value
-            </span>
-          )}
-          {s.requires_term_time_absence && (
-            <span
-              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
-              style={{ background: 'rgba(253,186,73,0.18)', color: '#704b00' }}
-            >
-              Term time · {s.total_absence_days}d
-            </span>
-          )}
-          {s.uses_inset_day && (
-            <span
-              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
-              style={{ background: 'rgba(13,92,99,0.08)', color: '#004349' }}
-            >
-              Inset day
-            </span>
-          )}
+    <td style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6 }}>
+      {isRec && (
+        <div style={{ fontSize: '10px', fontWeight: 500, color: '#004349', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+          <span style={{ fontSize: '12px' }}>★</span>
+          <span style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>Our pick</span>
         </div>
-        <span className="font-inter text-label-sm text-outline">
-          {fmtDate(s.departure_date)} → {fmtDate(s.return_date)}
+      )}
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: over ?? '#191c1d', display: 'block' }}>
+        {gbp(s.total_fare)}
+      </span>
+      {netSaving !== 0 && (
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: over ?? (netSaving > 0 ? '#0F6E56' : '#6f797a'), display: 'block' }}>
+          {netSaving > 0 ? `+${gbp(netSaving)} saving` : `-${gbp(netSaving)}`}
         </span>
-        {hasFine && (
-          <span className="font-inter text-label-sm" style={{ color: '#9a6800' }}>
-            Fine: {gbp(s.fine_gbp)}*
-          </span>
-        )}
-      </div>
-
-      {/* Right: price + net saving */}
-      <div className="flex flex-col items-end gap-xs flex-shrink-0">
-        <span className="font-inter text-body-md font-semibold text-on-surface">
-          {gbp(s.total_fare)}
+      )}
+      {hasFine && (
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: over ?? '#BA7517', display: 'block' }}>
+          Fine: {gbp(s.fine_gbp)}*
         </span>
-        {isPositive && (
-          <span className="font-inter text-label-sm font-medium" style={{ color: '#1e6b2e' }}>
-            +{gbp(netSaving)}
-          </span>
-        )}
-        {isNegative && (
-          <span className="font-inter text-label-sm text-on-surface-variant">
-            -{gbp(netSaving)}
-          </span>
-        )}
-      </div>
-    </div>
+      )}
+    </td>
   );
 }
 
-export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }: ComplianceCalculatorProps) {
-  const recommendedRequiresAbsence =
-    bestOutboundDate < data.window_start ||
-    bestReturnDate > data.window_end
+function EmptyCell() {
+  return (
+    <td style={{ minWidth: 100, padding: 8, background: '#f2f4f4', borderRadius: 6, border: '1px solid #bfc8c9' }} />
+  );
+}
 
-  const [expanded, setExpanded] = useState(recommendedRequiresAbsence);
+// ── Legend ─────────────────────────────────────────────────────────────────────
 
-  const eligible = data.scenarios.filter(s =>
+const LEGEND = [
+  { bg: '#1D9E75', border: 'none',               label: '£100+ saving' },
+  { bg: '#5DCAA5', border: 'none',               label: '£51–100 saving' },
+  { bg: '#9FE1CB', border: 'none',               label: '£1–50 saving' },
+  { bg: '#FAEEDA', border: '1.5px solid #BA7517', label: 'Term-time (fine applies)' },
+  { bg: '#f2f4f4', border: '1px solid #bfc8c9',  label: 'No data / breakeven' },
+];
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate, tripType }: ComplianceCalculatorProps) {
+  const eligible = data.scenarios.filter((s) =>
     isEligible(s, data.window_start, data.window_end)
   );
 
-  const group1 = eligible.filter(s => !s.requires_term_time_absence);
-  const group2 = eligible.filter(s =>  s.requires_term_time_absence);
+  const depDates = Array.from(new Set(eligible.map((s) => s.departure_date as string))).sort();
+  const retDates = Array.from(new Set(eligible.map((s) => s.return_date as string))).sort();
 
-  const totalCount  = eligible.length;
-  const defaultShow = 5;
-  const visibleG1   = expanded ? group1 : group1.slice(0, defaultShow);
-  const visibleG2   = expanded ? group2 : [];
-  const hasMore     = group1.length > defaultShow || group2.length > 0;
+  const cellMap = new Map<string, any>();
+  eligible.forEach((s) => cellMap.set(`${s.departure_date}|${s.return_date}`, s));
+
+  const baseline = getBaselineDates(data.window_start, tripType);
+
+  const STICKY = { position: 'sticky' as const, left: 0, background: '#ffffff', zIndex: 10 };
 
   return (
     <section
@@ -153,6 +192,7 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
       style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
       aria-labelledby="find-your-window-heading"
     >
+      {/* Header */}
       <h2
         id="find-your-window-heading"
         className="font-newsreader text-2xl font-medium mb-xs"
@@ -160,78 +200,131 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }:
       >
         Find your window
       </h2>
-      <p
-        className="font-inter mb-lg"
-        style={{ fontSize: 14, color: '#6f797a' }}
-      >
+      <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
         We've priced every viable departure and return combination for your half-term. Here's what each option actually costs — flights, fines included.
       </p>
 
       {eligible.length === 0 ? (
-        <p className="font-inter text-body-md text-on-surface-variant">
+        <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
           No eligible scenarios found for this window.
         </p>
       ) : (
         <>
-          {/* Group 1 — term-time-free */}
-          <div className="flex flex-col" style={{ gap: 0 }}>
-            {visibleG1.map((s, i) => (
-              <div key={s.label ?? i}>
-                {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
-                <ScenarioRow s={s} isRecommended={s.departure_date === bestOutboundDate && s.return_date === bestReturnDate} />
+          {/* Matrix */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '48px', background: 'linear-gradient(to right, transparent, var(--color-background-primary))', pointerEvents: 'none', zIndex: 20 }} />
+          <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
+              <thead>
+                <tr>
+                  {/* Corner */}
+                  <th style={{ ...STICKY, minWidth: 130, padding: '0 16px 8px 0', verticalAlign: 'bottom', fontWeight: 'normal' }} />
+                  {retDates.map((ret) => {
+                    const absDays = getRetSub(eligible, ret);
+                    return (
+                      <th key={ret} style={{ minWidth: 100, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
+                          {fmtShort(ret)}
+                        </span>
+                        {absDays !== null && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#BA7517', display: 'block', whiteSpace: 'nowrap' }}>
+                            {absDays} absence {absDays === 1 ? 'day' : 'days'}
+                          </span>
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {/* ── Baseline reference row ── */}
+                <tr>
+                  <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 130 }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', display: 'block' }}>
+                      Baseline
+                    </span>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                      Sat LHR, no optimisation
+                    </span>
+                  </td>
+                  {retDates.map((ret) =>
+                    ret === baseline.ret ? (
+                      <td
+                        key={ret}
+                        style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: '#f2f4f4', border: '1px solid #bfc8c9', borderRadius: 6 }}
+                      >
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#6f797a', display: 'block' }}>
+                          {gbp(data.baseline_price)}
+                        </span>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#6f797a', display: 'block' }}>
+                          What most families pay
+                        </span>
+                      </td>
+                    ) : (
+                      <EmptyCell key={ret} />
+                    )
+                  )}
+                </tr>
+
+                {/* ── Separator ── */}
+                <tr aria-hidden="true">
+                  <td colSpan={retDates.length + 1} style={{ height: 2, padding: 0 }} />
+                </tr>
+
+                {/* ── Departure rows ── */}
+                {depDates.map((dep) => {
+                  const sub = getDepSub(eligible, dep, data.window_start, data.window_end);
+                  return (
+                    <tr key={dep}>
+                      <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 130 }}>
+                        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
+                          {fmtShort(dep)}
+                        </span>
+                        {sub?.kind === 'inset' && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#0F6E56', display: 'block' }}>
+                            Inset day
+                          </span>
+                        )}
+                        {sub?.kind === 'absence' && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#BA7517', display: 'block' }}>
+                            {sub.days} absence {sub.days === 1 ? 'day' : 'days'}
+                          </span>
+                        )}
+                        {sub?.kind === 'window' && (
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                            Window {sub.which}
+                          </span>
+                        )}
+                      </td>
+                      {retDates.map((ret) => {
+                        const s   = cellMap.get(`${dep}|${ret}`);
+                        const isRec = dep === bestOutboundDate && ret === bestReturnDate;
+                        return s
+                          ? <DataCell key={ret} s={s} isRec={isRec} />
+                          : <EmptyCell key={ret} />;
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          </div>
+
+          {/* Legend */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid #e6e8e8' }}>
+            {LEGEND.map(({ bg, border, label }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: bg, border, flexShrink: 0 }} />
+                <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a' }}>{label}</span>
               </div>
             ))}
           </div>
 
-          {/* Group 2 — extends into term time */}
-          {expanded && group2.length > 0 && (
-            <>
-              <div
-                className="flex items-center gap-sm my-md"
-                style={{ borderTop: '1px solid #e6e8e8', paddingTop: 16, marginTop: 16 }}
-              >
-                <span
-                  className="font-inter text-outline"
-                  style={{ fontSize: 12 }}
-                >
-                  Extends into term time
-                </span>
-              </div>
-              <div className="flex flex-col" style={{ gap: 0 }}>
-                {visibleG2.map((s, i) => (
-                  <div key={s.label ?? i}>
-                    {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
-                    <ScenarioRow s={s} isRecommended={s.departure_date === bestOutboundDate && s.return_date === bestReturnDate} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Toggle */}
-          {hasMore && (
-            <div className="mt-md pt-md" style={{ borderTop: '1px solid #e6e8e8' }}>
-              <button
-                onClick={() => setExpanded((v: boolean) => !v)}
-                className="font-inter text-label-md text-primary hover:underline"
-              >
-                {expanded
-                  ? 'Show fewer'
-                  : `Show all ${totalCount} options`
-                }
-              </button>
-            </div>
-          )}
-
-          {/* Disclaimer — only when expanded */}
-          {expanded && (
-            <p
-              className="font-inter text-outline mt-md"
-              style={{ fontSize: 12 }}
-            >
-              Holiday Smart does not recommend term-time absence. Fine estimates are based on current borough penalty notice rates (£80/parent/child, rising to £160 if unpaid within 21 days). Confirm with your school. *Fines shown are estimates.
-            </p>
-          )}
+          {/* Disclaimer */}
+          <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', marginTop: 10 }}>
+            Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates. *Fines are estimates based on £80/parent/child, rising to £160 if unpaid within 21 days.
+          </p>
         </>
       )}
     </section>
