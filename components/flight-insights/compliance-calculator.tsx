@@ -39,6 +39,8 @@ interface ComplianceCalculatorProps {
     baseline_price: number
     scenarios: any[]
   }
+  bestOutboundDate: string
+  bestReturnDate: string
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -53,7 +55,7 @@ function gbp(n: number) {
   return `£${Math.round(Math.abs(n)).toLocaleString('en-GB')}`;
 }
 
-function ScenarioRow({ s }: { s: any }) {
+function ScenarioRow({ s, isRecommended }: { s: any; isRecommended: boolean }) {
   const hasFine    = s.fine_gbp > 0;
   const netSaving  = s.net_saving_vs_baseline ?? 0;
   const isPositive = netSaving > 0;
@@ -62,7 +64,7 @@ function ScenarioRow({ s }: { s: any }) {
   return (
     <div
       className="flex items-start justify-between gap-md px-md py-sm"
-      style={{ background: s.is_recommended ? 'rgba(13,92,99,0.04)' : 'transparent' }}
+      style={{ background: isRecommended ? 'rgba(13,92,99,0.04)' : 'transparent' }}
     >
       {/* Left: label + pills + date */}
       <div className="flex flex-col gap-xs min-w-0">
@@ -70,7 +72,7 @@ function ScenarioRow({ s }: { s: any }) {
           <span className="font-inter text-body-md font-medium text-on-surface">
             {s.label}
           </span>
-          {s.is_recommended && (
+          {isRecommended && (
             <span
               className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
               style={{ background: 'rgba(13,92,99,0.12)', color: '#004349' }}
@@ -125,8 +127,12 @@ function ScenarioRow({ s }: { s: any }) {
   );
 }
 
-export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate }: ComplianceCalculatorProps) {
+  const recommendedRequiresAbsence =
+    bestOutboundDate < data.window_start ||
+    bestReturnDate > data.window_end
+
+  const [expanded, setExpanded] = useState(recommendedRequiresAbsence);
 
   const eligible = data.scenarios.filter(s =>
     isEligible(s, data.window_start, data.window_end)
@@ -145,14 +151,21 @@ export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
     <section
       className="bg-white rounded-lg"
       style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
-      aria-labelledby="when-to-fly-heading"
+      aria-labelledby="find-your-window-heading"
     >
       <h2
-        id="when-to-fly-heading"
-        className="font-newsreader text-2xl font-medium text-on-surface mb-lg"
+        id="find-your-window-heading"
+        className="font-newsreader text-2xl font-medium mb-xs"
+        style={{ color: '#004349' }}
       >
-        When to fly
+        Find your window
       </h2>
+      <p
+        className="font-inter mb-lg"
+        style={{ fontSize: 14, color: '#6f797a' }}
+      >
+        We've priced every viable departure and return combination for your half-term. Here's what each option actually costs — flights, fines included.
+      </p>
 
       {eligible.length === 0 ? (
         <p className="font-inter text-body-md text-on-surface-variant">
@@ -165,7 +178,7 @@ export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
             {visibleG1.map((s, i) => (
               <div key={s.label ?? i}>
                 {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
-                <ScenarioRow s={s} />
+                <ScenarioRow s={s} isRecommended={s.departure_date === bestOutboundDate && s.return_date === bestReturnDate} />
               </div>
             ))}
           </div>
@@ -188,7 +201,7 @@ export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
                 {visibleG2.map((s, i) => (
                   <div key={s.label ?? i}>
                     {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
-                    <ScenarioRow s={s} />
+                    <ScenarioRow s={s} isRecommended={s.departure_date === bestOutboundDate && s.return_date === bestReturnDate} />
                   </div>
                 ))}
               </div>
@@ -199,7 +212,7 @@ export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
           {hasMore && (
             <div className="mt-md pt-md" style={{ borderTop: '1px solid #e6e8e8' }}>
               <button
-                onClick={() => setExpanded(v => !v)}
+                onClick={() => setExpanded((v: boolean) => !v)}
                 className="font-inter text-label-md text-primary hover:underline"
               >
                 {expanded

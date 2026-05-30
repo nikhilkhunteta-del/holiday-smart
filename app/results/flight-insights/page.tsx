@@ -162,7 +162,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
         <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} />
         {complianceData && (
-          <ComplianceCalculator data={complianceData} />
+          <ComplianceCalculator
+            data={complianceData}
+            bestOutboundDate={bestOutboundDate}
+            bestReturnDate={bestReturnDate}
+          />
         )}
       </div>
     </main>
