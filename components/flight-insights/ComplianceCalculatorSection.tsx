@@ -3,10 +3,41 @@
 import { useState } from 'react';
 import type { ComplianceScenario, Party } from '@/types/flight';
 
+function isEligible(
+  scenario: any,
+  windowStart: string,
+  windowEnd: string
+): boolean {
+  if (scenario.total_absence_days > 2) return false
+  if (scenario.total_absence_days === 0) return true
+
+  const depDate = new Date(scenario.departure_date)
+  const retDate = new Date(scenario.return_date)
+  const wStart = new Date(windowStart)
+  const wEnd = new Date(windowEnd)
+
+  const effectiveStart = scenario.uses_inset_day && depDate < wStart
+    ? depDate : wStart
+  const effectiveEnd = scenario.uses_inset_day && retDate > wEnd
+    ? retDate : wEnd
+
+  const earliestAllowedDep = new Date(effectiveStart)
+  earliestAllowedDep.setDate(effectiveStart.getDate() - scenario.departure_absence_days)
+  const departureAdjacent = depDate >= earliestAllowedDep
+
+  const latestAllowedRet = new Date(effectiveEnd)
+  latestAllowedRet.setDate(effectiveEnd.getDate() + scenario.return_absence_days)
+  const returnAdjacent = retDate <= latestAllowedRet
+
+  return departureAdjacent && returnAdjacent
+}
+
 interface Props {
   scenarios: ComplianceScenario[];
   borough: string;
   party: Party;
+  windowStart: string;
+  windowEnd: string;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -29,12 +60,16 @@ function computedFine(finePerParent: number, adults: number, children: number) {
 
 type Tab = 'table' | 'detail';
 
-export function ComplianceCalculatorSection({ scenarios, borough, party }: Props) {
+export function ComplianceCalculatorSection({ scenarios, borough, party, windowStart, windowEnd }: Props) {
   const [activeIdx, setActiveIdx] = useState(1);
   const [tab, setTab] = useState<Tab>('table');
 
+  const eligibleScenarios = scenarios.filter(s =>
+    isEligible(s, windowStart, windowEnd)
+  )
+
   // Re-derive totals from actual party composition
-  const derived = scenarios.map((s) => {
+  const derived = eligibleScenarios.map((s) => {
     const totalFine = computedFine(s.finePerParent, party.adults, party.children);
     const netSaving = s.grossSaving - totalFine;
     return { ...s, totalFine, netSaving, parents: party.adults, children: party.children };
