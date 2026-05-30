@@ -211,6 +211,8 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate, t
       ) : (
         <>
           {/* Matrix */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '48px', background: 'linear-gradient(to right, transparent, var(--color-background-primary))', pointerEvents: 'none', zIndex: 20 }} />
           <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
             <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
               <thead>
@@ -306,6 +308,7 @@ export function ComplianceCalculator({ data, bestOutboundDate, bestReturnDate, t
                 })}
               </tbody>
             </table>
+          </div>
           </div>
 
           {/* Legend */}
