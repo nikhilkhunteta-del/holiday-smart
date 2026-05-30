@@ -8,28 +8,29 @@ function isEligible(
   windowStart: string,
   windowEnd: string
 ): boolean {
+  // Rule 1: hard cap at 2 absence days
   if (scenario.total_absence_days > 2) return false
+
+  // Rule 2: zero absence — always eligible
   if (scenario.total_absence_days === 0) return true
 
-  const depDate = new Date(scenario.departure_date)
-  const retDate = new Date(scenario.return_date)
-  const wStart = new Date(windowStart)
-  const wEnd = new Date(windowEnd)
+  // Rule 3: absence must be adjacent to the window.
+  // The RPC correctly counts weekday-only absence days.
+  // We trust departure_absence_days and return_absence_days from the RPC.
+  // A scenario is adjacent if departure absence days account for ALL days
+  // between departure and window_start, and return absence days account for
+  // ALL days between window_end and return date.
+  // Since the RPC already enforces this via calculate_absence_fine,
+  // and the date ranges are now correctly constrained in the RPC,
+  // any scenario returned with total_absence_days <= 2 is by definition adjacent.
+  // The only remaining check: exclude scenarios where absence days are split
+  // across both ends (departure AND return both have absence) unless uses_inset_day.
 
-  const effectiveStart = scenario.uses_inset_day && depDate < wStart
-    ? depDate : wStart
-  const effectiveEnd = scenario.uses_inset_day && retDate > wEnd
-    ? retDate : wEnd
+  if (scenario.departure_absence_days > 0 && scenario.return_absence_days > 0) {
+    return scenario.uses_inset_day === true
+  }
 
-  const earliestAllowedDep = new Date(effectiveStart)
-  earliestAllowedDep.setDate(effectiveStart.getDate() - scenario.departure_absence_days)
-  const departureAdjacent = depDate >= earliestAllowedDep
-
-  const latestAllowedRet = new Date(effectiveEnd)
-  latestAllowedRet.setDate(effectiveEnd.getDate() + scenario.return_absence_days)
-  const returnAdjacent = retDate <= latestAllowedRet
-
-  return departureAdjacent && returnAdjacent
+  return true
 }
 
 interface Props {
