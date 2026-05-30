@@ -42,218 +42,184 @@ interface ComplianceCalculatorProps {
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function fmt(iso: string) {
-  const d = new Date(iso);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function fmtDate(iso: string) {
+  const d = new Date(iso + 'T00:00:00');
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
-function fmtDay(iso: string) {
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  return days[new Date(iso).getDay()];
-}
+
 function gbp(n: number) {
-  return n === 0 ? '£0' : `£${n.toLocaleString('en-GB')}`;
+  return `£${Math.round(Math.abs(n)).toLocaleString('en-GB')}`;
 }
 
-type Tab = 'table' | 'detail';
-
-export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
-  const [activeIdx, setActiveIdx] = useState(1);
-  const [tab, setTab] = useState<Tab>('table');
-
-  const eligibleScenarios = data.scenarios.filter(s =>
-    isEligible(s, data.window_start, data.window_end)
-  )
-
-  // Map RPC snake_case fields to camelCase rendering fields
-  const derived = eligibleScenarios.map((s) => ({
-    ...s,
-    daysEarly:     s.departure_absence_days ?? 0,
-    departureDate: s.departure_date,
-    returnDate:    s.return_date,
-    flightCost:    s.total_fare,
-    grossSaving:   s.gross_saving,
-    totalFine:     s.fine_gbp,
-    netSaving:     s.net_saving_vs_baseline,
-  }));
-
-  const active = derived[activeIdx];
-  const bestNetSaving = Math.max(...derived.map((s) => s.netSaving));
-  const bestIdx = derived.findIndex((s) => s.netSaving === bestNetSaving);
+function ScenarioRow({ s }: { s: any }) {
+  const hasFine    = s.fine_gbp > 0;
+  const netSaving  = s.net_saving_vs_baseline ?? 0;
+  const isPositive = netSaving > 0;
+  const isNegative = netSaving < 0;
 
   return (
-    <section aria-labelledby="compliance-heading">
-      <div className="flex items-start justify-between mb-lg flex-wrap gap-md">
-        <div>
-          <span className="block font-inter text-label-sm uppercase tracking-widest text-primary-container mb-xs">
-            Compliance Calculus
+    <div
+      className="flex items-start justify-between gap-md px-md py-sm"
+      style={{ background: s.is_recommended ? 'rgba(13,92,99,0.04)' : 'transparent' }}
+    >
+      {/* Left: label + pills + date */}
+      <div className="flex flex-col gap-xs min-w-0">
+        <div className="flex items-center gap-xs flex-wrap">
+          <span className="font-inter text-body-md font-medium text-on-surface">
+            {s.label}
           </span>
-          <h2 id="compliance-heading" className="font-newsreader text-headline-lg text-on-surface">
-            Fine vs fare: the honest maths
-          </h2>
+          {s.is_recommended && (
+            <span
+              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
+              style={{ background: 'rgba(13,92,99,0.12)', color: '#004349' }}
+            >
+              Best value
+            </span>
+          )}
+          {s.requires_term_time_absence && (
+            <span
+              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
+              style={{ background: 'rgba(253,186,73,0.18)', color: '#704b00' }}
+            >
+              Term time · {s.total_absence_days}d
+            </span>
+          )}
+          {s.uses_inset_day && (
+            <span
+              className="font-inter text-label-sm rounded-full px-sm py-xs flex-shrink-0"
+              style={{ background: 'rgba(13,92,99,0.08)', color: '#004349' }}
+            >
+              Inset day
+            </span>
+          )}
         </div>
-      </div>
-
-      {/* Legal disclaimer */}
-      <div
-        className="flex gap-sm rounded-md p-md mb-lg font-inter text-label-sm"
-        style={{ background: 'rgba(186,26,26,0.06)', border: '1px solid rgba(186,26,26,0.2)', color: '#6b0004' }}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-px" aria-hidden="true">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-        <span>
-          <strong>Legal disclaimer:</strong> Taking children out of school during term time without authorisation may result in a fixed-penalty notice. Fine amounts shown are based on current council rates (£80/parent per child for up to 5 days, rising to £160 if unpaid within 21 days). Holiday Smart does not endorse term-time absence. This tool is for information only.
+        <span className="font-inter text-label-sm text-outline">
+          {fmtDate(s.departure_date)} → {fmtDate(s.return_date)}
         </span>
+        {hasFine && (
+          <span className="font-inter text-label-sm" style={{ color: '#9a6800' }}>
+            Fine: {gbp(s.fine_gbp)}*
+          </span>
+        )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-sm mb-lg border-b border-outline-variant">
-        {(['table', 'detail'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={[
-              'font-inter text-label-md pb-sm px-xs transition-colors border-b-2 -mb-px',
-              tab === t
-                ? 'text-primary border-primary'
-                : 'text-on-surface-variant border-transparent hover:text-on-surface',
-            ].join(' ')}
-          >
-            {t === 'table' ? 'Comparison table' : 'Scenario detail'}
-          </button>
-        ))}
+      {/* Right: price + net saving */}
+      <div className="flex flex-col items-end gap-xs flex-shrink-0">
+        <span className="font-inter text-body-md font-semibold text-on-surface">
+          {gbp(s.total_fare)}
+        </span>
+        {isPositive && (
+          <span className="font-inter text-label-sm font-medium" style={{ color: '#1e6b2e' }}>
+            +{gbp(netSaving)}
+          </span>
+        )}
+        {isNegative && (
+          <span className="font-inter text-label-sm text-on-surface-variant">
+            -{gbp(netSaving)}
+          </span>
+        )}
       </div>
+    </div>
+  );
+}
 
-      {tab === 'table' ? (
-        <div className="overflow-x-auto rounded-lg border border-outline-variant shadow-sm">
-          <table className="w-full border-collapse font-inter text-body-md">
-            <thead>
-              <tr className="bg-surface-container-low border-b border-outline-variant">
-                <th className="text-left px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Scenario</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Depart</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Flight cost</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Fine</th>
-                <th className="text-right px-lg py-md font-semibold text-label-md uppercase tracking-wider text-outline">Net saving</th>
-              </tr>
-            </thead>
-            <tbody>
-              {derived.map((s, i) => {
-                const isBest     = i === bestIdx && s.netSaving > 0;
-                const isSelected = i === activeIdx;
-                return (
-                  <tr
-                    key={s.label}
-                    onClick={() => { setActiveIdx(i); setTab('detail'); }}
-                    className={[
-                      'border-b border-outline-variant cursor-pointer transition-colors last:border-0',
-                      isSelected ? 'bg-primary/5' : 'hover:bg-surface-container-low',
-                    ].join(' ')}
-                  >
-                    <td className="px-lg py-md">
-                      <span className="flex items-center gap-sm flex-wrap">
-                        <span className="font-medium text-on-surface">{s.label}</span>
-                        {isBest && (
-                          <span className="font-inter text-label-sm rounded-full px-sm py-xs" style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}>Best value</span>
-                        )}
-                        {s.daysEarly === 0 && (
-                          <span className="font-inter text-label-sm rounded-full px-sm py-xs bg-surface-container text-on-surface-variant">Baseline</span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-lg py-md text-right text-on-surface-variant">
-                      {fmtDay(s.departureDate)} {fmt(s.departureDate)}
-                    </td>
-                    <td className="px-lg py-md text-right font-semibold text-on-surface">{gbp(s.flightCost)}</td>
-                    <td className="px-lg py-md text-right">
-                      {s.totalFine === 0
-                        ? <span className="text-on-surface-variant">—</span>
-                        : <span style={{ color: '#ba1a1a' }}>{gbp(s.totalFine)}</span>
-                      }
-                    </td>
-                    <td className="px-lg py-md text-right font-semibold">
-                      {s.netSaving === 0
-                        ? <span className="text-on-surface-variant">—</span>
-                        : s.netSaving > 0
-                          ? <span style={{ color: '#3d6b33' }}>+{gbp(s.netSaving)}</span>
-                          : <span style={{ color: '#ba1a1a' }}>{gbp(s.netSaving)}</span>
-                      }
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+export function ComplianceCalculator({ data }: ComplianceCalculatorProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const eligible = data.scenarios.filter(s =>
+    isEligible(s, data.window_start, data.window_end)
+  );
+
+  const group1 = eligible.filter(s => !s.requires_term_time_absence);
+  const group2 = eligible.filter(s =>  s.requires_term_time_absence);
+
+  const totalCount  = eligible.length;
+  const defaultShow = 5;
+  const visibleG1   = expanded ? group1 : group1.slice(0, defaultShow);
+  const visibleG2   = expanded ? group2 : [];
+  const hasMore     = group1.length > defaultShow || group2.length > 0;
+
+  return (
+    <section
+      className="bg-white rounded-lg"
+      style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
+      aria-labelledby="when-to-fly-heading"
+    >
+      <h2
+        id="when-to-fly-heading"
+        className="font-newsreader text-2xl font-medium text-on-surface mb-lg"
+      >
+        When to fly
+      </h2>
+
+      {eligible.length === 0 ? (
+        <p className="font-inter text-body-md text-on-surface-variant">
+          No eligible scenarios found for this window.
+        </p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-          <div className="flex flex-col gap-sm">
-            {derived.map((s, i) => (
-              <button
-                key={s.label}
-                onClick={() => setActiveIdx(i)}
-                className={[
-                  'text-left rounded-md px-md py-sm transition-all border font-inter text-body-md',
-                  activeIdx === i
-                    ? 'border-primary bg-primary/5 text-on-surface'
-                    : 'border-outline-variant text-on-surface-variant hover:border-outline hover:bg-surface-container-low',
-                ].join(' ')}
-              >
-                <span className="font-semibold">{s.label}</span>
-                {s.daysEarly > 0 && (
-                  <span className="block text-label-sm text-outline mt-xs">
-                    Depart {fmtDay(s.departureDate)} {fmt(s.departureDate)}
-                  </span>
-                )}
-              </button>
+        <>
+          {/* Group 1 — term-time-free */}
+          <div className="flex flex-col" style={{ gap: 0 }}>
+            {visibleG1.map((s, i) => (
+              <div key={s.label ?? i}>
+                {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
+                <ScenarioRow s={s} />
+              </div>
             ))}
           </div>
 
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-lg shadow-sm flex flex-col gap-md">
-            <div className="flex items-start justify-between flex-wrap gap-sm">
-              <div>
-                <p className="font-inter text-label-sm uppercase tracking-widest text-outline mb-xs">Selected scenario</p>
-                <p className="font-newsreader text-headline-md text-on-surface">{active.label}</p>
-              </div>
-              {activeIdx === bestIdx && active.netSaving > 0 && (
-                <span className="font-inter text-label-sm rounded-full px-md py-xs" style={{ background: 'rgba(253,186,73,0.2)', color: '#704b00' }}>
-                  ★ Best net saving
+          {/* Group 2 — extends into term time */}
+          {expanded && group2.length > 0 && (
+            <>
+              <div
+                className="flex items-center gap-sm my-md"
+                style={{ borderTop: '1px solid #e6e8e8', paddingTop: 16, marginTop: 16 }}
+              >
+                <span
+                  className="font-inter text-outline"
+                  style={{ fontSize: 12 }}
+                >
+                  Extends into term time
                 </span>
-              )}
+              </div>
+              <div className="flex flex-col" style={{ gap: 0 }}>
+                {visibleG2.map((s, i) => (
+                  <div key={s.label ?? i}>
+                    {i > 0 && <div style={{ height: 1, background: '#e6e8e8', marginLeft: 16, marginRight: 16 }} />}
+                    <ScenarioRow s={s} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Toggle */}
+          {hasMore && (
+            <div className="mt-md pt-md" style={{ borderTop: '1px solid #e6e8e8' }}>
+              <button
+                onClick={() => setExpanded(v => !v)}
+                className="font-inter text-label-md text-primary hover:underline"
+              >
+                {expanded
+                  ? 'Show fewer'
+                  : `Show all ${totalCount} options`
+                }
+              </button>
             </div>
+          )}
 
-            <div className="h-px bg-outline-variant" />
-
-            <div className="grid grid-cols-2 gap-md">
-              {[
-                { label: 'Departure',     val: `${fmtDay(active.departureDate)} ${fmt(active.departureDate)}`, highlight: false },
-                { label: 'Return',        val: fmt(active.returnDate),                                          highlight: false },
-                { label: 'Flight cost',   val: gbp(active.flightCost),                                          highlight: false },
-                { label: 'Flight saving', val: active.grossSaving > 0 ? gbp(active.grossSaving) : '—',          highlight: true  },
-                { label: 'Fine',          val: active.totalFine > 0 ? gbp(active.totalFine) : '—',              highlight: false },
-                { label: 'Net saving',    val: active.netSaving > 0 ? gbp(active.netSaving) : active.netSaving < 0 ? gbp(active.netSaving) : '—', highlight: active.netSaving > 0 },
-              ].map(({ label, val, highlight }) => (
-                <div key={label}>
-                  <p className="font-inter text-label-sm uppercase tracking-wider text-outline mb-xs">{label}</p>
-                  <p className={['font-inter text-body-lg font-semibold', highlight ? 'text-primary' : 'text-on-surface'].join(' ')}>
-                    {val}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {active.daysEarly > 0 && (
-              <>
-                <div className="h-px bg-outline-variant" />
-                <p className="font-inter text-body-md text-on-surface-variant">
-                  Leaving <strong className="text-on-surface">{fmtDay(active.departureDate)} {fmt(active.departureDate)}</strong> ({active.daysEarly} school {active.daysEarly === 1 ? 'day' : 'days'} early) saves{' '}
-                  <strong className="text-on-surface">{gbp(active.grossSaving)}</strong> on flights.
-                  {active.totalFine > 0 && <> Fine exposure: <span style={{ color: '#ba1a1a' }}>{gbp(active.totalFine)}</span>.</>}
-                  {active.netSaving > 0 && <strong className="text-primary"> Net saving: {gbp(active.netSaving)}.</strong>}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+          {/* Disclaimer — only when expanded */}
+          {expanded && (
+            <p
+              className="font-inter text-outline mt-md"
+              style={{ fontSize: 12 }}
+            >
+              Holiday Smart does not recommend term-time absence. Fine estimates are based on current borough penalty notice rates (£80/parent/child, rising to £160 if unpaid within 21 days). Confirm with your school. *Fines shown are estimates.
+            </p>
+          )}
+        </>
       )}
     </section>
   );
