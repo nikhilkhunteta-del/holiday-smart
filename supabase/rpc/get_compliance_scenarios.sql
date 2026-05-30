@@ -26,9 +26,12 @@
 -- Composition matching (for fare lookups only):
 --   Input mapped to nearest of (1A+1C, 2A+1C, 2A+2C, 2A+1inf). Never errors.
 
+DROP FUNCTION IF EXISTS get_compliance_scenarios(text, text, smallint, smallint, smallint);
+
 CREATE OR REPLACE FUNCTION get_compliance_scenarios(
   p_destination_slug text,
   p_school_urn       text,
+  p_trip_type        text,
   p_adults           smallint,
   p_children         smallint,
   p_infants          smallint
@@ -52,6 +55,12 @@ DECLARE
   v_window_source text := 'school';
   v_baseline      numeric;
   v_scenarios     jsonb;
+  v_dep_earliest  date;
+  v_dep_latest    date;
+  v_ret_earliest  date;
+  v_ret_latest    date;
+  v_min_nights    smallint;
+  v_max_nights    smallint;
 BEGIN
 
   -- ── 1. Destination + airport pool ──────────────────────────────────────────
@@ -149,6 +158,23 @@ BEGIN
     );
   END IF;
 
+  -- ── Trip type date ranges ───────────────────────────────────────────────────
+
+  IF p_trip_type = 'circuit' THEN
+    v_dep_earliest := v_window_start - 4;
+    v_dep_latest   := v_window_start;
+    v_min_nights   := 7;
+    v_max_nights   := 10;
+  ELSE -- city
+    v_dep_earliest := v_window_start - 4;
+    v_dep_latest   := v_window_end;
+    v_min_nights   := 3;
+    v_max_nights   := 4;
+  END IF;
+
+  v_ret_earliest := v_dep_earliest + v_min_nights;
+  v_ret_latest   := v_dep_latest + v_max_nights;
+
   -- ── 7. Baseline price ───────────────────────────────────────────────────────
 
   SELECT party_total_gbp INTO v_baseline
@@ -167,7 +193,7 @@ BEGIN
       SELECT date AS d
         FROM school_inset_days
        WHERE urn  = p_school_urn
-         AND date BETWEEN v_window_start - 3 AND v_window_end + 3
+         AND date BETWEEN v_dep_earliest AND v_ret_latest
     ),
     -- Borough-proxy fallback: distinct inset days from other schools in the same
     -- borough, used only when this school genuinely has no inset days at all
@@ -175,7 +201,7 @@ BEGIN
       SELECT DISTINCT sid.date AS d
         FROM school_inset_days sid
         JOIN all_schools sch ON sch.urn = sid.urn AND sch.borough = v_borough
-       WHERE sid.date BETWEEN v_window_start - 3 AND v_window_end + 3
+       WHERE sid.date BETWEEN v_dep_earliest AND v_ret_latest
          AND NOT EXISTS (SELECT 1 FROM school_inset_days WHERE urn = p_school_urn)
     ),
     -- Effective inset days: school-first, borough fallback
@@ -184,19 +210,17 @@ BEGIN
       UNION
       SELECT d FROM borough_inset
     ),
-    -- Departure candidates: official_start −3 to +1, plus inset days in that range
+    -- Departure candidates: full window driven by trip type, plus inset days
     depart_cands AS (
-      SELECT (v_window_start - 3 + s.n)::date AS dep_date
-        FROM generate_series(0, 4) AS s(n)        -- offsets −3, −2, −1, 0, +1
+      SELECT generate_series(v_dep_earliest, v_dep_latest, '1 day'::interval)::date AS dep_date
       UNION
       SELECT d AS dep_date
         FROM inset_days
-       WHERE d BETWEEN v_window_start - 3 AND v_window_start + 1
+       WHERE d BETWEEN v_dep_earliest AND v_dep_latest
     ),
-    -- Return candidates: official_end −1 to +3
+    -- Return candidates: full return window driven by trip type
     return_cands AS (
-      SELECT (v_window_end - 1 + s.n)::date AS ret_date
-        FROM generate_series(0, 4) AS s(n)        -- offsets −1, 0, +1, +2, +3
+      SELECT generate_series(v_ret_earliest, v_ret_latest, '1 day'::interval)::date AS ret_date
     ),
     -- Cross-product, filtered to valid trip lengths
     combos AS (
@@ -204,7 +228,7 @@ BEGIN
         FROM depart_cands dep
         CROSS JOIN return_cands ret
        WHERE ret.ret_date > dep.dep_date
-         AND (ret.ret_date - dep.dep_date) BETWEEN 3 AND 11
+         AND (ret.ret_date - dep.dep_date) BETWEEN v_min_nights AND v_max_nights
     ),
     -- Best fare per combination (correlated subqueries are fast at this cardinality)
     fares AS (
