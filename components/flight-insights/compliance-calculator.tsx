@@ -70,13 +70,31 @@ function getBaselineDates(windowStart: string, tripType: string) {
 }
 
 function cellStyle(saving: number, isAbsence: boolean, isOurPick: boolean) {
-  if (isOurPick)     return { bg: '#E1F5EE', border: '1.5px solid #004349' }
-  if (isAbsence)     return { bg: '#FAEEDA', border: '1.5px solid #BA7517' }
-  if (saving >= 100) return { bg: '#1D9E75', border: 'none' }
-  if (saving >= 51)  return { bg: '#5DCAA5', border: 'none' }
-  if (saving >= 1)   return { bg: '#9FE1CB', border: 'none' }
-  if (saving === 0)  return { bg: '#f2f4f4', border: '1px solid #bfc8c9' }
-  return { bg: '#F1EFE8', border: 'none' }
+  let bg: string;
+  let textDark = false;
+
+  if (isAbsence) {
+    bg = '#FAEEDA';
+  } else if (saving >= 100) {
+    bg = '#1D9E75';
+    textDark = true;
+  } else if (saving >= 51) {
+    bg = '#5DCAA5';
+  } else if (saving >= 1) {
+    bg = '#9FE1CB';
+  } else if (saving === 0) {
+    bg = '#f2f4f4';
+  } else {
+    bg = '#F1EFE8';
+  }
+
+  const border = isOurPick
+    ? '1.5px solid #004349'
+    : isAbsence
+    ? '1.5px solid #BA7517'
+    : 'none';
+
+  return { bg, border, textDark };
 }
 
 type DepSub =
@@ -107,9 +125,8 @@ function DataCell({ s, isRec }: { s: any; isRec: boolean }) {
   const isAbsence = s.requires_term_time_absence === true;
   const netSaving = s.net_saving_vs_baseline ?? 0;
   const hasFine   = (s.fine_gbp ?? 0) > 0;
-  const { bg, border } = cellStyle(netSaving, isAbsence, isRec);
-  const isDark    = !isRec && !isAbsence && netSaving >= 100;
-  const over      = isDark ? '#04342C' : null;
+  const { bg, border, textDark } = cellStyle(netSaving, isAbsence, isRec);
+  const over = textDark ? '#04342C' : null;
 
   return (
     <td style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6 }}>
