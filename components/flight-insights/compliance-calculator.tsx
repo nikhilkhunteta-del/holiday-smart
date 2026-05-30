@@ -131,9 +131,10 @@ function DataCell({ s, isRec }: { s: any; isRec: boolean }) {
   return (
     <td style={{ minWidth: 100, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6 }}>
       {isRec && (
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, fontWeight: 600, color: over ?? '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: 2 }}>
-          Our pick
-        </span>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: '#004349', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+          <span style={{ fontSize: '12px' }}>★</span>
+          <span style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>Our pick</span>
+        </div>
       )}
       <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: over ?? '#191c1d', display: 'block' }}>
         {gbp(s.total_fare)}
