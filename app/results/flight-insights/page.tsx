@@ -1,6 +1,7 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
+import { AllInCost } from '@/components/flight-insights/all-in-cost';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,30 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
+
+  const DESTINATION_AIRPORT: Record<string, string> = {
+    'barcelona':            'BCN',
+    'andalusian-corridor':  'SVQ',
+    'algarve':              'FAO',
+    'tuscany':              'PSA',
+    'apulia':               'BRI',
+    'french-riviera':       'NCE',
+    'crete':                'CHQ',
+    'catalonia':            'BCN',
+    'croatia':              'SPU',
+    'porto':                'OPO',
+    'malta':                'MLA',
+    'rome':                 'FCO',
+    'lisbon':               'LIS',
+    'amsterdam':            'AMS',
+    'copenhagen':           'CPH',
+    'munich':               'MUC',
+    'vienna':               'VIE',
+    'venice':               'VCE',
+    'seville':              'SVQ',
+    'gran-canaria':         'LPA',
+  };
+  const destinationAirport = DESTINATION_AIRPORT[destinationSlug];
 
   if (!urn || !windowStart || !windowEnd) {
     return (
@@ -169,6 +194,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             tripType={tripType}
           />
         )}
+        <AllInCost
+          data={allinResult.error ? null : (allinResult.data as any)}
+          tripType={tripType}
+          destinationAirport={destinationAirport}
+        />
       </div>
     </main>
   );

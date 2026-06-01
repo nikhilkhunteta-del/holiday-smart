@@ -12,7 +12,7 @@
 --   first_checked_bag_gbp × party_size per leg, per carrier.
 --   Null when either leg's airline is absent from airline_baggage_fees — the
 --   caller should surface this as "baggage data unavailable" in the UI.
---   baggage_is_estimate = true always (curated table, not live API data).
+--   baggage_is_estimate = false when both carriers are in the verified set (FR,U2,W6,VY,TP,BA); true otherwise.
 --
 -- Transfer cost:
 --   district_airport_transit keyed by postcode district + outbound airport.
@@ -301,7 +301,12 @@ BEGIN
         'drive_duration_mins',     r.drive_duration_mins,
         'allin_total',             ROUND(r.allin_total::numeric, 2),
         'allin_is_complete',       r.allin_is_complete,
-        'baggage_is_estimate',     true,
+        'baggage_is_estimate',     CASE
+                                   WHEN r.out_carrier IN ('FR','U2','W6','VY','TP','BA')
+                                    AND r.ret_carrier IN ('FR','U2','W6','VY','TP','BA')
+                                   THEN false
+                                   ELSE true
+                                 END,
         'family_split_risk',       r.family_split_risk,
         'split_risk_carriers',     r.split_risk_carriers,
         'is_recommended',          r.is_recommended
