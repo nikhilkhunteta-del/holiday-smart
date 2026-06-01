@@ -177,13 +177,12 @@ BEGIN
         cp.out_fare + cp.ret_fare                  AS base_fare_total,
         cp.split_carrier,
         v_party_size                               AS party_size,
-        -- Baggage: 1 checked bag × party_size, one per leg, one fee per carrier.
+        -- Baggage: 1 checked bag for the family, one per leg, one fee per carrier.
         -- Returns null if either airline is absent from airline_baggage_fees.
         CASE
           WHEN abf_out.airline_iata IS NOT NULL
            AND abf_ret.airline_iata IS NOT NULL
           THEN (abf_out.first_checked_bag_gbp + abf_ret.first_checked_bag_gbp)
-               * v_party_size
           ELSE NULL
         END                                        AS baggage_cost,
         abf_out.first_checked_bag_gbp              AS out_bag_fee_pp,
