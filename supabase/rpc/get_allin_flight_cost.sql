@@ -231,6 +231,17 @@ BEGIN
                 AND cp.ret_carrier <> cp.out_carrier
                THEN cp.ret_carrier END
         ], NULL)                                   AS split_risk_carriers,
+        -- Cabin bag: à la carte cost to add an overhead carry-on (new verified column)
+        abf_out.full_cabin_bag_fee_gbp             AS out_cabin_bag_fee_gbp,
+        abf_ret.full_cabin_bag_fee_gbp             AS ret_cabin_bag_fee_gbp,
+        -- Whether the carrier's base fare includes an overhead cabin bag
+        abf_out.cabin_bag_included                 AS out_cabin_bag_included,
+        abf_ret.cabin_bag_included                 AS ret_cabin_bag_included,
+        abf_out.cabin_bag_max_kg                   AS out_cabin_bag_max_kg,
+        -- Return carrier bundle (outbound fields already captured above)
+        abf_ret.bundle_name                        AS ret_bundle_name,
+        abf_ret.bundle_price_delta_gbp             AS ret_bundle_price_delta_gbp,
+        abf_ret.bundle_includes_checked            AS ret_bundle_includes_checked,
         abf_out.airline_iata IS NOT NULL           AS has_out_baggage_data,
         abf_ret.airline_iata IS NOT NULL           AS has_ret_baggage_data
       FROM carrier_pairs cp
@@ -286,10 +297,18 @@ BEGIN
         'seat_cost',               r.seat_cost,
         'outbound_seat_fee_pp',    r.out_seat_fee_pp,
         'return_seat_fee_pp',      r.ret_seat_fee_pp,
-        'bundle_name',             r.bundle_name,
-        'bundle_price_delta_gbp',  r.bundle_price_delta_gbp,
-        'bundle_includes_checked', r.bundle_includes_checked,
-        'transfer_mode',           p_transport_mode,
+        'bundle_name',                    r.bundle_name,
+        'bundle_price_delta_gbp',         r.bundle_price_delta_gbp,
+        'bundle_includes_checked',        r.bundle_includes_checked,
+        'return_bundle_name',             r.ret_bundle_name,
+        'return_bundle_price_delta_gbp',  r.ret_bundle_price_delta_gbp,
+        'return_bundle_includes_checked', r.ret_bundle_includes_checked,
+        'outbound_cabin_bag_fee_gbp',     r.out_cabin_bag_fee_gbp,
+        'return_cabin_bag_fee_gbp',       r.ret_cabin_bag_fee_gbp,
+        'outbound_cabin_bag_included',    r.out_cabin_bag_included,
+        'return_cabin_bag_included',      r.ret_cabin_bag_included,
+        'outbound_cabin_bag_max_kg',      r.out_cabin_bag_max_kg,
+        'transfer_mode',                  p_transport_mode,
         'transfer_cost_known',     r.transfer_cost_known,
         'transfer_cost',           r.transfer_cost,
         'public_transfer_gbp',     r.public_transfer_gbp,
