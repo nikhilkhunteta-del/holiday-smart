@@ -191,13 +191,13 @@ BEGIN
   END IF;
 
   -- ── 7. Date ranges ───────────────────────────────────────────────────────────
-  -- Both outbound and return candidates span window_start−2 to window_end+2.
+  -- Mirrors get_compliance_scenarios exactly.
   -- Trip-length constraint (BETWEEN min AND max nights) enforced at join time.
 
-  v_dep_earliest := v_window_start - 2;
-  v_dep_latest   := v_window_end   + 2;
-  v_ret_earliest := v_window_start - 2;
-  v_ret_latest   := v_window_end   + 2;
+  v_dep_earliest := v_window_start - 4;
+  v_dep_latest   := v_window_end;
+  v_ret_earliest := v_window_start;
+  v_ret_latest   := v_window_end + 4;
 
   IF p_trip_type = 'circuit' THEN
     v_min_nights := 7;
