@@ -563,7 +563,7 @@ BEGIN
 
   -- Attempt 1: LHR on the target Saturday
   SELECT
-    bs.departure_date,
+    bs.outbound_date,
     bs.return_date,
     bs.origin_iata,
     bs.airline_iata,
@@ -579,7 +579,7 @@ BEGIN
     v_baseline_carrier,  v_baseline_fare,     v_baseline_dep_time
   FROM baseline_snapshots bs
   WHERE bs.destination_slug = p_destination_slug
-    AND bs.departure_date   = v_baseline_sat
+    AND bs.outbound_date   = v_baseline_sat
     AND bs.origin_iata      = 'LHR'
     AND bs.adults    = v_adults
     AND bs.children  = v_children
@@ -592,7 +592,7 @@ BEGIN
     v_baseline_fallback := true;
 
     SELECT
-      bs.departure_date,
+      bs.outbound_date,
       bs.return_date,
       bs.origin_iata,
       bs.airline_iata,
@@ -608,7 +608,7 @@ BEGIN
       v_baseline_carrier,  v_baseline_fare,     v_baseline_dep_time
     FROM baseline_snapshots bs
     WHERE bs.destination_slug = p_destination_slug
-      AND bs.departure_date   = v_baseline_sat
+      AND bs.outbound_date   = v_baseline_sat
       AND bs.adults    = v_adults
       AND bs.children  = v_children
       AND bs.infants   = v_infants
@@ -621,7 +621,7 @@ BEGIN
     v_baseline_fallback := true;
 
     SELECT
-      bs.departure_date,
+      bs.outbound_date,
       bs.return_date,
       bs.origin_iata,
       bs.airline_iata,
