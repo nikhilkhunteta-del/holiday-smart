@@ -133,7 +133,7 @@ export async function assembleRecommendation(
     transitMap.set(baselineOutKey, {
       postcode_district: postcodeDistrict,
       airport_iata: 'LHR',
-      departure_time: parseDepartureDate(baseline.outbound_date, '09:00'),
+      departure_time: parseDepartureDate(baseline.outbound_date, baseline.outbound_departure_time ?? '09:00'),
     });
   }
 
