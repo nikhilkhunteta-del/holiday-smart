@@ -43,6 +43,7 @@ interface Props {
   p_cabin_bags: number;
   p_checked_bags: number;
   party_size: number;
+  combinations?: AssembledCombination[];
 }
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ export function SavingsBreakdown({
   recommendation, baseline, destinationSlug, boroughName,
   outbound_transit, return_transit,
   p_cabin_bags, p_checked_bags, party_size,
+  combinations,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -256,6 +258,30 @@ export function SavingsBreakdown({
         >
           Recommended itinerary
         </p>
+
+        {/* Itinerary insight line */}
+        {(() => {
+          let insight = '';
+          if (recommendation.is_inset_day) {
+            insight = "Flying on your school's inset day — one day earlier than most families, at no extra cost.";
+          } else if (!recommendation.requires_absence) {
+            const cheapestInset = (combinations ?? [])
+              .filter(c => c.is_inset_day && !c.requires_absence)
+              .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
+            if (cheapestInset) {
+              const diff = Math.round(cheapestInset.total_inc_fine - recommendation.total_inc_fine);
+              if (diff > 0 && diff <= 20) {
+                insight = `Alternatively, fly the inset day (${fmtShortDate(cheapestInset.outbound_date)}) for just ${fmt(diff)} more and gain an extra day.`;
+              }
+            }
+            if (!insight) insight = 'No school absence required for this trip.';
+          }
+          return insight ? (
+            <p className="font-inter" style={{ fontSize: 13, color: '#3f484a', fontStyle: 'italic', marginBottom: 16 }}>
+              {insight}
+            </p>
+          ) : null;
+        })()}
 
         <div className="flex flex-col" style={{ gap: 10 }}>
           {/* Outbound row */}
