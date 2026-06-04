@@ -240,8 +240,8 @@ export function SavingsBreakdown({
           <span style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</span>.
         </p>
 
-        <p className="font-inter" style={{ fontSize: 15, color: '#004349' }}>
-          Here&apos;s how ↓
+        <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
+          We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
         </p>
       </div>
 
