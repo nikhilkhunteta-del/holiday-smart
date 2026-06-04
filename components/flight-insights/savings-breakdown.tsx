@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 
 interface Lever {
@@ -48,7 +51,8 @@ function fmtShort(d: Date) {
   return `${DAY_ABBR[d.getDay()]} ${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
 }
 
-export function SavingsBreakdown({ data, adults, children, windowStart, recommendation: _recommendation, baseline: _baseline }: Props) {
+export function SavingsBreakdown({ data, adults, children, windowStart, recommendation, baseline }: Props) {
+  const [breakdownExpanded, setBreakdownExpanded] = useState(false);
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
   const partySize  = adults + children;
@@ -241,6 +245,112 @@ export function SavingsBreakdown({ data, adults, children, windowStart, recommen
           <p className="font-inter" style={{ fontSize: 12, color: '#6f797a' }}>
             Holiday Smart does not recommend taking children out of school during term time. This information is provided for transparency only.
           </p>
+        </div>
+      )}
+      {/* ── Recommendation vs Baseline breakdown ──────────────────────────── */}
+      {recommendation && baseline && (
+        <div className="border-t border-outline-variant pt-lg mt-lg">
+
+          {/* Headline saving */}
+          <div className="flex flex-col gap-xs mb-md">
+            <p className="font-inter text-label-sm uppercase tracking-widest text-primary">
+              Total saving
+            </p>
+            <p className="font-newsreader text-display-lg" style={{ color: '#004349' }}>
+              {fmt(baseline.total_cost_gbp - recommendation.total_cost_gbp)}
+            </p>
+            <p className="font-inter text-label-sm text-on-surface-variant">
+              Smart trip vs. standard booking (LHR, Saturday, no optimisation)
+            </p>
+          </div>
+
+          {/* Toggle */}
+          <button
+            onClick={() => setBreakdownExpanded(v => !v)}
+            className="font-inter text-label-md rounded-md px-md py-sm flex items-center gap-sm mb-md"
+            style={{ background: 'rgba(13,92,99,0.06)', color: '#004349', border: 'none', cursor: 'pointer' }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>
+              {breakdownExpanded ? '−' : '+'}
+            </span>
+            How we calculated your saving
+          </button>
+
+          {/* Expanded table */}
+          {breakdownExpanded && (
+            <div style={{ overflowX: 'auto' }}>
+              <table
+                className="w-full font-inter text-label-md"
+                style={{ borderCollapse: 'collapse' }}
+              >
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #e2e8ea' }}>
+                    <th className="text-left py-sm pr-lg text-on-surface-variant" style={{ fontWeight: 500 }}>
+                      Component
+                    </th>
+                    <th className="text-right py-sm px-md text-primary" style={{ fontWeight: 600 }}>
+                      Smart trip
+                    </th>
+                    <th className="text-right py-sm pl-md text-on-surface-variant" style={{ fontWeight: 500 }}>
+                      Baseline
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    {
+                      label: 'Flights',
+                      smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp,
+                      base:  baseline.baseline_fare_gbp,
+                    },
+                    {
+                      label: 'Cabin bags',
+                      smart: recommendation.cabin_bag_cost_gbp,
+                      base:  baseline.cabin_bag_cost_gbp,
+                    },
+                    {
+                      label: 'Checked bags',
+                      smart: recommendation.checked_bag_cost_gbp,
+                      base:  baseline.checked_bag_cost_gbp,
+                    },
+                    {
+                      label: 'Seats',
+                      smart: recommendation.seat_cost_gbp,
+                      base:  baseline.seat_cost_gbp,
+                    },
+                    {
+                      label: 'Getting to airport',
+                      smart: recommendation.transit_cost_gbp,
+                      base:  baseline.transit_cost_gbp,
+                    },
+                    {
+                      label: 'Airport transfers',
+                      smart: recommendation.destination_transfer_cost_gbp,
+                      base:  baseline.destination_transfer_cost_gbp,
+                    },
+                  ].map((row, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f2f4f4' }}>
+                      <td className="py-sm pr-lg text-on-surface-variant">{row.label}</td>
+                      <td className="text-right py-sm px-md text-on-surface">{fmt(row.smart)}</td>
+                      <td className="text-right py-sm pl-md" style={{ color: '#9ba8a9' }}>{fmt(row.base)}</td>
+                    </tr>
+                  ))}
+                  {/* Total row */}
+                  <tr style={{ borderTop: '2px solid #e2e8ea' }}>
+                    <td className="py-sm pr-lg font-inter text-on-surface" style={{ fontWeight: 600 }}>
+                      Total
+                    </td>
+                    <td className="text-right py-sm px-md font-inter text-primary" style={{ fontWeight: 700 }}>
+                      {fmt(recommendation.total_cost_gbp)}
+                    </td>
+                    <td className="text-right py-sm pl-md font-inter" style={{ fontWeight: 600, color: '#9ba8a9' }}>
+                      {fmt(baseline.total_cost_gbp)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </section>

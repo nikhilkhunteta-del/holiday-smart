@@ -667,6 +667,7 @@ BEGIN
         ),
         'destination_transfer_cost_gbp', ROUND(bc.dest_transfer_cost::numeric,              2),
         'destination_transfer_known',    bc.dest_transfer_known,
+        'outbound_departure_time',       to_char(v_baseline_dep_time, 'HH24:MI'),
         'baseline_is_fallback',          v_baseline_fallback
       )
     INTO v_baseline_out
