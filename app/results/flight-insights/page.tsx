@@ -226,11 +226,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         {assembled && (
           <ComplianceCalculator
             combinations={assembled.combinations}
-            baselineTotal={assembled.baseline.total_cost_gbp}
+            baseline={assembled.baseline}
             recommendation={assembled.recommendation}
             windowStart={windowStart}
             windowEnd={windowEnd}
-            baselineCarrier={assembled.baseline.carrier}
           />
         )}
         <AllInCost
