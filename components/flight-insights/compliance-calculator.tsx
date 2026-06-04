@@ -115,9 +115,9 @@ function ExpandPanel({
     padding: '8px 0',
     borderBottom: '1px solid #f2f4f4',
   };
-  const labelStyle = { fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#191c1d' };
-  const detailStyle = { fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#3f484a', marginTop: 2 };
-  const costStyle = { fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#191c1d', whiteSpace: 'nowrap' as const, paddingLeft: 16, flexShrink: 0 };
+  const labelStyle  = { fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#191c1d', display: 'block' as const };
+  const detailStyle = { fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#3f484a', display: 'block' as const, marginTop: 2 };
+  const costStyle   = { fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#191c1d', whiteSpace: 'nowrap' as const, marginLeft: 16, flexShrink: 0 };
 
   return (
     <div style={{ position: 'relative', background: '#ffffff', boxShadow: '0 8px 16px rgba(13,92,99,0.08)', padding: 16, borderRadius: '0 0 8px 8px' }}>
@@ -136,76 +136,76 @@ function ExpandPanel({
       {/* Flights */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>Flights</div>
-          <div style={detailStyle}>
+          <span style={labelStyle}>Flights</span>
+          <span style={detailStyle}>
             {carrierName(c.outbound_carrier)} {c.origin_iata}→{c.out_dest_iata} · {carrierName(c.return_carrier)} {c.out_dest_iata}←{c.ret_dest_iata}
-          </div>
+          </span>
         </div>
-        <div style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</div>
+        <span style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</span>
       </div>
 
       {/* Cabin bags */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>Cabin bags</div>
-          <div style={detailStyle}>
+          <span style={labelStyle}>Cabin bags</span>
+          <span style={detailStyle}>
             {cabinCost === 0 || pCabinBags === 0
               ? 'Included in fare'
               : `${pCabinBags} bag${pCabinBags !== 1 ? 's' : ''} · ${carrierName(c.outbound_carrier)} + ${carrierName(c.return_carrier)}`}
-          </div>
+          </span>
         </div>
-        <div style={costStyle}>{gbp(cabinCost)}</div>
+        <span style={costStyle}>{gbp(cabinCost)}</span>
       </div>
 
       {/* Checked bags */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>Checked bags</div>
-          <div style={detailStyle}>
+          <span style={labelStyle}>Checked bags</span>
+          <span style={detailStyle}>
             {checkedCost === 0 || pCheckedBags === 0 ? 'None' : `${pCheckedBags} bag${pCheckedBags !== 1 ? 's' : ''} per leg`}
-          </div>
+          </span>
         </div>
-        <div style={costStyle}>{gbp(checkedCost)}</div>
+        <span style={costStyle}>{gbp(checkedCost)}</span>
       </div>
 
       {/* Seats */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>Seats</div>
-          <div style={detailStyle}>
+          <span style={labelStyle}>Seats</span>
+          <span style={detailStyle}>
             {partySize} seat{partySize !== 1 ? 's' : ''} together{hasRyanair ? ' · children free on Ryanair' : ''}
-          </div>
+          </span>
         </div>
-        <div style={costStyle}>{gbp(c.seat_cost_gbp ?? 0)}</div>
+        <span style={costStyle}>{gbp(c.seat_cost_gbp ?? 0)}</span>
       </div>
 
       {/* London transport */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>London transport</div>
-          <div style={detailStyle}>↑ {outDetail} · {gbp(c.outbound_transit_cost_gbp)}</div>
-          <div style={detailStyle}>↓ {retDetail} · {gbp(c.return_transit_cost_gbp)}</div>
+          <span style={labelStyle}>London transport</span>
+          <span style={detailStyle}>↑ {outDetail} · {gbp(c.outbound_transit_cost_gbp)}</span>
+          <span style={detailStyle}>↓ {retDetail} · {gbp(c.return_transit_cost_gbp)}</span>
         </div>
-        <div style={costStyle}>{gbp(c.transit_cost_gbp)}</div>
+        <span style={costStyle}>{gbp(c.transit_cost_gbp)}</span>
       </div>
 
       {/* Destination transfers */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>Destination transfers</div>
-          <div style={detailStyle}>{destCost === 0 ? 'Not included' : `${c.out_dest_iata} airport · both ways`}</div>
+          <span style={labelStyle}>Destination transfers</span>
+          <span style={detailStyle}>{destCost === 0 ? 'Not included' : `${c.out_dest_iata} airport · both ways`}</span>
         </div>
-        <div style={costStyle}>{gbp(destCost)}</div>
+        <span style={costStyle}>{gbp(destCost)}</span>
       </div>
 
       {/* Fine */}
       {hasFine && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px', borderRadius: 4, background: '#fff8e7', marginTop: 2 }}>
           <div style={{ flex: 1 }}>
-            <div style={labelStyle}>Fine</div>
-            <div style={detailStyle}>{c.absence_days} day{c.absence_days === 1 ? '' : 's'} absence</div>
+            <span style={labelStyle}>Fine</span>
+            <span style={detailStyle}>{c.absence_days} day{c.absence_days === 1 ? '' : 's'} absence</span>
           </div>
-          <div style={costStyle}>{gbp(c.fine_gbp ?? 0)}</div>
+          <span style={costStyle}>{gbp(c.fine_gbp ?? 0)}</span>
         </div>
       )}
 
@@ -390,10 +390,16 @@ export function ComplianceCalculator({
                             {fmtShort(ret)}
                           </span>
                           {absenceDays !== null && (
-                            // whiteSpace: normal so text wraps within the fixed column width
-                            <span style={AMBER_LABEL_WRAP}>
-                              {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}{retFine !== null ? ` · ${gbp(retFine)} fine included` : ''}
-                            </span>
+                            <>
+                              <span style={AMBER_LABEL_WRAP}>
+                                {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}
+                              </span>
+                              {retFine !== null && (
+                                <span style={{ ...AMBER_LABEL_WRAP, fontSize: 9 }}>
+                                  {gbp(retFine)} fine included
+                                </span>
+                              )}
+                            </>
                           )}
                         </th>
                       );
@@ -424,9 +430,16 @@ export function ComplianceCalculator({
                             </span>
                           )}
                           {daysAbsent > 0 && (
-                            <span style={AMBER_LABEL}>
-                              {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}{rowFine !== null ? ` · ${gbp(rowFine)} fine included` : ''}
-                            </span>
+                            <>
+                              <span style={AMBER_LABEL}>
+                                {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}
+                              </span>
+                              {rowFine !== null && (
+                                <span style={{ ...AMBER_LABEL, fontSize: 9 }}>
+                                  {gbp(rowFine)} fine included
+                                </span>
+                              )}
+                            </>
                           )}
                           {isWindowStart && (
                             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
