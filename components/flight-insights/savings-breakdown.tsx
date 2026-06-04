@@ -34,6 +34,7 @@ interface Props {
   children: number;
   windowStart: string;
   destinationSlug: string;
+  boroughName: string | null;
   recommendation: AssembledCombination | null;
   baseline: AssembledBaseline | null;
 }
@@ -93,13 +94,19 @@ function carrierName(iata: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SavingsBreakdown({ recommendation, baseline, destinationSlug }: Props) {
+export function SavingsBreakdown({ recommendation, baseline, destinationSlug, boroughName }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   if (!recommendation || !baseline) return null;
 
-  const saving   = baseline.total_cost_gbp - recommendation.total_cost_gbp;
-  const destName = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
+  const destName         = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
+  const borough          = boroughName ?? 'London';
+  const baselineRounded  = Math.round(baseline.total_cost_gbp / 10) * 10;
+  const nights           = Math.round(
+    (new Date(recommendation.return_date + 'T00:00:00').getTime() -
+     new Date(recommendation.outbound_date + 'T00:00:00').getTime()) /
+    (1000 * 60 * 60 * 24)
+  );
 
   const tableRows = [
     { label: 'Flights',            smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp },
@@ -115,20 +122,33 @@ export function SavingsBreakdown({ recommendation, baseline, destinationSlug }: 
 
       {/* ── Section A: Headline ─────────────────────────────────────────────── */}
       <div>
+        {/* Part 1 — narrative headline */}
         <p
           className="font-newsreader"
-          style={{ fontSize: 36, lineHeight: 1.2, color: '#1a2b2c', marginBottom: 12 }}
+          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}
         >
-          We found you a{' '}
-          <span style={{ color: '#004349' }}>{fmt(saving)}</span>
-          {' '}saving on {destName}
+          Most {borough} families flying {destName} this half-term will pay{' '}
+          around{' '}
+          <span style={{ color: '#004349' }}>
+            £{Math.round(baselineRounded).toLocaleString('en-GB')}
+          </span>
+          .
         </p>
-        <p className="font-inter" style={{ fontSize: 15, color: '#4a5758', marginBottom: 4 }}>
-          Smart trip:{' '}
-          <strong style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</strong>
+
+        {/* Part 2 — financial subline */}
+        <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', marginBottom: 6 }}>
+          We found the same trip for{' '}
+          <strong style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</strong>.
         </p>
-        <p className="font-inter" style={{ fontSize: 15, color: '#6f797a' }}>
-          vs {fmt(baseline.total_cost_gbp)} if you'd booked the obvious way
+        <p className="font-inter" style={{ fontSize: 14, color: '#6f797a', marginBottom: 6 }}>
+          {carrierName(recommendation.outbound_carrier)} from {recommendation.origin_iata}
+          {' '}·{' '}
+          {carrierName(recommendation.return_carrier)} back from {recommendation.ret_dest_iata}
+          {' '}·{' '}
+          {nights} night{nights !== 1 ? 's' : ''}
+        </p>
+        <p className="font-inter" style={{ fontSize: 15, color: '#004349' }}>
+          Here&apos;s how ↓
         </p>
       </div>
 

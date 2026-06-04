@@ -102,7 +102,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
     supabase
       .from('all_schools')
-      .select('postcode_district')
+      .select('postcode_district, borough')
       .eq('urn', urn)
       .maybeSingle(),
   ]);
@@ -224,6 +224,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           children={children}
           windowStart={windowStart}
           destinationSlug={destinationSlug}
+          boroughName={(schoolResult.data as any)?.borough ?? null}
         />
         {complianceData && (
           <ComplianceCalculator
