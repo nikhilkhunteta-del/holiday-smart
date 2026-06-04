@@ -255,7 +255,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             recommendation={assembled.recommendation}
             windowStart={windowStart}
             windowEnd={windowEnd}
-            destinationName={destinationName}
             partySize={adults + children}
             pCabinBags={adults}
             pCheckedBags={tripType === 'circuit' ? adults : 0}
