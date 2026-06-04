@@ -225,6 +225,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           windowStart={windowStart}
           destinationSlug={destinationSlug}
           boroughName={(schoolResult.data as any)?.borough ?? null}
+          outbound_transit={recommendation?.outbound_transit ?? null}
+          return_transit={recommendation?.return_transit ?? null}
+          postcodeDistrict={postcodeDistrict}
+          p_cabin_bags={adults}
+          p_checked_bags={tripType === 'circuit' ? adults : 0}
         />
         {complianceData && (
           <ComplianceCalculator
