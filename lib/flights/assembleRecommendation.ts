@@ -51,6 +51,7 @@ export type AssembledBaseline = {
   fare_plus_ancillary_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  outbound_departure_time: string | null;
   baseline_is_fallback: boolean;
   // Transit-enriched fields
   outbound_transit_cost_gbp: number;
@@ -127,7 +128,7 @@ export async function assembleRecommendation(
   }
 
   // Baseline: always LHR, always 09:00
-  const baselineOutKey = cacheKey('LHR', baseline.outbound_date ?? '', '09:00');
+  const baselineOutKey = cacheKey('LHR', baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00');
   if (!transitMap.has(baselineOutKey) && baseline.outbound_date) {
     transitMap.set(baselineOutKey, {
       postcode_district: postcodeDistrict,
@@ -255,6 +256,7 @@ export async function assembleRecommendation(
     fare_plus_ancillary_gbp: baseline.fare_plus_ancillary_gbp,
     destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
     destination_transfer_known: baseline.destination_transfer_known,
+    outbound_departure_time: baseline.outbound_departure_time ?? null,
     baseline_is_fallback: baseline.baseline_is_fallback,
     outbound_transit_cost_gbp: blOutTransitGbp,
     return_transit_cost_gbp: blRetTransitGbp,
