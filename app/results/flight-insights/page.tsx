@@ -102,7 +102,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
     supabase
       .from('all_schools')
-      .select('postcode_district')
+      .select('postcode_district, borough')
       .eq('urn', urn)
       .maybeSingle(),
   ]);
@@ -215,24 +215,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // Wave 2 errors are non-fatal — null means that section won't render
   return (
     <main className="min-h-screen bg-background">
-      {/* DEBUG — remove before launch */}
-      {recommendation && (
-        <div style={{
-          background: '#f0f0f0',
-          padding: '16px',
-          margin: '16px',
-          fontFamily: 'monospace',
-          fontSize: '12px',
-          whiteSpace: 'pre-wrap',
-          overflowX: 'auto'
-        }}>
-          <strong>DEBUG — recommendation:</strong>
-          {JSON.stringify(recommendation, null, 2)}
-          <br/><br/>
-          <strong>DEBUG — baseline:</strong>
-          {JSON.stringify(assembledBaseline, null, 2)}
-        </div>
-      )}
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
         <SavingsBreakdown
           data={savingsData}
@@ -241,6 +223,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           adults={adults}
           children={children}
           windowStart={windowStart}
+          destinationSlug={destinationSlug}
+          boroughName={(schoolResult.data as any)?.borough ?? null}
+          outbound_transit={recommendation?.outbound_transit ?? null}
+          return_transit={recommendation?.return_transit ?? null}
+          postcodeDistrict={postcodeDistrict}
+          p_cabin_bags={adults}
+          p_checked_bags={tripType === 'circuit' ? adults : 0}
+          party_size={adults + children}
         />
         {complianceData && (
           <ComplianceCalculator

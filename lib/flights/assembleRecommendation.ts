@@ -58,6 +58,8 @@ export type AssembledBaseline = {
   return_transit_cost_gbp: number;
   transit_cost_gbp: number;
   total_cost_gbp: number;
+  outbound_transit: AirportTransitCost | null;
+  return_transit: AirportTransitCost | null;
 };
 
 // ── Transit cache key ─────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ export async function assembleRecommendation(
     transitMap.set(baselineOutKey, {
       postcode_district: postcodeDistrict,
       airport_iata: 'LHR',
-      departure_time: parseDepartureDate(baseline.outbound_date, '09:00'),
+      departure_time: parseDepartureDate(baseline.outbound_date, baseline.outbound_departure_time ?? '09:00'),
     });
   }
 
@@ -262,6 +264,8 @@ export async function assembleRecommendation(
     return_transit_cost_gbp: blRetTransitGbp,
     transit_cost_gbp: blTransitCostGbp,
     total_cost_gbp: blTotalCostGbp,
+    outbound_transit: blOutTransit,
+    return_transit: blRetTransit,
   };
 
   return {
