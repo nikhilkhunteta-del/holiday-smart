@@ -34,6 +34,30 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
 
+  const DESTINATION_NAMES: Record<string, string> = {
+    'barcelona':            'Barcelona',
+    'andalusian-corridor':  'Andalusia',
+    'algarve':              'the Algarve',
+    'tuscany':              'Tuscany',
+    'apulia':               'Apulia',
+    'french-riviera':       'the French Riviera',
+    'crete':                'Crete',
+    'catalonia':            'Catalonia',
+    'croatia':              'Croatia',
+    'porto':                'Porto',
+    'malta':                'Malta',
+    'rome':                 'Rome',
+    'lisbon':               'Lisbon',
+    'amsterdam':            'Amsterdam',
+    'copenhagen':           'Copenhagen',
+    'munich':               'Munich',
+    'vienna':               'Vienna',
+    'venice':               'Venice',
+    'seville':              'Seville',
+    'gran-canaria':         'Gran Canaria',
+  };
+  const destinationName = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
+
   const DESTINATION_AIRPORT: Record<string, string> = {
     'barcelona':            'BCN',
     'andalusian-corridor':  'SVQ',
@@ -222,6 +246,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           p_cabin_bags={adults}
           p_checked_bags={tripType === 'circuit' ? adults : 0}
           party_size={adults + children}
+          combinations={assembled?.combinations}
         />
         {assembled && (
           <ComplianceCalculator
@@ -230,6 +255,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             recommendation={assembled.recommendation}
             windowStart={windowStart}
             windowEnd={windowEnd}
+            partySize={adults + children}
+            pCabinBags={adults}
+            pCheckedBags={tripType === 'circuit' ? adults : 0}
           />
         )}
         <AllInCost
