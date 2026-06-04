@@ -2,6 +2,7 @@ import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 import { AllInCost } from '@/components/flight-insights/all-in-cost';
+import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,8 +69,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
-  // ── Wave 1: savings breakdown + compliance (no date dependencies) ──────────
-  const [savingsResult, complianceResult] = await Promise.all([
+  // ── Wave 1: savings breakdown + compliance + smart recommendation ──────────
+  const [savingsResult, complianceResult, smartResult, schoolResult] = await Promise.all([
     supabase.rpc('get_savings_breakdown', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
@@ -88,6 +89,22 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       p_children:         children,
       p_infants:          infants,
     }),
+    supabase.rpc('get_smart_recommendation', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_trip_type:        tripType,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+      p_cabin_bags:       adults,
+      p_checked_bags:     tripType === 'circuit' ? adults : 0,
+      p_seats_together:   true,
+    }),
+    supabase
+      .from('all_schools')
+      .select('postcode_district')
+      .eq('urn', urn)
+      .maybeSingle(),
   ]);
 
   if (savingsResult.error || !savingsResult.data) {
@@ -123,6 +140,20 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
+  // ── Assemble smart recommendation (transit-enriched) ──────────────────────
+  const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
+  const smartRaw = smartResult.error ? null : (smartResult.data as any);
+  const assembled = smartRaw
+    ? await assembleRecommendation(smartRaw, postcodeDistrict, adults, children, infants)
+    : null;
+  const recommendation    = assembled?.recommendation  ?? null;
+  const assembledBaseline = assembled?.baseline        ?? null;
+
+  // Override Wave 2 date sources with recommendation dates when available
+  const outboundDate = recommendation?.outbound_date ?? bestOutboundDate;
+  const returnDate   = recommendation?.return_date   ?? bestReturnDate;
+  const originIata   = recommendation?.origin_iata   ?? bestOriginIata;
+
   // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
   const [
     allinResult,
@@ -134,8 +165,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_allin_flight_cost', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    bestOutboundDate,
-      p_return_date:      bestReturnDate,
+      p_outbound_date:    outboundDate,
+      p_return_date:      returnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -144,17 +175,17 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_multi_airport', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    bestOutboundDate,
-      p_return_date:      bestReturnDate,
+      p_outbound_date:    outboundDate,
+      p_return_date:      returnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
     }),
     supabase.rpc('get_bucket_split', {
       p_destination_slug: destinationSlug,
-      p_origin_iata:      bestOriginIata,
-      p_outbound_date:    bestOutboundDate,
-      p_return_date:      bestReturnDate,
+      p_origin_iata:      originIata,
+      p_outbound_date:    outboundDate,
+      p_return_date:      returnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -162,8 +193,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_open_jaw', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    bestOutboundDate,
-      p_return_date:      bestReturnDate,
+      p_outbound_date:    outboundDate,
+      p_return_date:      returnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -171,8 +202,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_nearby_destination_airports', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    bestOutboundDate,
-      p_return_date:      bestReturnDate,
+      p_outbound_date:    outboundDate,
+      p_return_date:      returnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -185,7 +216,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
-        <SavingsBreakdown data={savingsData} adults={adults} children={children} windowStart={windowStart} />
+        <SavingsBreakdown
+          data={savingsData}
+          recommendation={recommendation}
+          baseline={assembledBaseline}
+          adults={adults}
+          children={children}
+          windowStart={windowStart}
+        />
         {complianceData && (
           <ComplianceCalculator
             data={complianceData}

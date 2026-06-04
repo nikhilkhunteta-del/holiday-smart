@@ -1,3 +1,5 @@
+import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
+
 interface Lever {
   label: string;
   winner: string;
@@ -26,6 +28,8 @@ interface Props {
   adults: number;
   children: number;
   windowStart: string;
+  recommendation: AssembledCombination | null;
+  baseline: AssembledBaseline | null;
 }
 
 function fmt(n: number) {
@@ -44,7 +48,7 @@ function fmtShort(d: Date) {
   return `${DAY_ABBR[d.getDay()]} ${d.getDate()} ${MONTH_ABBR[d.getMonth()]}`;
 }
 
-export function SavingsBreakdown({ data, adults, children, windowStart }: Props) {
+export function SavingsBreakdown({ data, adults, children, windowStart, recommendation: _recommendation, baseline: _baseline }: Props) {
   const hasAbsence = data.requires_absence;
   const heroSaving = hasAbsence ? data.net_yield : data.total_yield;
   const partySize  = adults + children;
