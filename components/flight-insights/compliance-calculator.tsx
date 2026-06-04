@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment } from 'react';
+import { useState } from 'react';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 
@@ -239,15 +239,26 @@ function DataCell({
       onClick={onClick}
       style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
     >
-      {isRec && (
-        <div style={{ fontSize: '10px', fontWeight: 500, color: starColor, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
-          <span style={{ fontSize: '11px' }}>★</span>
-          <span style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>Our pick</span>
+      {isRec ? (
+        // position:relative wrapper ensures absolute "Our pick" label doesn't widen the cell
+        <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0,
+            fontSize: 9, fontWeight: 600, color: starColor,
+            letterSpacing: '0.04em', textTransform: 'uppercase' as const,
+            whiteSpace: 'nowrap' as const,
+          }}>
+            ★ Our pick
+          </div>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
+            {gbp(c.total_inc_fine)}
+          </span>
         </div>
+      ) : (
+        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
+          {gbp(c.total_inc_fine)}
+        </span>
       )}
-      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
-        {gbp(c.total_inc_fine)}
-      </span>
     </td>
   );
 }
@@ -273,6 +284,12 @@ const AMBER_LABEL = {
   color: '#BA7517',
   display: 'block',
   whiteSpace: 'nowrap' as const,
+};
+
+// Column headers allow wrapping so long absence text doesn't widen the column
+const AMBER_LABEL_WRAP = {
+  ...AMBER_LABEL,
+  whiteSpace: 'normal' as const,
 };
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -306,6 +323,12 @@ export function ComplianceCalculator({
   const blRet     = baseline.return_date   ? fmtShort(baseline.return_date)   : '';
   const blCarrier = carrierName(baseline.carrier ?? '');
   const blOrigin  = baseline.origin_iata ?? 'LHR';
+
+  // Derive activeComb once — used by ExpandPanel outside the table
+  const [activeDep, activeRetDate] = activeCell ? activeCell.split('|') : [null, null];
+  const activeComb = activeDep && activeRetDate
+    ? cellMap.get(`${activeDep}|${activeRetDate}`) ?? null
+    : null;
 
   function handleCellClick(key: string) {
     setActiveCell((prev: string | null) => prev === key ? null : key);
@@ -346,6 +369,8 @@ export function ComplianceCalculator({
               background: 'linear-gradient(to right, transparent, #ffffff)',
               pointerEvents: 'none', zIndex: 20,
             }} />
+
+            {/* Scrollable table — ExpandPanel is NOT inside this div to avoid overflow */}
             <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
               <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
                 <thead>
@@ -359,12 +384,14 @@ export function ComplianceCalculator({
                         ? retCombos.find(c => (c.fine_gbp ?? 0) > 0)?.fine_gbp ?? null
                         : null;
                       return (
-                        <th key={ret} style={{ minWidth: 80, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
+                        // Bug 3 fix: fixed minWidth + no maxWidth expansion; absence text wraps
+                        <th key={ret} style={{ minWidth: 80, width: 80, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
                           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(ret)}
                           </span>
                           {absenceDays !== null && (
-                            <span style={AMBER_LABEL}>
+                            // whiteSpace: normal so text wraps within the fixed column width
+                            <span style={AMBER_LABEL_WRAP}>
                               {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}{retFine !== null ? ` · ${gbp(retFine)} fine included` : ''}
                             </span>
                           )}
@@ -379,86 +406,78 @@ export function ComplianceCalculator({
                     const hasInset      = depCombos.some(c => c.is_inset_day);
                     const isWindowStart = dep === windowStart;
                     const isWindowEnd   = dep === windowEnd;
-                    const activeRet     = retDates.find(ret => activeCell === `${dep}|${ret}`);
-                    const activeComb    = activeRet ? cellMap.get(`${dep}|${activeRet}`) ?? null : null;
 
-                    // Row absence: outbound departures before window_start
                     const daysAbsent = dep < windowStart ? weekdaysBetween(dep, windowStart) : 0;
                     const rowFine    = daysAbsent > 0
                       ? depCombos.find(c => c.requires_absence && (c.fine_gbp ?? 0) > 0)?.fine_gbp ?? null
                       : null;
 
                     return (
-                      <Fragment key={dep}>
-                        <tr>
-                          <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 110 }}>
-                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
-                              {fmtShort(dep)}
+                      <tr key={dep}>
+                        <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 110 }}>
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
+                            {fmtShort(dep)}
+                          </span>
+                          {hasInset && (
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#004349', display: 'block' }}>
+                              Inset day
                             </span>
-                            {hasInset && (
-                              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#004349', display: 'block' }}>
-                                Inset day
-                              </span>
-                            )}
-                            {daysAbsent > 0 && (
-                              <span style={AMBER_LABEL}>
-                                {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}{rowFine !== null ? ` · ${gbp(rowFine)} fine included` : ''}
-                              </span>
-                            )}
-                            {isWindowStart && (
-                              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
-                                Window opens
-                              </span>
-                            )}
-                            {isWindowEnd && (
-                              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
-                                Window closes
-                              </span>
-                            )}
-                          </td>
-                          {retDates.map((ret) => {
-                            const c       = cellMap.get(`${dep}|${ret}`);
-                            const cellKey = `${dep}|${ret}`;
-                            const isRec   = recommendation
-                              ? dep === recommendation.outbound_date && ret === recommendation.return_date
-                              : false;
-                            return c
-                              ? <DataCell
-                                  key={ret}
-                                  c={c}
-                                  baselineTotal={baselineTotal}
-                                  isRec={isRec}
-                                  isActive={activeCell === cellKey}
-                                  onClick={() => handleCellClick(cellKey)}
-                                />
-                              : <EmptyCell key={ret} />;
-                          })}
-                        </tr>
-                        {/* Inline expansion panel */}
-                        <tr>
-                          <td colSpan={retDates.length + 1} style={{ padding: 0 }}>
-                            <div style={{
-                              maxHeight: activeComb ? '600px' : '0',
-                              overflow: 'hidden',
-                              transition: 'max-height 0.25s ease',
-                            }}>
-                              {activeComb && (
-                                <ExpandPanel
-                                  c={activeComb}
-                                  partySize={partySize}
-                                  pCabinBags={pCabinBags}
-                                  pCheckedBags={pCheckedBags}
-                                  onClose={() => setActiveCell(null)}
-                                />
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      </Fragment>
+                          )}
+                          {daysAbsent > 0 && (
+                            <span style={AMBER_LABEL}>
+                              {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}{rowFine !== null ? ` · ${gbp(rowFine)} fine included` : ''}
+                            </span>
+                          )}
+                          {isWindowStart && (
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                              Window opens
+                            </span>
+                          )}
+                          {isWindowEnd && (
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                              Window closes
+                            </span>
+                          )}
+                        </td>
+                        {retDates.map((ret) => {
+                          const c       = cellMap.get(`${dep}|${ret}`);
+                          const cellKey = `${dep}|${ret}`;
+                          const isRec   = recommendation
+                            ? dep === recommendation.outbound_date && ret === recommendation.return_date
+                            : false;
+                          return c
+                            ? <DataCell
+                                key={ret}
+                                c={c}
+                                baselineTotal={baselineTotal}
+                                isRec={isRec}
+                                isActive={activeCell === cellKey}
+                                onClick={() => handleCellClick(cellKey)}
+                              />
+                            : <EmptyCell key={ret} />;
+                        })}
+                      </tr>
                     );
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Bug 2 fix: ExpandPanel outside the scroll wrapper — constrained to matrix width */}
+            <div style={{
+              maxHeight: activeComb ? '600px' : '0',
+              overflow: 'hidden',
+              transition: 'max-height 0.25s ease',
+            }}>
+              {activeComb && (
+                <ExpandPanel
+                  c={activeComb}
+                  partySize={partySize}
+                  pCabinBags={pCabinBags}
+                  pCheckedBags={pCheckedBags}
+                  onClose={() => setActiveCell(null)}
+                />
+              )}
             </div>
           </div>
 
