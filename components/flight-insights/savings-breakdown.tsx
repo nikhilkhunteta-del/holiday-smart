@@ -99,14 +99,9 @@ export function SavingsBreakdown({ recommendation, baseline, destinationSlug, bo
 
   if (!recommendation || !baseline) return null;
 
-  const destName         = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
-  const borough          = boroughName ?? 'London';
-  const baselineRounded  = Math.round(baseline.total_cost_gbp / 10) * 10;
-  const nights           = Math.round(
-    (new Date(recommendation.return_date + 'T00:00:00').getTime() -
-     new Date(recommendation.outbound_date + 'T00:00:00').getTime()) /
-    (1000 * 60 * 60 * 24)
-  );
+  const destName        = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
+  const borough         = boroughName ?? 'London';
+  const baselineRounded = Math.round(baseline.total_cost_gbp / 10) * 10;
 
   const tableRows = [
     { label: 'Flights',            smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp },
@@ -125,7 +120,7 @@ export function SavingsBreakdown({ recommendation, baseline, destinationSlug, bo
         {/* Part 1 — narrative headline */}
         <p
           className="font-newsreader"
-          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}
+          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 12 }}
         >
           Most {borough} families flying {destName} this half-term will pay{' '}
           around{' '}
@@ -135,18 +130,15 @@ export function SavingsBreakdown({ recommendation, baseline, destinationSlug, bo
           .
         </p>
 
-        {/* Part 2 — financial subline */}
-        <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', marginBottom: 6 }}>
+        {/* Part 2 — smart price, same visual weight */}
+        <p
+          className="font-newsreader"
+          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}
+        >
           We found the same trip for{' '}
-          <strong style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</strong>.
+          <span style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</span>.
         </p>
-        <p className="font-inter" style={{ fontSize: 14, color: '#6f797a', marginBottom: 6 }}>
-          {carrierName(recommendation.outbound_carrier)} from {recommendation.origin_iata}
-          {' '}·{' '}
-          {carrierName(recommendation.return_carrier)} back from {recommendation.ret_dest_iata}
-          {' '}·{' '}
-          {nights} night{nights !== 1 ? 's' : ''}
-        </p>
+
         <p className="font-inter" style={{ fontSize: 15, color: '#004349' }}>
           Here&apos;s how ↓
         </p>
