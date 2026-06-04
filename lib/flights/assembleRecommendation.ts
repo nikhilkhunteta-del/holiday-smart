@@ -229,6 +229,23 @@ export async function assembleRecommendation(
   // Sort by total_inc_fine ASC
   assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
 
+  // Inset day promotion — if cheapest is not an inset day departure, check whether
+  // an inset day combination within £20 exists that requires no absence. If found,
+  // promote it to position 0 so it becomes the recommendation.
+  const cheapest = assembled[0];
+  if (cheapest && !cheapest.is_inset_day) {
+    const insetAlternative = assembled.find(c =>
+      c.is_inset_day &&
+      !c.requires_absence &&
+      c.total_inc_fine - cheapest.total_inc_fine <= 20
+    );
+    if (insetAlternative) {
+      const idx = assembled.indexOf(insetAlternative);
+      assembled.splice(idx, 1);
+      assembled.unshift(insetAlternative);
+    }
+  }
+
   // ── Enrich baseline ────────────────────────────────────────────────────────
   const blOutTransit = baseline.outbound_date
     ? transitCache.get(baselineOutKey)!

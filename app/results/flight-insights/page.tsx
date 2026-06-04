@@ -69,21 +69,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
-  // ── Wave 1: savings breakdown + compliance + smart recommendation ──────────
-  const [savingsResult, complianceResult, smartResult, schoolResult] = await Promise.all([
+  // ── Wave 1: savings breakdown + smart recommendation ──────────────────────
+  const [savingsResult, smartResult, schoolResult] = await Promise.all([
     supabase.rpc('get_savings_breakdown', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
       p_window_start:     windowStart,
       p_window_end:       windowEnd,
-      p_trip_type:        tripType,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-    }),
-    supabase.rpc('get_compliance_scenarios', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
       p_trip_type:        tripType,
       p_adults:           adults,
       p_children:         children,
@@ -106,6 +98,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       .eq('urn', urn)
       .maybeSingle(),
   ]);
+
 
   if (savingsResult.error || !savingsResult.data) {
     return (
@@ -210,8 +203,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
   ]);
 
-  const complianceData = complianceResult.error ? null : complianceResult.data
-
   // Wave 2 errors are non-fatal — null means that section won't render
   return (
     <main className="min-h-screen bg-background">
@@ -232,12 +223,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           p_checked_bags={tripType === 'circuit' ? adults : 0}
           party_size={adults + children}
         />
-        {complianceData && (
+        {assembled && (
           <ComplianceCalculator
-            data={complianceData}
-            bestOutboundDate={bestOutboundDate}
-            bestReturnDate={bestReturnDate}
-            tripType={tripType}
+            combinations={assembled.combinations}
+            baseline={assembled.baseline}
+            recommendation={assembled.recommendation}
+            windowStart={windowStart}
+            windowEnd={windowEnd}
           />
         )}
         <AllInCost
