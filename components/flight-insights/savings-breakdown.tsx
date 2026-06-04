@@ -98,32 +98,23 @@ function carrierName(iata: string): string {
   return CARRIER_NAMES[iata] ?? iata;
 }
 
-// ── Tooltip component (value cells) ──────────────────────────────────────────
-
-function CellTooltip({ text }: { text: string }) {
-  return (
-    <span className="relative group inline-block ml-1">
-      <span
-        className="cursor-help text-xs align-middle"
-        style={{ color: '#bfc8c9' }}
-      >
-        ℹ
-      </span>
-      <div
-        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 leading-relaxed shadow-md"
-        style={{
-          width: 256,
-          background: '#191c1d',
-          color: '#f8fafa',
-          fontSize: 12,
-          borderRadius: 6,
-          padding: '8px 10px',
-        }}
-      >
-        {text}
-      </div>
-    </span>
-  );
+function transitLabel(
+  transit: AssembledCombination['outbound_transit'] | null,
+  airport: string,
+  direction: 'to' | 'from',
+): string {
+  const arrow = direction === 'to' ? '→' : '←';
+  if (!transit || transit.recommended_mode === 'uber') {
+    return `Uber ${arrow} ${airport}`;
+  }
+  const summary = transit.transit?.route_summary ?? '';
+  let service: string;
+  if (/national express/i.test(summary))     service = 'National Express';
+  else if (/stansted express/i.test(summary)) service = 'Stansted Express';
+  else if (/thameslink/i.test(summary))       service = 'Thameslink';
+  else if (/gatwick express/i.test(summary))  service = 'Gatwick Express';
+  else                                        service = 'Bus';
+  return `${service} ${arrow} ${airport}`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -131,7 +122,7 @@ function CellTooltip({ text }: { text: string }) {
 export function SavingsBreakdown({
   recommendation, baseline, destinationSlug, boroughName,
   outbound_transit, return_transit,
-  p_cabin_bags, p_checked_bags, party_size, adults,
+  p_cabin_bags, p_checked_bags, party_size,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -141,76 +132,81 @@ export function SavingsBreakdown({
   const borough         = boroughName ?? 'London';
   const baselineRounded = Math.round(baseline.total_cost_gbp / 10) * 10;
 
-  // ── Per-column tooltip texts ──────────────────────────────────────────────
+  // ── Detail lines per row ──────────────────────────────────────────────────
 
   // Flights
-  const ttFlightsSmart = `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} + ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`;
-  const ttFlightsBase  = `${carrierName(baseline.carrier)} ${fmt(baseline.baseline_fare_gbp)} (Saturday LHR, round trip)`;
+  const detFlightsSmart = [
+    `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} · ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`,
+  ];
+  const detFlightsBase = [
+    `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · LHR`,
+  ];
 
   // Cabin bags
-  const ttCabinSmart = (() => {
+  const detCabinSmart = [(() => {
     if (recommendation.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
     const pl = p_cabin_bags !== 1 ? 's' : '';
-    const perBag = Math.round(recommendation.cabin_bag_cost_gbp / 2 / p_cabin_bags);
-    return `${p_cabin_bags} bag${pl} — ${carrierName(recommendation.outbound_carrier)} £${perBag} + ${carrierName(recommendation.return_carrier)} £${perBag}`;
-  })();
-  const ttCabinBase = (() => {
+    return `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${p_cabin_bags} bag${pl} each leg`;
+  })()];
+  const detCabinBase = [(() => {
     if (baseline.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
     const pl = p_cabin_bags !== 1 ? 's' : '';
     const perBag = Math.round(baseline.cabin_bag_cost_gbp / p_cabin_bags);
-    return `${p_cabin_bags} bag${pl} at £${perBag} each`;
-  })();
+    return `${p_cabin_bags} bag${pl} · £${perBag} each`;
+  })()];
 
   // Checked bags
-  const ttCheckedSmart = recommendation.checked_bag_cost_gbp === 0
-    ? 'No checked bags'
-    : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`;
-  const ttCheckedBase = baseline.checked_bag_cost_gbp === 0
-    ? 'No checked bags'
-    : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`;
+  const detCheckedSmart = [
+    recommendation.checked_bag_cost_gbp === 0
+      ? 'None included'
+      : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`,
+  ];
+  const detCheckedBase = [
+    baseline.checked_bag_cost_gbp === 0
+      ? 'None included'
+      : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`,
+  ];
 
   // Seats
-  const ttSeatsSmart = (() => {
-    if (recommendation.seat_cost_gbp === 0) return 'Seats not reserved.';
-    const perLeg = recommendation.seat_cost_gbp / 2;
-    function legDetail(carrier: string): string {
-      if (carrier === 'FR') {
-        const perAdult = adults > 0 ? Math.round(perLeg / adults) : 0;
-        return `adults only (£${perAdult} × ${adults})`;
-      }
-      const ps = party_size > 0 ? party_size : 1;
-      return `£${Math.round(perLeg / ps)} × ${ps} people`;
-    }
-    return `Seats reserved together. ${carrierName(recommendation.outbound_carrier)}: ${legDetail(recommendation.outbound_carrier)}. ${carrierName(recommendation.return_carrier)}: ${legDetail(recommendation.return_carrier)}.`;
-  })();
-  const ttSeatsBase = (() => {
-    if (baseline.seat_cost_gbp === 0) return 'Seats not reserved.';
-    const ps = party_size > 0 ? party_size : 1;
-    const perPerson = Math.round(baseline.seat_cost_gbp / 2 / ps);
-    return `£${perPerson} × ${ps} people × 2 legs`;
-  })();
+  const hasRyanair = recommendation.outbound_carrier === 'FR' || recommendation.return_carrier === 'FR';
+  const detSeatsSmart = [
+    `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${party_size} seat${party_size !== 1 ? 's' : ''} · together${hasRyanair ? ' · children free on Ryanair' : ''}`,
+  ];
+  const detSeatsBase = [
+    `${carrierName(baseline.carrier)} · ${party_size} seat${party_size !== 1 ? 's' : ''}`,
+  ];
 
   // London transport
-  const ttTransitSmart = (() => {
-    const outMode = outbound_transit?.recommended_mode === 'uber' ? 'Uber' : 'Public transport';
-    const retMode = return_transit?.recommended_mode === 'uber' ? 'Uber' : 'Public transport';
-    return `Outbound: ${outMode} to ${recommendation.origin_iata} ${fmt(recommendation.outbound_transit_cost_gbp)}. Return: ${retMode} from ${recommendation.ret_dest_iata} ${fmt(recommendation.return_transit_cost_gbp)}.`;
-  })();
-  const ttTransitBase = `Public transport to/from Heathrow. ${fmt(baseline.outbound_transit_cost_gbp)} out + ${fmt(baseline.return_transit_cost_gbp)} back.`;
+  const detTransitSmart = [
+    `↑ ${transitLabel(outbound_transit, recommendation.origin_iata, 'to')} · ${fmt(recommendation.outbound_transit_cost_gbp)}`,
+    `↓ ${transitLabel(return_transit, recommendation.ret_dest_iata, 'from')} · ${fmt(recommendation.return_transit_cost_gbp)}`,
+  ];
+  const detTransitBase = [
+    `↑ ${transitLabel(baseline.outbound_transit, 'LHR', 'to')} · ${fmt(baseline.outbound_transit_cost_gbp)}`,
+    `↓ ${transitLabel(baseline.return_transit, 'LHR', 'from')} · ${fmt(baseline.return_transit_cost_gbp)}`,
+  ];
 
   // Destination transfers
-  const ttDestSmart = `Airport to city centre and back. ${recommendation.out_dest_iata} airport.`;
-  const ttDestBase  = `Airport to city centre and back. ${baseline.destination_iata} airport.`;
+  const detDestSmart = [
+    recommendation.destination_transfer_cost_gbp === 0
+      ? 'Not included'
+      : `${recommendation.out_dest_iata} airport · both ways`,
+  ];
+  const detDestBase = [
+    baseline.destination_transfer_cost_gbp === 0
+      ? 'Not included'
+      : `${baseline.destination_iata} airport · both ways`,
+  ];
 
   // ── Table rows ────────────────────────────────────────────────────────────
 
   const tableRows = [
-    { label: 'Flights',               smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp,                smartTooltip: ttFlightsSmart, baseTooltip: ttFlightsBase },
-    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,            smartTooltip: ttCabinSmart,   baseTooltip: ttCabinBase   },
-    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,          smartTooltip: ttCheckedSmart, baseTooltip: ttCheckedBase },
-    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                 smartTooltip: ttSeatsSmart,   baseTooltip: ttSeatsBase   },
-    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,              smartTooltip: ttTransitSmart, baseTooltip: ttTransitBase },
-    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp, smartTooltip: ttDestSmart,    baseTooltip: ttDestBase    },
+    { label: 'Flights',               smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp,                smartDetail: detFlightsSmart,  baseDetail: detFlightsBase  },
+    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,            smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
+    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,          smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
+    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                 smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
+    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,              smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
+    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp, smartDetail: detDestSmart,     baseDetail: detDestBase     },
   ];
 
   return (
@@ -411,23 +407,21 @@ export function SavingsBreakdown({
                     <td style={{ padding: '10px 24px 10px 0', color: '#4a5758' }}>
                       {row.label}
                     </td>
-                    <td
-                      className="text-right"
-                      style={{ padding: '10px 16px', color: '#004349', fontWeight: 600 }}
-                    >
-                      <span className="whitespace-nowrap">
-                        {fmt(row.smart)}
-                        <CellTooltip text={row.smartTooltip} />
-                      </span>
+                    <td className="text-right" style={{ padding: '10px 16px' }}>
+                      <div style={{ color: '#004349', fontWeight: 600 }}>{fmt(row.smart)}</div>
+                      {row.smartDetail.map((line, j) => (
+                        <div key={j} style={{ fontSize: 11, color: '#3f484a', fontWeight: 400, marginTop: 2 }}>
+                          {line}
+                        </div>
+                      ))}
                     </td>
-                    <td
-                      className="text-right"
-                      style={{ padding: '10px 0 10px 16px', color: '#9ba8a9' }}
-                    >
-                      <span className="whitespace-nowrap">
-                        {fmt(row.base)}
-                        <CellTooltip text={row.baseTooltip} />
-                      </span>
+                    <td className="text-right" style={{ padding: '10px 0 10px 16px' }}>
+                      <div style={{ color: '#9ba8a9' }}>{fmt(row.base)}</div>
+                      {row.baseDetail.map((line, j) => (
+                        <div key={j} style={{ fontSize: 11, color: '#3f484a', fontWeight: 400, marginTop: 2 }}>
+                          {line}
+                        </div>
+                      ))}
                     </td>
                   </tr>
                 ))}
