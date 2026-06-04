@@ -42,6 +42,7 @@ interface Props {
   postcodeDistrict: string | null;
   p_cabin_bags: number;
   p_checked_bags: number;
+  party_size: number;
 }
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
@@ -97,21 +98,21 @@ function carrierName(iata: string): string {
   return CARRIER_NAMES[iata] ?? iata;
 }
 
-// ── Tooltip component ─────────────────────────────────────────────────────────
+// ── Tooltip component (value cells) ──────────────────────────────────────────
 
-function InfoTooltip({ text }: { text: string }) {
+function CellTooltip({ text }: { text: string }) {
   return (
-    <div className="relative group inline-block">
+    <span className="relative group inline-block ml-1">
       <span
-        className="cursor-help ml-1"
-        style={{ fontSize: 12, color: '#9ba8a9', verticalAlign: 'middle' }}
+        className="cursor-help text-xs align-middle"
+        style={{ color: '#bfc8c9' }}
       >
         ℹ
       </span>
       <div
-        className="absolute bottom-full left-0 mb-1 hidden group-hover:block z-10 leading-relaxed"
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 leading-relaxed shadow-md"
         style={{
-          width: 288,
+          width: 256,
           background: '#191c1d',
           color: '#f8fafa',
           fontSize: 12,
@@ -121,7 +122,7 @@ function InfoTooltip({ text }: { text: string }) {
       >
         {text}
       </div>
-    </div>
+    </span>
   );
 }
 
@@ -129,7 +130,8 @@ function InfoTooltip({ text }: { text: string }) {
 
 export function SavingsBreakdown({
   recommendation, baseline, destinationSlug, boroughName,
-  outbound_transit, return_transit, postcodeDistrict, p_cabin_bags, p_checked_bags,
+  outbound_transit, return_transit,
+  p_cabin_bags, p_checked_bags, party_size, adults,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -139,41 +141,76 @@ export function SavingsBreakdown({
   const borough         = boroughName ?? 'London';
   const baselineRounded = Math.round(baseline.total_cost_gbp / 10) * 10;
 
-  // ── Tooltip texts ─────────────────────────────────────────────────────────
+  // ── Per-column tooltip texts ──────────────────────────────────────────────
 
-  const ttFlights = 'We checked all 5 London airports and every date in your window. Cheapest direct flights picked for each leg independently.';
+  // Flights
+  const ttFlightsSmart = `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} + ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`;
+  const ttFlightsBase  = `${carrierName(baseline.carrier)} ${fmt(baseline.baseline_fare_gbp)} (Saturday LHR, round trip)`;
 
-  const ttCabinBags = (() => {
-    if (recommendation.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Cabin bags included in fare.';
-    const perBag = Math.round(recommendation.cabin_bag_cost_gbp / (2 * p_cabin_bags));
+  // Cabin bags
+  const ttCabinSmart = (() => {
+    if (recommendation.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
     const pl = p_cabin_bags !== 1 ? 's' : '';
-    return `${p_cabin_bags} overhead cabin bag${pl} per leg. ${carrierName(recommendation.outbound_carrier)} charges £${perBag} each, ${carrierName(recommendation.return_carrier)} charges £${perBag} each.`;
+    const perBag = Math.round(recommendation.cabin_bag_cost_gbp / 2 / p_cabin_bags);
+    return `${p_cabin_bags} bag${pl} — ${carrierName(recommendation.outbound_carrier)} £${perBag} + ${carrierName(recommendation.return_carrier)} £${perBag}`;
+  })();
+  const ttCabinBase = (() => {
+    if (baseline.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
+    const pl = p_cabin_bags !== 1 ? 's' : '';
+    const perBag = Math.round(baseline.cabin_bag_cost_gbp / p_cabin_bags);
+    return `${p_cabin_bags} bag${pl} at £${perBag} each`;
   })();
 
-  const ttCheckedBags = recommendation.checked_bag_cost_gbp === 0
-    ? 'No checked bags included.'
-    : `${p_checked_bags} checked bag${p_checked_bags !== 1 ? 's' : ''} per leg.`;
+  // Checked bags
+  const ttCheckedSmart = recommendation.checked_bag_cost_gbp === 0
+    ? 'No checked bags'
+    : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`;
+  const ttCheckedBase = baseline.checked_bag_cost_gbp === 0
+    ? 'No checked bags'
+    : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`;
 
-  const ttSeats = 'Seats reserved together. Where airlines give children free seats (e.g. Ryanair), only adults are charged.';
-
-  const ttTransit = (() => {
-    const outRoute = outbound_transit?.transit?.route_summary ?? 'public transport';
-    const retRoute = return_transit?.transit?.route_summary ?? 'public transport';
-    const district = postcodeDistrict ?? 'your postcode district';
-    return `Outbound: ${outRoute} (${fmt(recommendation.outbound_transit_cost_gbp)}). Return: ${retRoute} (${fmt(recommendation.return_transit_cost_gbp)}). Based on postcode district ${district}.`;
+  // Seats
+  const ttSeatsSmart = (() => {
+    if (recommendation.seat_cost_gbp === 0) return 'Seats not reserved.';
+    const perLeg = recommendation.seat_cost_gbp / 2;
+    function legDetail(carrier: string): string {
+      if (carrier === 'FR') {
+        const perAdult = adults > 0 ? Math.round(perLeg / adults) : 0;
+        return `adults only (£${perAdult} × ${adults})`;
+      }
+      const ps = party_size > 0 ? party_size : 1;
+      return `£${Math.round(perLeg / ps)} × ${ps} people`;
+    }
+    return `Seats reserved together. ${carrierName(recommendation.outbound_carrier)}: ${legDetail(recommendation.outbound_carrier)}. ${carrierName(recommendation.return_carrier)}: ${legDetail(recommendation.return_carrier)}.`;
+  })();
+  const ttSeatsBase = (() => {
+    if (baseline.seat_cost_gbp === 0) return 'Seats not reserved.';
+    const ps = party_size > 0 ? party_size : 1;
+    const perPerson = Math.round(baseline.seat_cost_gbp / 2 / ps);
+    return `£${perPerson} × ${ps} people × 2 legs`;
   })();
 
-  const ttAirportTransfers = 'Cost to get from the airport to the city centre and back. Based on published transfer options per airport.';
+  // London transport
+  const ttTransitSmart = (() => {
+    const outMode = outbound_transit?.recommended_mode === 'uber' ? 'Uber' : 'Public transport';
+    const retMode = return_transit?.recommended_mode === 'uber' ? 'Uber' : 'Public transport';
+    return `Outbound: ${outMode} to ${recommendation.origin_iata} ${fmt(recommendation.outbound_transit_cost_gbp)}. Return: ${retMode} from ${recommendation.ret_dest_iata} ${fmt(recommendation.return_transit_cost_gbp)}.`;
+  })();
+  const ttTransitBase = `Public transport to/from Heathrow. ${fmt(baseline.outbound_transit_cost_gbp)} out + ${fmt(baseline.return_transit_cost_gbp)} back.`;
+
+  // Destination transfers
+  const ttDestSmart = `Airport to city centre and back. ${recommendation.out_dest_iata} airport.`;
+  const ttDestBase  = `Airport to city centre and back. ${baseline.destination_iata} airport.`;
 
   // ── Table rows ────────────────────────────────────────────────────────────
 
   const tableRows = [
-    { label: 'Flights',            smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp,                tooltip: ttFlights },
-    { label: 'Cabin bags',         smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,            tooltip: ttCabinBags },
-    { label: 'Checked bags',       smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,          tooltip: ttCheckedBags },
-    { label: 'Seats',              smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                 tooltip: ttSeats },
-    { label: 'Getting to airport', smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,              tooltip: ttTransit },
-    { label: 'Airport transfers',  smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp, tooltip: ttAirportTransfers },
+    { label: 'Flights',               smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp,                smartTooltip: ttFlightsSmart, baseTooltip: ttFlightsBase },
+    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,            smartTooltip: ttCabinSmart,   baseTooltip: ttCabinBase   },
+    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,          smartTooltip: ttCheckedSmart, baseTooltip: ttCheckedBase },
+    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                 smartTooltip: ttSeatsSmart,   baseTooltip: ttSeatsBase   },
+    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,              smartTooltip: ttTransitSmart, baseTooltip: ttTransitBase },
+    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp, smartTooltip: ttDestSmart,    baseTooltip: ttDestBase    },
   ];
 
   return (
@@ -372,22 +409,25 @@ export function SavingsBreakdown({
                 {tableRows.map((row, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f2f4f4' }}>
                     <td style={{ padding: '10px 24px 10px 0', color: '#4a5758' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                        {row.label}
-                        <InfoTooltip text={row.tooltip} />
-                      </span>
+                      {row.label}
                     </td>
                     <td
                       className="text-right"
                       style={{ padding: '10px 16px', color: '#004349', fontWeight: 600 }}
                     >
-                      {fmt(row.smart)}
+                      <span className="whitespace-nowrap">
+                        {fmt(row.smart)}
+                        <CellTooltip text={row.smartTooltip} />
+                      </span>
                     </td>
                     <td
                       className="text-right"
                       style={{ padding: '10px 0 10px 16px', color: '#9ba8a9' }}
                     >
-                      {fmt(row.base)}
+                      <span className="whitespace-nowrap">
+                        {fmt(row.base)}
+                        <CellTooltip text={row.baseTooltip} />
+                      </span>
                     </td>
                   </tr>
                 ))}

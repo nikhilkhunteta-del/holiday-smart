@@ -230,6 +230,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           postcodeDistrict={postcodeDistrict}
           p_cabin_bags={adults}
           p_checked_bags={tripType === 'circuit' ? adults : 0}
+          party_size={adults + children}
         />
         {complianceData && (
           <ComplianceCalculator
