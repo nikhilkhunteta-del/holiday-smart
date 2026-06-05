@@ -83,10 +83,12 @@ export async function assembleRecommendation(
   adults: number,
   children: number,
   infants: number,
+  transitPreference: 'auto' | 'uber' = 'auto',
 ): Promise<{
   combinations: AssembledCombination[];
   baseline: AssembledBaseline;
   recommendation: AssembledCombination;
+  savingCategory: 'significant' | 'modest' | 'minimal';
 }> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -95,18 +97,13 @@ export async function assembleRecommendation(
   const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
 
   // ── Collect all unique transit calls ──────────────────────────────────────────
-  // Each entry: cacheKey → { postcode_district, airport_iata, departure_time }
   const transitMap = new Map<
     string,
     { postcode_district: string; airport_iata: string; departure_time: Date }
   >();
 
   for (const c of combinations) {
-    const outKey = cacheKey(
-      c.origin_iata,
-      c.outbound_date,
-      c.outbound_departure_time ?? '09:00',
-    );
+    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
     if (!transitMap.has(outKey)) {
       transitMap.set(outKey, {
         postcode_district: postcodeDistrict,
@@ -115,11 +112,7 @@ export async function assembleRecommendation(
       });
     }
 
-    const retKey = cacheKey(
-      c.ret_dest_iata,
-      c.return_date,
-      c.return_arrival_time ?? '09:00',
-    );
+    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
     if (!transitMap.has(retKey)) {
       transitMap.set(retKey, {
         postcode_district: postcodeDistrict,
@@ -163,18 +156,22 @@ export async function assembleRecommendation(
     transitCache.set(keys[i], results[i]);
   }
 
+  // ── Apply transit preference override ─────────────────────────────────────
+  // When 'uber': skip the 4-rule logic — use uber mean (already XL-adjusted) for all legs.
+  if (transitPreference === 'uber') {
+    for (const [key, t] of transitCache) {
+      transitCache.set(key, {
+        ...t,
+        recommended_mode: 'uber',
+        recommended_cost_pence: t.uber.mean_pence,
+      });
+    }
+  }
+
   // ── Enrich combinations ────────────────────────────────────────────────────
   const assembled: AssembledCombination[] = combinations.map((c: any) => {
-    const outKey = cacheKey(
-      c.origin_iata,
-      c.outbound_date,
-      c.outbound_departure_time ?? '09:00',
-    );
-    const retKey = cacheKey(
-      c.ret_dest_iata,
-      c.return_date,
-      c.return_arrival_time ?? '09:00',
-    );
+    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
+    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
 
     const outTransit = transitCache.get(outKey)!;
     const retTransit = transitCache.get(retKey)!;
@@ -285,9 +282,15 @@ export async function assembleRecommendation(
     return_transit: blRetTransit,
   };
 
+  // ── Saving category ────────────────────────────────────────────────────────
+  const saving = assembledBaseline.total_cost_gbp - assembled[0].total_cost_gbp;
+  const savingCategory: 'significant' | 'modest' | 'minimal' =
+    saving >= 75 ? 'significant' : saving >= 20 ? 'modest' : 'minimal';
+
   return {
     combinations: assembled,
     baseline: assembledBaseline,
     recommendation: assembled[0],
+    savingCategory,
   };
 }

@@ -509,6 +509,9 @@ export function ComplianceCalculator({
             <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', margin: 0 }}>
               Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates.
             </p>
+            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', margin: '4px 0 0' }}>
+              Bag fees and transport costs are estimates. Actual prices may vary.
+            </p>
           </div>
         </>
       )}

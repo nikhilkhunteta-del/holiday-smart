@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 
-// ── Interfaces kept for stability ─────────────────────────────────────────────
+// ── Interfaces ─────────────────────────────────────────────────────────────────
 
 interface Lever {
   label: string;
@@ -40,10 +40,12 @@ interface Props {
   outbound_transit: AssembledCombination['outbound_transit'] | null;
   return_transit: AssembledCombination['return_transit'] | null;
   postcodeDistrict: string | null;
-  p_cabin_bags: number;
-  p_checked_bags: number;
+  cabinBags: number;
+  checkedBags: number;
   party_size: number;
   combinations?: AssembledCombination[];
+  savingCategory: 'significant' | 'modest' | 'minimal';
+  schoolName: string | null;
 }
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
@@ -123,8 +125,9 @@ function transitLabel(
 export function SavingsBreakdown({
   recommendation, baseline, destinationSlug, boroughName,
   outbound_transit, return_transit,
-  p_cabin_bags, p_checked_bags, party_size,
+  cabinBags, checkedBags, party_size,
   combinations,
+  savingCategory, schoolName,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -133,6 +136,26 @@ export function SavingsBreakdown({
   const destName        = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
   const borough         = boroughName ?? 'London';
   const baselineRounded = Math.round(baseline.total_cost_gbp / 10) * 10;
+
+  // ── Adaptive headline ─────────────────────────────────────────────────────
+
+  const schoolSuffix   = schoolName ? ` with children at ${schoolName}` : '';
+  const schoolAt       = schoolName ? ` at ${schoolName}` : '';
+
+  const { line1, line2 } = (() => {
+    if (savingCategory === 'significant') return {
+      line1: `Most ${borough} families${schoolSuffix} flying ${destName} this half-term will pay around £${baselineRounded.toLocaleString('en-GB')}.`,
+      line2: `We found the same trip for ${fmt(recommendation.total_cost_gbp)}.`,
+    };
+    if (savingCategory === 'modest') return {
+      line1: `Prices for ${destName} this half-term are fairly consistent across most families${schoolSuffix}.`,
+      line2: `The cheapest all-in option we found is ${fmt(recommendation.total_cost_gbp)}.`,
+    };
+    return {
+      line1: `You've picked a good window. ${destName} this half-term is consistently priced for families${schoolAt}.`,
+      line2: `${fmt(recommendation.total_cost_gbp)} is about as good as it gets — here's the full breakdown.`,
+    };
+  })();
 
   // ── Detail lines per row ──────────────────────────────────────────────────
 
@@ -144,29 +167,33 @@ export function SavingsBreakdown({
     `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · LHR`,
   ];
 
-  // Cabin bags
+  // Cabin bags — append "· estimated" for FR or W6 carriers
+  const cabinIsEstimate = ['FR', 'W6'].includes(recommendation.outbound_carrier) ||
+                          ['FR', 'W6'].includes(recommendation.return_carrier);
+
   const detCabinSmart = [(() => {
-    if (recommendation.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
-    const pl = p_cabin_bags !== 1 ? 's' : '';
-    return `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${p_cabin_bags} bag${pl} each leg`;
+    if (recommendation.cabin_bag_cost_gbp === 0 || cabinBags === 0) return 'Included in fare';
+    const pl = cabinBags !== 1 ? 's' : '';
+    const base = `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${cabinBags} bag${pl} each leg`;
+    return cabinIsEstimate ? `${base} · estimated` : base;
   })()];
   const detCabinBase = [(() => {
-    if (baseline.cabin_bag_cost_gbp === 0 || p_cabin_bags === 0) return 'Included in fare';
-    const pl = p_cabin_bags !== 1 ? 's' : '';
-    const perBag = Math.round(baseline.cabin_bag_cost_gbp / p_cabin_bags);
-    return `${p_cabin_bags} bag${pl} · £${perBag} each`;
+    if (baseline.cabin_bag_cost_gbp === 0 || cabinBags === 0) return 'Included in fare';
+    const pl = cabinBags !== 1 ? 's' : '';
+    const perBag = Math.round(baseline.cabin_bag_cost_gbp / cabinBags);
+    return `${cabinBags} bag${pl} · £${perBag} each`;
   })()];
 
   // Checked bags
   const detCheckedSmart = [
     recommendation.checked_bag_cost_gbp === 0
       ? 'None included'
-      : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`,
+      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
   ];
   const detCheckedBase = [
     baseline.checked_bag_cost_gbp === 0
       ? 'None included'
-      : `${p_checked_bags} bag${p_checked_bags !== 1 ? 's' : ''} per leg`,
+      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
   ];
 
   // Seats
@@ -216,28 +243,18 @@ export function SavingsBreakdown({
 
       {/* ── Section A: Headline ─────────────────────────────────────────────── */}
       <div>
-        {/* Part 1 — narrative headline */}
         <p
           className="font-newsreader"
           style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 12 }}
         >
-          Most {borough} families flying {destName} this half-term will pay{' '}
-          around{' '}
-          <span style={{ color: '#004349' }}>
-            £{Math.round(baselineRounded).toLocaleString('en-GB')}
-          </span>
-          .
+          {line1}
         </p>
-
-        {/* Part 2 — smart price, same visual weight */}
         <p
           className="font-newsreader"
           style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}
         >
-          We found the same trip for{' '}
-          <span style={{ color: '#004349' }}>{fmt(recommendation.total_cost_gbp)}</span>.
+          {line2}
         </p>
-
         <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
           We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
         </p>
@@ -470,9 +487,19 @@ export function SavingsBreakdown({
                 </tr>
               </tbody>
             </table>
-            <p className="font-inter" style={{ marginTop: 16, fontSize: 12, color: '#9ba8a9' }}>
-              Baseline: Saturday departure from Heathrow, {carrierName(baseline.carrier)}, no route optimisation.
-            </p>
+
+            {/* Disclaimer */}
+            <div style={{ marginTop: 16 }}>
+              <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', marginBottom: 6 }}>
+                Baseline: Saturday departure from Heathrow, {carrierName(baseline.carrier)}, no route optimisation.
+              </p>
+              <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', lineHeight: 1.6, margin: 0 }}>
+                Flight prices observed recently.<br />
+                Bag fees for Ryanair and Wizz Air vary by route and demand — prices shown are estimates using published mid-range fees.<br />
+                Uber costs are estimates based on typical pricing from your area.<br />
+                Fines are estimates based on current borough penalty notice rates.
+              </p>
+            </div>
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@ import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 import { AllInCost } from '@/components/flight-insights/all-in-cost';
+import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,10 @@ interface PageProps {
     school?: string;
     borough?: string;
     break?: string;
+    cabin_bags?: string;
+    checked_bags?: string;
+    seats?: string;
+    transit?: string;
   };
 }
 
@@ -30,6 +35,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const infants     = Number(searchParams.infants  ?? 0);
   const tripStyle   = searchParams.tripStyle; // 'circuit' | 'base'
   const tripType    = tripStyle === 'circuit' ? 'circuit' : 'city';
+
+  // ── User preference toggles (URL search params) ───────────────────────────
+  const cabinBags        = parseInt(searchParams.cabin_bags  ?? String(adults));
+  const checkedBags      = parseInt(searchParams.checked_bags ?? (tripType === 'circuit' ? String(adults) : '0'));
+  const seatsTogether    = searchParams.seats !== 'false';
+  const transitPreference = (searchParams.transit === 'uber' ? 'uber' : 'auto') as 'auto' | 'uber';
 
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
@@ -112,13 +123,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
-      p_cabin_bags:       adults,
-      p_checked_bags:     tripType === 'circuit' ? adults : 0,
-      p_seats_together:   true,
+      p_cabin_bags:       cabinBags,
+      p_checked_bags:     checkedBags,
+      p_seats_together:   seatsTogether,
     }),
     supabase
       .from('all_schools')
-      .select('postcode_district, borough')
+      .select('postcode_district, borough, school_name')
       .eq('urn', urn)
       .maybeSingle(),
   ]);
@@ -159,12 +170,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   // ── Assemble smart recommendation (transit-enriched) ──────────────────────
   const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
+  const schoolName       = (schoolResult.data as any)?.school_name ?? null;
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
   const assembled = smartRaw
-    ? await assembleRecommendation(smartRaw, postcodeDistrict, adults, children, infants)
+    ? await assembleRecommendation(smartRaw, postcodeDistrict, adults, children, infants, transitPreference)
     : null;
   const recommendation    = assembled?.recommendation  ?? null;
   const assembledBaseline = assembled?.baseline        ?? null;
+  const savingCategory    = assembled?.savingCategory  ?? 'significant';
 
   // Override Wave 2 date sources with recommendation dates when available
   const outboundDate = recommendation?.outbound_date ?? bestOutboundDate;
@@ -231,6 +244,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <PreferencesCard
+          cabinBags={cabinBags}
+          checkedBags={checkedBags}
+          seatsTogether={seatsTogether}
+          transitPreference={transitPreference}
+        />
         <SavingsBreakdown
           data={savingsData}
           recommendation={recommendation}
@@ -243,10 +262,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           outbound_transit={recommendation?.outbound_transit ?? null}
           return_transit={recommendation?.return_transit ?? null}
           postcodeDistrict={postcodeDistrict}
-          p_cabin_bags={adults}
-          p_checked_bags={tripType === 'circuit' ? adults : 0}
+          cabinBags={cabinBags}
+          checkedBags={checkedBags}
           party_size={adults + children}
           combinations={assembled?.combinations}
+          savingCategory={savingCategory}
+          schoolName={schoolName}
         />
         {assembled && (
           <ComplianceCalculator
@@ -256,8 +277,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             windowStart={windowStart}
             windowEnd={windowEnd}
             partySize={adults + children}
-            pCabinBags={adults}
-            pCheckedBags={tripType === 'circuit' ? adults : 0}
+            pCabinBags={cabinBags}
+            pCheckedBags={checkedBags}
           />
         )}
         <AllInCost
