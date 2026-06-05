@@ -104,9 +104,22 @@ function ExpandPanel({
   const outDetail   = transportDetail(c.outbound_transit, c.origin_iata, '↑');
   const retDetail   = transportDetail(c.return_transit, c.ret_dest_iata, '↓');
   const hasRyanair  = c.outbound_carrier === 'FR' || c.return_carrier === 'FR';
-  const cabinCost   = c.cabin_bag_cost_gbp ?? 0;
-  const checkedCost = c.checked_bag_cost_gbp ?? 0;
   const destCost    = c.destination_transfer_cost_gbp ?? 0;
+
+  // Bundle-safe ancillary total
+  const flightTotal    = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
+  const ancillaryTotal = (c.fare_plus_ancillary_gbp ?? 0) - flightTotal;
+  const ancillarySum   = (c.cabin_bag_cost_gbp ?? 0) + (c.checked_bag_cost_gbp ?? 0) + (c.seat_cost_gbp ?? 0);
+  const bundleApplied  = ancillaryTotal < ancillarySum - 0.5;
+  const cabinIsEst     = c.outbound_carrier === 'FR' || c.return_carrier === 'FR' ||
+                         c.outbound_carrier === 'W6' || c.return_carrier === 'W6';
+  const ancillaryDetail = [
+    `${pCabinBags} cabin bag${pCabinBags !== 1 ? 's' : ''}`,
+    `${pCheckedBags} checked bag${pCheckedBags !== 1 ? 's' : ''}`,
+    `seats together${hasRyanair ? ' · children free on Ryanair' : ''}`,
+    ...(cabinIsEst ? ['estimated'] : []),
+    ...(bundleApplied ? ['bundle applied'] : []),
+  ].join(' · ');
 
   const rowStyle = {
     display: 'flex',
@@ -143,39 +156,13 @@ function ExpandPanel({
         <span style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</span>
       </div>
 
-      {/* Cabin bags */}
+      {/* Bags & seats — bundle-safe total */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Cabin bags</span>
-          <span style={detailStyle}>
-            {cabinCost === 0 || pCabinBags === 0
-              ? 'Included in fare'
-              : `${pCabinBags} bag${pCabinBags !== 1 ? 's' : ''} · ${carrierName(c.outbound_carrier)} + ${carrierName(c.return_carrier)}`}
-          </span>
+          <span style={labelStyle}>Bags &amp; seats</span>
+          <span style={detailStyle}>{ancillaryDetail}</span>
         </div>
-        <span style={costStyle}>{gbp(cabinCost)}</span>
-      </div>
-
-      {/* Checked bags */}
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Checked bags</span>
-          <span style={detailStyle}>
-            {checkedCost === 0 || pCheckedBags === 0 ? 'None' : `${pCheckedBags} bag${pCheckedBags !== 1 ? 's' : ''} per leg`}
-          </span>
-        </div>
-        <span style={costStyle}>{gbp(checkedCost)}</span>
-      </div>
-
-      {/* Seats */}
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Seats</span>
-          <span style={detailStyle}>
-            {partySize} seat{partySize !== 1 ? 's' : ''} together{hasRyanair ? ' · children free on Ryanair' : ''}
-          </span>
-        </div>
-        <span style={costStyle}>{gbp(c.seat_cost_gbp ?? 0)}</span>
+        <span style={costStyle}>{gbp(ancillaryTotal)}</span>
       </div>
 
       {/* London transport */}

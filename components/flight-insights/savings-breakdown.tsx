@@ -167,43 +167,38 @@ export function SavingsBreakdown({
     `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · LHR`,
   ];
 
-  // Cabin bags — append "· estimated" for FR or W6 carriers
+  // Bags & seats — use fare_plus_ancillary_gbp minus flights to get bundle-optimised total
+  const smartFlightTotal = recommendation.outbound_fare_gbp + recommendation.return_fare_gbp;
+  const smartAncillary   = recommendation.fare_plus_ancillary_gbp - smartFlightTotal;
+  const smartAncillarySum = recommendation.cabin_bag_cost_gbp + recommendation.checked_bag_cost_gbp + recommendation.seat_cost_gbp;
+  const smartBundleApplied = smartAncillary < smartAncillarySum - 0.5;
+
   const cabinIsEstimate = ['FR', 'W6'].includes(recommendation.outbound_carrier) ||
                           ['FR', 'W6'].includes(recommendation.return_carrier);
-
-  const detCabinSmart = [(() => {
-    if (recommendation.cabin_bag_cost_gbp === 0 || cabinBags === 0) return 'Included in fare';
-    const pl = cabinBags !== 1 ? 's' : '';
-    const base = `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${cabinBags} bag${pl} each leg`;
-    return cabinIsEstimate ? `${base} · estimated` : base;
-  })()];
-  const detCabinBase = [(() => {
-    if (baseline.cabin_bag_cost_gbp === 0 || cabinBags === 0) return 'Included in fare';
-    const pl = cabinBags !== 1 ? 's' : '';
-    const perBag = Math.round(baseline.cabin_bag_cost_gbp / cabinBags);
-    return `${cabinBags} bag${pl} · £${perBag} each`;
-  })()];
-
-  // Checked bags
-  const detCheckedSmart = [
-    recommendation.checked_bag_cost_gbp === 0
-      ? 'None included'
-      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
-  ];
-  const detCheckedBase = [
-    baseline.checked_bag_cost_gbp === 0
-      ? 'None included'
-      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
-  ];
-
-  // Seats
   const hasRyanair = recommendation.outbound_carrier === 'FR' || recommendation.return_carrier === 'FR';
-  const detSeatsSmart = [
-    `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)} · ${party_size} seat${party_size !== 1 ? 's' : ''} · together${hasRyanair ? ' · children free on Ryanair' : ''}`,
-  ];
-  const detSeatsBase = [
-    `${carrierName(baseline.carrier)} · ${party_size} seat${party_size !== 1 ? 's' : ''}`,
-  ];
+
+  const detAncillarySmart = [(() => {
+    const parts: string[] = [];
+    parts.push(`${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`);
+    parts.push(`${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`);
+    parts.push(`seats together${hasRyanair ? ' · children free on Ryanair' : ''}`);
+    if (cabinIsEstimate) parts.push('estimated');
+    if (smartBundleApplied) parts.push('bundle applied');
+    return parts.join(' · ');
+  })()];
+
+  const baseAncillary    = baseline.fare_plus_ancillary_gbp - baseline.baseline_fare_gbp;
+  const baseAncillarySum = baseline.cabin_bag_cost_gbp + baseline.checked_bag_cost_gbp + baseline.seat_cost_gbp;
+  const baseBundleApplied = baseAncillary < baseAncillarySum - 0.5;
+
+  const detAncillaryBase = [(() => {
+    const parts: string[] = [];
+    parts.push(`${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`);
+    parts.push(`${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`);
+    parts.push(`seats`);
+    if (baseBundleApplied) parts.push('bundle applied');
+    return parts.join(' · ');
+  })()];
 
   // London transport
   const detTransitSmart = [
@@ -230,12 +225,10 @@ export function SavingsBreakdown({
   // ── Table rows ────────────────────────────────────────────────────────────
 
   const tableRows = [
-    { label: 'Flights',               smart: recommendation.outbound_fare_gbp + recommendation.return_fare_gbp, base: baseline.baseline_fare_gbp,                smartDetail: detFlightsSmart,  baseDetail: detFlightsBase  },
-    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,            smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
-    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,          smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
-    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                 smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
-    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,              smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
-    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp, smartDetail: detDestSmart,     baseDetail: detDestBase     },
+    { label: 'Flights',               smart: smartFlightTotal,                             base: baseline.baseline_fare_gbp,                            smartDetail: detFlightsSmart,   baseDetail: detFlightsBase   },
+    { label: 'Bags & seats',          smart: smartAncillary,                               base: baseAncillary,                                         smartDetail: detAncillarySmart, baseDetail: detAncillaryBase },
+    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                             smartDetail: detTransitSmart,   baseDetail: detTransitBase   },
+    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,                smartDetail: detDestSmart,      baseDetail: detDestBase      },
   ];
 
   return (
