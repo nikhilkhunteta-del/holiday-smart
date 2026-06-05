@@ -129,11 +129,10 @@ function ExpandPanel({
         ×
       </button>
 
+      <div style={{ maxWidth: 480 }}>
       <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#004349', marginBottom: 12, paddingRight: 24 }}>
         {carrierName(c.outbound_carrier)} from {c.origin_iata} · {carrierName(c.return_carrier)} to {c.ret_dest_iata} · {nights} night{nights === 1 ? '' : 's'}
       </p>
-
-      {/* Flights */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
           <span style={labelStyle}>Flights</span>
@@ -214,6 +213,7 @@ function ExpandPanel({
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>Total</span>
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>{gbp(c.total_inc_fine)}</span>
       </div>
+      </div>{/* end maxWidth:480 content wrapper */}
     </div>
   );
 }
