@@ -129,11 +129,10 @@ function ExpandPanel({
         ×
       </button>
 
+      <div style={{ maxWidth: 480 }}>
       <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#004349', marginBottom: 12, paddingRight: 24 }}>
         {carrierName(c.outbound_carrier)} from {c.origin_iata} · {carrierName(c.return_carrier)} to {c.ret_dest_iata} · {nights} night{nights === 1 ? '' : 's'}
       </p>
-
-      {/* Flights */}
       <div style={rowStyle}>
         <div style={{ flex: 1 }}>
           <span style={labelStyle}>Flights</span>
@@ -214,6 +213,7 @@ function ExpandPanel({
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>Total</span>
         <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>{gbp(c.total_inc_fine)}</span>
       </div>
+      </div>{/* end maxWidth:480 content wrapper */}
     </div>
   );
 }
@@ -233,6 +233,17 @@ function DataCell({
   const { bg, color } = cellColour(saving);
   const starColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
   const border    = isActive || isRec ? '1.5px solid #004349' : 'none';
+  const hasFine   = c.requires_absence && (c.fine_gbp ?? 0) > 0;
+
+  const fineBadge = hasFine ? (
+    <span style={{
+      display: 'inline-block', marginTop: 4,
+      fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: 500,
+      color: '#5c310d', background: '#fdba49', borderRadius: 9999, padding: '1px 6px',
+    }}>
+      Fine: {gbp(c.fine_gbp ?? 0)}
+    </span>
+  ) : null;
 
   return (
     <td
@@ -253,11 +264,15 @@ function DataCell({
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_inc_fine)}
           </span>
+          {fineBadge}
         </div>
       ) : (
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
-          {gbp(c.total_inc_fine)}
-        </span>
+        <>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
+            {gbp(c.total_inc_fine)}
+          </span>
+          {fineBadge}
+        </>
       )}
     </td>
   );
@@ -390,16 +405,9 @@ export function ComplianceCalculator({
                             {fmtShort(ret)}
                           </span>
                           {absenceDays !== null && (
-                            <>
-                              <span style={AMBER_LABEL_WRAP}>
-                                {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}
-                              </span>
-                              {retFine !== null && (
-                                <span style={{ ...AMBER_LABEL_WRAP, fontSize: 9 }}>
-                                  {gbp(retFine)} fine included
-                                </span>
-                              )}
-                            </>
+                            <span style={AMBER_LABEL_WRAP}>
+                              {absenceDays} absence {absenceDays === 1 ? 'day' : 'days'}
+                            </span>
                           )}
                         </th>
                       );
@@ -430,16 +438,9 @@ export function ComplianceCalculator({
                             </span>
                           )}
                           {daysAbsent > 0 && (
-                            <>
-                              <span style={AMBER_LABEL}>
-                                {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}
-                              </span>
-                              {rowFine !== null && (
-                                <span style={{ ...AMBER_LABEL, fontSize: 9 }}>
-                                  {gbp(rowFine)} fine included
-                                </span>
-                              )}
-                            </>
+                            <span style={AMBER_LABEL}>
+                              {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}
+                            </span>
                           )}
                           {isWindowStart && (
                             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
@@ -476,22 +477,23 @@ export function ComplianceCalculator({
               </table>
             </div>
 
-            {/* Bug 2 fix: ExpandPanel outside the scroll wrapper — constrained to matrix width */}
-            <div style={{
-              maxHeight: activeComb ? '600px' : '0',
-              overflow: 'hidden',
-              transition: 'max-height 0.25s ease',
-            }}>
-              {activeComb && (
-                <ExpandPanel
-                  c={activeComb}
-                  partySize={partySize}
-                  pCabinBags={pCabinBags}
-                  pCheckedBags={pCheckedBags}
-                  onClose={() => setActiveCell(null)}
-                />
-              )}
-            </div>
+          </div>
+
+          {/* ExpandPanel — sibling of matrix div, full card width */}
+          <div style={{
+            maxHeight: activeComb ? '600px' : '0',
+            overflow: 'hidden',
+            transition: 'max-height 0.25s ease',
+          }}>
+            {activeComb && (
+              <ExpandPanel
+                c={activeComb}
+                partySize={partySize}
+                pCabinBags={pCabinBags}
+                pCheckedBags={pCheckedBags}
+                onClose={() => setActiveCell(null)}
+              />
+            )}
           </div>
 
           {/* Legend */}
