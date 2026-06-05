@@ -93,7 +93,7 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
 
   function update(key: string, val: string) {
     setIsLoading(true);
-    const p = new URLSearchParams(searchParams.toString());
+    const p = new URLSearchParams(searchParams?.toString() ?? '');
     p.set(key, val);
     router.replace(`?${p.toString()}`);
   }
