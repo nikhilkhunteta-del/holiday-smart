@@ -1,7 +1,7 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
-import { AllInCost } from '@/components/flight-insights/all-in-cost';
+import { AllInCost } from '@/components/flight-insights/allin-cost';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
@@ -180,9 +180,17 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
 
   // Override Wave 2 date sources with recommendation dates when available
-  const outboundDate = recommendation?.outbound_date ?? bestOutboundDate;
-  const returnDate   = recommendation?.return_date   ?? bestReturnDate;
-  const originIata   = recommendation?.origin_iata   ?? bestOriginIata;
+  const smartOutboundDate = assembled?.baselineIsRecommended
+    ? assembled?.baseline?.outbound_date
+    : assembled?.recommendation?.outbound_date ?? bestOutboundDate;
+
+  const smartReturnDate = assembled?.baselineIsRecommended
+    ? assembled?.baseline?.return_date
+    : assembled?.recommendation?.return_date ?? bestReturnDate;
+
+  const smartOriginIata = assembled?.baselineIsRecommended
+    ? assembled?.baseline?.origin_iata
+    : assembled?.recommendation?.origin_iata ?? bestOriginIata;
 
   // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
   const [
@@ -195,8 +203,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_allin_flight_cost', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    outboundDate,
-      p_return_date:      returnDate,
+      p_outbound_date:    smartOutboundDate,
+      p_return_date:      smartReturnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -205,17 +213,17 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_multi_airport', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    outboundDate,
-      p_return_date:      returnDate,
+      p_outbound_date:    smartOutboundDate,
+      p_return_date:      smartReturnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
     }),
     supabase.rpc('get_bucket_split', {
       p_destination_slug: destinationSlug,
-      p_origin_iata:      originIata,
-      p_outbound_date:    outboundDate,
-      p_return_date:      returnDate,
+      p_origin_iata:      smartOriginIata,
+      p_outbound_date:    smartOutboundDate,
+      p_return_date:      smartReturnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -223,8 +231,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_open_jaw', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    outboundDate,
-      p_return_date:      returnDate,
+      p_outbound_date:    smartOutboundDate,
+      p_return_date:      smartReturnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -232,8 +240,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_nearby_destination_airports', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_outbound_date:    outboundDate,
-      p_return_date:      returnDate,
+      p_outbound_date:    smartOutboundDate,
+      p_return_date:      smartReturnDate,
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
@@ -289,7 +297,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         )}
         <AllInCost
           data={allinResult.error ? null : (allinResult.data as any)}
-          tripType={tripType}
+          partySize={adults + children}
+          pCabinBags={cabinBags}
+          pCheckedBags={checkedBags}
+          seatsTogether={seatsTogether}
+          smartOutboundDate={smartOutboundDate}
+          smartReturnDate={smartReturnDate}
           destinationAirport={destinationAirport}
         />
       </div>
