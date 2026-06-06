@@ -303,6 +303,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           seatsTogether={seatsTogether}
           smartOutboundDate={smartOutboundDate}
           smartReturnDate={smartReturnDate}
+          destinationAirport={destinationAirport}
         />
       </div>
     </main>

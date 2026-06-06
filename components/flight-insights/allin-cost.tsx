@@ -40,7 +40,6 @@ interface CarrierRow {
   family_split_risk: boolean
   split_risk_carriers: string[]
   is_recommended: boolean
-  dest_iata?: string
 }
 
 interface AllinData {
@@ -59,6 +58,7 @@ export interface AllInCostProps {
   seatsTogether: boolean
   smartOutboundDate: string | undefined
   smartReturnDate: string | undefined
+  destinationAirport?: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -113,9 +113,9 @@ function deriveEnriched(row: CarrierRow, pCabinBags: number, pCheckedBags: numbe
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
 function Tooltip({ row }: { row: EnrichedRow }) {
-  const name        = CARRIER_NAMES[row.outbound_carrier] ?? row.outbound_carrier
-  const returnName  = CARRIER_NAMES[row.return_carrier]   ?? row.return_carrier
-  const isSplit     = row.outbound_carrier !== row.return_carrier
+  const name       = CARRIER_NAMES[row.outbound_carrier] ?? row.outbound_carrier
+  const returnName = CARRIER_NAMES[row.return_carrier]   ?? row.return_carrier
+  const isSplit    = row.outbound_carrier !== row.return_carrier
 
   return (
     <div
@@ -164,11 +164,6 @@ function Tooltip({ row }: { row: EnrichedRow }) {
         <span>Total</span>
         <span>{gbp(row.trueTotal)}</span>
       </div>
-      {row.family_split_risk && (
-        <div style={{ marginTop: 8, color: '#fdba49', fontSize: 11 }}>
-          ⚠ Family split risk
-        </div>
-      )}
     </div>
   )
 }
@@ -188,10 +183,12 @@ function ChartRow({
   row,
   maxTotal,
   isCheapest,
+  destinationAirport,
 }: {
   row: EnrichedRow
   maxTotal: number
   isCheapest: boolean
+  destinationAirport: string | undefined
 }) {
   const [showTip, setShowTip] = useState(false)
   const tapRef = useRef(false)
@@ -199,6 +196,11 @@ function ChartRow({
   const name       = CARRIER_NAMES[row.outbound_carrier] ?? row.outbound_carrier
   const returnName = CARRIER_NAMES[row.return_carrier]   ?? row.return_carrier
   const isSplit    = row.outbound_carrier !== row.return_carrier
+
+  // Route detail: "↑ STN → BCN · ↓ BCN → STN" or "↑ LHR → BCN · ↓ BCN → STN (Ryanair)"
+  const routeDetail = destinationAirport
+    ? `↑ ${row.outbound_airport} → ${destinationAirport} · ↓ ${destinationAirport} → ${row.outbound_airport}${isSplit ? ` (${returnName})` : ''}`
+    : `↑ ${row.outbound_airport}${isSplit ? ` · return: ${returnName}` : ''}`
 
   // Bar width: max carrier gets 85%, others scaled proportionally, min 20%
   const MAX_PCT = 85
@@ -232,14 +234,9 @@ function ChartRow({
         <div style={{ fontSize: 13, fontWeight: 700, color: '#191c1d', lineHeight: 1.3 }}>
           {name}
         </div>
-        <div style={{ fontSize: 11, color: '#3f484a', marginTop: 2, lineHeight: 1.4 }}>
-          {row.dest_iata
-            ? `↑ ${row.outbound_airport} → ${row.dest_iata} · ↓ ${row.dest_iata} → ${row.outbound_airport}${isSplit ? ` (${returnName})` : ''}`
-            : `↑ ${row.outbound_airport}${isSplit ? ` · return: ${returnName}` : ''}`}
+        <div style={{ fontSize: 11, color: '#3f484a', marginTop: 2, lineHeight: 1.4, display: 'block' }}>
+          {routeDetail}
         </div>
-        {row.family_split_risk && (
-          <span style={{ color: '#fdba49', fontSize: 11, marginTop: 2, display: 'block' }}>⚠ Split risk</span>
-        )}
       </div>
 
       {/* Bar + total */}
@@ -267,7 +264,6 @@ function ChartRow({
             onMouseLeave={handleMouseLeave}
             onClick={handleTap}
           >
-            {/* Outer track */}
             <div
               style={{
                 width: `${barPct}%`,
@@ -290,7 +286,6 @@ function ChartRow({
               )}
             </div>
 
-            {/* Tooltip */}
             {showTip && <Tooltip row={row} />}
           </div>
 
@@ -333,7 +328,7 @@ function LegendSwatch({ color, label }: { color: string; label: string }) {
   )
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function AllInCost({
   data,
@@ -342,13 +337,13 @@ export function AllInCost({
   pCheckedBags,
   smartOutboundDate,
   smartReturnDate,
+  destinationAirport,
 }: AllInCostProps) {
   const [open, setOpen] = useState(false)
 
   const chartRows = useMemo<EnrichedRow[]>(() => {
     if (!data?.carriers) return []
 
-    // One best row per Phase 1 carrier (lowest trueTotal)
     const result: EnrichedRow[] = []
     for (const iata of PHASE1_CARRIERS) {
       const matching = data.carriers.filter((r) => r.outbound_carrier === iata)
@@ -359,21 +354,18 @@ export function AllInCost({
       result.push(enriched[0])
     }
 
-    // Sort cheapest first
     result.sort((a, b) => a.trueTotal - b.trueTotal)
     return result
   }, [data, pCabinBags, pCheckedBags])
 
   if (!data || chartRows.length === 0) return null
 
-  const maxTotal    = Math.max(...chartRows.map((r) => r.trueTotal))
+  const maxTotal      = Math.max(...chartRows.map((r: EnrichedRow) => r.trueTotal))
   const cheapestTotal = chartRows[0].trueTotal
 
-  // Determine which legend items actually appear
-  const hasCabin   = chartRows.some((r) => r.cabinCost   > 0)
-  const hasChecked = chartRows.some((r) => r.checkedCost > 0)
-  const hasSeats   = chartRows.some((r) => r.seatCost    > 0)
-  const hasSplitRisk = chartRows.some((r) => r.family_split_risk)
+  const hasCabin   = chartRows.some((r: EnrichedRow) => r.cabinCost   > 0)
+  const hasChecked = chartRows.some((r: EnrichedRow) => r.checkedCost > 0)
+  const hasSeats   = chartRows.some((r: EnrichedRow) => r.seatCost    > 0)
 
   const subLabel = `Base fare + bags + seats for ${fmtDate(smartOutboundDate)} → ${fmtDate(smartReturnDate)}, party of ${partySize}`
 
@@ -417,12 +409,13 @@ export function AllInCost({
       {/* Chart */}
       {open && (
         <div style={{ marginTop: 28 }}>
-          {chartRows.map((row) => (
+          {chartRows.map((row: EnrichedRow) => (
             <ChartRow
               key={row.outbound_carrier}
               row={row}
               maxTotal={maxTotal}
               isCheapest={row.trueTotal === cheapestTotal}
+              destinationAirport={destinationAirport}
             />
           ))}
 
@@ -443,9 +436,6 @@ export function AllInCost({
             {hasCabin   && <LegendSwatch color="#4A6FA5" label="Cabin bags" />}
             {hasChecked && <LegendSwatch color="#E07B54" label="Checked bags" />}
             {hasSeats   && <LegendSwatch color="#fdba49" label="Seats" />}
-            {hasSplitRisk && (
-              <span style={{ color: '#fdba49' }}>⚠ Family split risk</span>
-            )}
           </div>
         </div>
       )}
