@@ -243,61 +243,52 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // Wave 2 errors are non-fatal — null means that section won't render
   return (
     <main className="min-h-screen bg-background">
-      <div style={{ maxWidth: 1280, margin: '0 auto' }} className="px-4 md:px-16 py-12">
-        <div className="flex flex-col md:flex-row md:items-start" style={{ gap: 32 }}>
-          <aside
-            className="w-full md:w-60 md:flex-shrink-0 md:sticky md:top-6"
-            style={{ alignSelf: 'flex-start' }}
-          >
-            <PreferencesCard
-              cabinBags={cabinBags}
-              checkedBags={checkedBags}
-              seatsTogether={seatsTogether}
-              transitPreference={transitPreference}
-              postcodeDistrict={postcodeDistrict}
-            />
-          </aside>
-          <div className="flex-1 min-w-0 flex flex-col gap-xl">
-            <SavingsBreakdown
-              data={savingsData}
-              recommendation={recommendation}
-              baseline={assembledBaseline}
-              adults={adults}
-              children={children}
-              windowStart={windowStart}
-              destinationSlug={destinationSlug}
-              boroughName={(schoolResult.data as any)?.borough ?? null}
-              outbound_transit={recommendation?.outbound_transit ?? null}
-              return_transit={recommendation?.return_transit ?? null}
-              postcodeDistrict={postcodeDistrict}
-              cabinBags={cabinBags}
-              checkedBags={checkedBags}
-              seatsTogether={seatsTogether}
-              party_size={adults + children}
-              combinations={assembled?.combinations}
-              savingCategory={savingCategory}
-              schoolName={schoolName}
-            />
-            {assembled && (
-              <ComplianceCalculator
-                combinations={assembled.combinations}
-                baseline={assembled.baseline}
-                recommendation={assembled.recommendation}
-                windowStart={windowStart}
-                windowEnd={windowEnd}
-                partySize={adults + children}
-                pCabinBags={cabinBags}
-                pCheckedBags={checkedBags}
-                seatsTogether={seatsTogether}
-              />
-            )}
-            <AllInCost
-              data={allinResult.error ? null : (allinResult.data as any)}
-              tripType={tripType}
-              destinationAirport={destinationAirport}
-            />
-          </div>
-        </div>
+      <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <PreferencesCard
+          cabinBags={cabinBags}
+          checkedBags={checkedBags}
+          seatsTogether={seatsTogether}
+          transitPreference={transitPreference}
+          postcodeDistrict={postcodeDistrict}
+        />
+        <SavingsBreakdown
+          data={savingsData}
+          recommendation={recommendation}
+          baseline={assembledBaseline}
+          adults={adults}
+          children={children}
+          windowStart={windowStart}
+          destinationSlug={destinationSlug}
+          boroughName={(schoolResult.data as any)?.borough ?? null}
+          outbound_transit={recommendation?.outbound_transit ?? null}
+          return_transit={recommendation?.return_transit ?? null}
+          postcodeDistrict={postcodeDistrict}
+          cabinBags={cabinBags}
+          checkedBags={checkedBags}
+          seatsTogether={seatsTogether}
+          party_size={adults + children}
+          combinations={assembled?.combinations}
+          savingCategory={savingCategory}
+          schoolName={schoolName}
+        />
+        {assembled && (
+          <ComplianceCalculator
+            combinations={assembled.combinations}
+            baseline={assembled.baseline}
+            recommendation={assembled.recommendation}
+            windowStart={windowStart}
+            windowEnd={windowEnd}
+            partySize={adults + children}
+            pCabinBags={cabinBags}
+            pCheckedBags={checkedBags}
+            seatsTogether={seatsTogether}
+          />
+        )}
+        <AllInCost
+          data={allinResult.error ? null : (allinResult.data as any)}
+          tripType={tripType}
+          destinationAirport={destinationAirport}
+        />
       </div>
     </main>
   );
