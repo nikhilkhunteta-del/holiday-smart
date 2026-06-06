@@ -72,18 +72,10 @@ export function BucketSplit({ data }: BucketSplitProps) {
         }}
       >
         <div>
-          <div
-            style={{
-              fontFamily: 'Newsreader, Georgia, serif',
-              fontSize: 20,
-              fontWeight: 600,
-              color: '#004349',
-              marginBottom: 4,
-            }}
-          >
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3, marginBottom: 4 }}>
             Could splitting your booking save money?
           </div>
-          <div style={{ fontSize: 14, color: '#4a5568', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
             We checked whether booking as two separate transactions beats one family booking.
           </div>
         </div>
@@ -97,8 +89,9 @@ export function BucketSplit({ data }: BucketSplitProps) {
         <div style={{ marginTop: 20 }}>
           {/* Case 3 — no saving */}
           {!hasSaving && (
-            <p style={{ fontSize: 14, color: '#718096', margin: 0 }}>
-              No saving from splitting — book all {party} together.
+            <p style={{ fontSize: 14, color: '#718096', margin: 0, lineHeight: 1.6 }}>
+              No saving found. We compared booking {party} together against splitting into
+              separate smaller transactions on your recommended route — both came to the same price.
             </p>
           )}
 
