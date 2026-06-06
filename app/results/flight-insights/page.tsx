@@ -3,6 +3,7 @@ import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 import { AllInCost } from '@/components/flight-insights/allin-cost';
 import { BucketSplit } from '@/components/flight-insights/bucket-split';
+import { MultiAirport } from '@/components/flight-insights/multi-airport';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
@@ -308,6 +309,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         />
         <BucketSplit
           data={bucketSplitResult.error ? null : (bucketSplitResult.data as any)}
+        />
+        <MultiAirport
+          data={multiAirportResult.error ? null : (multiAirportResult.data as any)}
+          postcodeDistrict={postcodeDistrict}
         />
       </div>
     </main>
