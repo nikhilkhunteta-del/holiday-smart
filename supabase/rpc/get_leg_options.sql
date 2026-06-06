@@ -14,15 +14,18 @@ RETURNS jsonb
 LANGUAGE plpgsql
 AS $$
 DECLARE
+  v_dest_id       uuid;
+  v_dest_airports text[];
   v_postcode_district text;
-  v_run_id            uuid;
-  v_destination_id    uuid;
-  v_composition       record;
-  v_result            jsonb;
+  v_run_id        uuid;
+  v_adults        smallint;
+  v_children      smallint;
+  v_infants       smallint;
+  v_party_size    int;
+  v_result        jsonb;
 BEGIN
 
-  SELECT postcode_district INTO v_postcode_district
-  FROM all_schools WHERE urn = p_school_urn;
+  -- ── 1. Destination + airport pool ──────────────────────────────────────────
 
   SELECT id INTO v_run_id
   FROM snapshot_runs
@@ -162,12 +165,14 @@ BEGIN
     ORDER BY sort_total ASC
   )
   INTO v_result
-  FROM cheapest_per_route;
+  FROM ranked r;
 
   RETURN jsonb_build_object(
-    'date',      p_date,
-    'direction', p_direction,
-    'options',   COALESCE(v_result, '[]'::jsonb)
+    'outbound_date',  p_outbound_date,
+    'return_date',    p_return_date,
+    'party_size',     v_party_size,
+    'transport_mode', p_transport_mode,
+    'carriers',       v_result
   );
 
 END;
