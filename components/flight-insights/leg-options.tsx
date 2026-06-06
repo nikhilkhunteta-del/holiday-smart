@@ -102,6 +102,7 @@ function computeTransitCost(
   children: number,
   transitPreference: 'auto' | 'uber',
   isEarlyMorning: boolean,
+  direction: 'outbound' | 'return',
 ): number {
   const totalPax     = adults + children;
   const xlMultiplier = totalPax >= 4 ? 1.5 : 1.0;
@@ -120,7 +121,7 @@ function computeTransitCost(
     ? option.transit_offpeak_fare_pence / 100.0
     : null;
 
-  // Rule 1: Early morning → Uber (high estimate)
+  // Rule 1: Early morning → Uber (high estimate) — outbound only
   if (isEarlyMorning) {
     const uberHigh = option.uber_high_pence != null
       ? (option.uber_high_pence / 100.0) * xlMultiplier
@@ -143,18 +144,14 @@ function computeTransitCost(
   }
 
   // Rule 4: Default → transit with child fare adjustment
+  const londonAirport = direction === 'outbound' ? option.origin_iata : option.destination_iata;
   const adultFarePerPerson = adults > 0 ? transitFare / adults : transitFare;
   const method = option.transit_method ?? '';
 
   let childFare = 0;
-  if (
-    method.includes('Heathrow') ||
-    method.includes('DLR') ||
-    option.origin_iata === 'LHR' ||
-    option.origin_iata === 'LCY'
-  ) {
+  if (londonAirport === 'LHR' || londonAirport === 'LCY') {
     childFare = children * 1.05;
-  } else if (method.includes('National Express') || option.origin_iata === 'LTN') {
+  } else if (londonAirport === 'LTN' || method.includes('National Express')) {
     childFare = children * adultFarePerPerson * 0.75;
   } else {
     childFare = children * adultFarePerPerson * 0.5;
@@ -342,6 +339,7 @@ function TransportCell({
 function LeverRow({
   opt,
   airportIata,
+  destCityIata,
   isCheapestRow,
   isRec,
   notCheapestNote,
@@ -350,6 +348,7 @@ function LeverRow({
 }: {
   opt: LegOption;
   airportIata: string;
+  destCityIata: string;
   isCheapestRow: boolean;
   isRec: boolean;
   notCheapestNote: boolean;
@@ -446,16 +445,26 @@ function LeverRow({
               )}
             </>
           ) : (
+            <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
+              {extractTransitMode(opt.transit_method)}
+            </div>
+          )}
+        </div>
+
+        {/* Dest. Transfer (80px) */}
+        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+          <ColLabel>Dest. Transfer</ColLabel>
+          {opt.destination_transfer_gbp > 0 ? (
             <>
-              <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-                {extractTransitMode(opt.transit_method)}
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+                {gbp(opt.destination_transfer_gbp)}
               </div>
-              {opt.destination_transfer_gbp >= 40 && (
-                <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
-                  + {gbp(opt.destination_transfer_gbp)} transfer
-                </div>
-              )}
+              <div style={{ fontSize: 10, color: '#6f797a' }}>
+                {destCityIata} airport
+              </div>
             </>
+          ) : (
+            <div style={{ fontSize: 12, color: '#6f797a' }}>—</div>
           )}
         </div>
 
@@ -546,11 +555,14 @@ export function LegOptions({
 }: LegOptionsProps) {
   const [open, setOpen] = useState(false);
 
+  const direction = data?.direction ?? 'outbound';
+
   // Apply party-size-aware transit cost computation and re-sort
   const processedOptions: ProcessedOption[] = (data?.options ?? []).map((opt) => {
-    const isEarlyMorning = fmt(opt.departure_time) < '07:00';
+    const isEarlyMorning =
+      direction === 'outbound' && fmt(opt.departure_time) < '07:00';
     const transitCost = computeTransitCost(
-      opt, adults, children, transitPreference, isEarlyMorning,
+      opt, adults, children, transitPreference, isEarlyMorning, direction,
     );
     const totalGbp =
       opt.fare_gbp +
@@ -564,8 +576,6 @@ export function LegOptions({
     };
   });
   processedOptions.sort((a, b) => a.total_gbp - b.total_gbp);
-
-  const direction = data?.direction ?? 'outbound';
 
   function getLondonIata(o: ProcessedOption): string {
     return direction === 'outbound' ? o.origin_iata : o.destination_iata;
@@ -646,6 +656,7 @@ export function LegOptions({
                     key={`london-${group.airportIata}`}
                     opt={group.displayRow}
                     airportIata={getLondonIata(group.displayRow)}
+                    destCityIata={getDestIata(group.displayRow)}
                     isCheapestRow={i === 0}
                     isRec={group.isRec}
                     notCheapestNote={group.notCheapestNote}
@@ -686,6 +697,7 @@ export function LegOptions({
                         key={`dest-${group.airportIata}`}
                         opt={group.displayRow}
                         airportIata={getDestIata(group.displayRow)}
+                        destCityIata={getDestIata(group.displayRow)}
                         isCheapestRow={i === 0}
                         isRec={group.isRec}
                         notCheapestNote={group.notCheapestNote}
