@@ -40,6 +40,7 @@ interface CarrierRow {
   family_split_risk: boolean
   split_risk_carriers: string[]
   is_recommended: boolean
+  dest_iata?: string
 }
 
 interface AllinData {
@@ -230,14 +231,14 @@ function ChartRow({
       <div style={{ width: 160, flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#191c1d', lineHeight: 1.3 }}>
           {name}
-          {row.family_split_risk && (
-            <span style={{ color: '#fdba49', marginLeft: 5, fontSize: 11 }}>⚠</span>
-          )}
         </div>
-        {isSplit && (
-          <div style={{ fontSize: 11, color: '#6f797a', marginTop: 2 }}>
-            return: {returnName}
-          </div>
+        <div style={{ fontSize: 11, color: '#3f484a', marginTop: 2, lineHeight: 1.4 }}>
+          {row.dest_iata
+            ? `↑ ${row.outbound_airport} → ${row.dest_iata} · ↓ ${row.dest_iata} → ${row.outbound_airport}${isSplit ? ` (${returnName})` : ''}`
+            : `↑ ${row.outbound_airport}${isSplit ? ` · return: ${returnName}` : ''}`}
+        </div>
+        {row.family_split_risk && (
+          <span style={{ color: '#fdba49', fontSize: 11, marginTop: 2, display: 'block' }}>⚠ Split risk</span>
         )}
       </div>
 
@@ -279,13 +280,13 @@ function ChartRow({
             >
               <div style={{ width: `${basePct}%`, background: '#004349' }} />
               {cabPct > 0 && (
-                <div style={{ width: `${cabPct}%`, background: '#fdba49' }} />
+                <div style={{ width: `${cabPct}%`, background: '#4A6FA5' }} />
               )}
               {chkPct > 0 && (
-                <div style={{ width: `${chkPct}%`, background: '#f5a623' }} />
+                <div style={{ width: `${chkPct}%`, background: '#E07B54' }} />
               )}
               {seatPct > 0 && (
-                <div style={{ width: `${seatPct}%`, background: '#fdd98a' }} />
+                <div style={{ width: `${seatPct}%`, background: '#fdba49' }} />
               )}
             </div>
 
@@ -407,6 +408,9 @@ export function AllInCost({
           <div style={{ fontSize: 13, color: '#6f797a', marginTop: 4, lineHeight: 1.4 }}>
             {subLabel}
           </div>
+          <div style={{ fontSize: 11, color: '#3f484a', marginTop: 2, lineHeight: 1.4 }}>
+            Flight cost only — excludes transport to airport. See recommendation above for true all-in cost.
+          </div>
         </div>
       </button>
 
@@ -436,9 +440,9 @@ export function AllInCost({
             }}
           >
             <LegendSwatch color="#004349" label="Base fare" />
-            {hasCabin   && <LegendSwatch color="#fdba49" label="Cabin bags" />}
-            {hasChecked && <LegendSwatch color="#f5a623" label="Checked bags" />}
-            {hasSeats   && <LegendSwatch color="#fdd98a" label="Seats" />}
+            {hasCabin   && <LegendSwatch color="#4A6FA5" label="Cabin bags" />}
+            {hasChecked && <LegendSwatch color="#E07B54" label="Checked bags" />}
+            {hasSeats   && <LegendSwatch color="#fdba49" label="Seats" />}
             {hasSplitRisk && (
               <span style={{ color: '#fdba49' }}>⚠ Family split risk</span>
             )}
