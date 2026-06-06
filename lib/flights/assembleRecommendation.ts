@@ -88,7 +88,7 @@ export async function assembleRecommendation(
   combinations: AssembledCombination[];
   baseline: AssembledBaseline;
   recommendation: AssembledCombination;
-  savingCategory: 'significant' | 'modest' | 'minimal';
+  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
 }> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -284,8 +284,11 @@ export async function assembleRecommendation(
 
   // ── Saving category ────────────────────────────────────────────────────────
   const saving = assembledBaseline.total_cost_gbp - assembled[0].total_cost_gbp;
-  const savingCategory: 'significant' | 'modest' | 'minimal' =
-    saving >= 75 ? 'significant' : saving >= 20 ? 'modest' : 'minimal';
+  const savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' =
+    saving >= 75 ? 'significant' :
+    saving >= 20 ? 'modest' :
+    saving >= 0  ? 'minimal' :
+                   'baseline_cheapest';
 
   return {
     combinations: assembled,
