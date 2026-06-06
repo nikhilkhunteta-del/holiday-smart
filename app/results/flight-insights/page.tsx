@@ -1,7 +1,7 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
-import { AllInCost } from '@/components/flight-insights/all-in-cost';
+import { AllInCost } from '@/components/flight-insights/allin-cost';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
@@ -297,8 +297,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         )}
         <AllInCost
           data={allinResult.error ? null : (allinResult.data as any)}
-          tripType={tripType}
-          destinationAirport={destinationAirport}
+          partySize={adults + children}
+          pCabinBags={cabinBags}
+          pCheckedBags={checkedBags}
+          seatsTogether={seatsTogether}
+          smartOutboundDate={smartOutboundDate}
+          smartReturnDate={smartReturnDate}
         />
       </div>
     </main>
