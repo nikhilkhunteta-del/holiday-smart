@@ -23,6 +23,8 @@ interface PageProps {
     checked_bags?: string;
     seats?: string;
     transit?: string;
+    selected_outbound?: string;
+    selected_return?: string;
   };
 }
 
@@ -136,6 +138,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     ? assembled?.baseline?.return_date
     : assembled?.recommendation?.return_date ?? bestReturnDate;
 
+  // ── User-selected dates (from matrix cell click) ───────────────────────────
+  const selectedOutbound = searchParams?.selected_outbound ?? smartOutboundDate;
+  const selectedReturn   = searchParams?.selected_return   ?? smartReturnDate;
+
   // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
   const [
     openJawResult,
@@ -164,7 +170,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_leg_options', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_date:             smartOutboundDate,
+      p_date:             selectedOutbound,
       p_direction:        'outbound',
       p_adults:           adults,
       p_children:         children,
@@ -176,7 +182,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     supabase.rpc('get_leg_options', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
-      p_date:             smartReturnDate,
+      p_date:             selectedReturn,
       p_direction:        'return',
       p_adults:           adults,
       p_children:         children,
@@ -239,23 +245,29 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             pCheckedBags={checkedBags}
             seatsTogether={seatsTogether}
             baselineIsRecommended={assembled.baselineIsRecommended}
+            selectedOutbound={selectedOutbound}
+            selectedReturn={selectedReturn}
           />
         )}
-        <LegOptions
-          data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
-          title={`Outbound options · ${formatDate(smartOutboundDate)}`}
-          adults={adults}
-          children={children}
-          infants={infants}
-          transitPreference={transitPreference}
-          postcodeDistrict={postcodeDistrict}
-          recommendedOption={assembled?.recommendation ? {
-            airline_iata:     assembled.recommendation.outbound_carrier,
-            origin_iata:      assembled.recommendation.origin_iata,
-            destination_iata: assembled.recommendation.out_dest_iata,
-            departure_time:   assembled.recommendation.outbound_departure_time ?? '',
-          } : null}
-        />
+        <div id="leg-options">
+          <LegOptions
+            data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
+            title={`Outbound options · ${formatDate(smartOutboundDate)}`}
+            adults={adults}
+            children={children}
+            infants={infants}
+            transitPreference={transitPreference}
+            postcodeDistrict={postcodeDistrict}
+            selectedDate={selectedOutbound}
+            smartDate={smartOutboundDate}
+            recommendedOption={assembled?.recommendation ? {
+              airline_iata:     assembled.recommendation.outbound_carrier,
+              origin_iata:      assembled.recommendation.origin_iata,
+              destination_iata: assembled.recommendation.out_dest_iata,
+              departure_time:   assembled.recommendation.outbound_departure_time ?? '',
+            } : null}
+          />
+        </div>
         <LegOptions
           data={returnLegResult?.error ? null : returnLegResult?.data as any}
           title={`Return options · ${formatDate(smartReturnDate)}`}
@@ -264,6 +276,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           infants={infants}
           transitPreference={transitPreference}
           postcodeDistrict={postcodeDistrict}
+          selectedDate={selectedReturn}
+          smartDate={smartReturnDate}
           recommendedOption={assembled?.recommendation ? {
             airline_iata:     assembled.recommendation.return_carrier,
             origin_iata:      assembled.recommendation.out_dest_iata,

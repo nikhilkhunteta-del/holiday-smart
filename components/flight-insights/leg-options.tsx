@@ -54,6 +54,8 @@ interface LegOptionsProps {
   infants: number;
   transitPreference: 'auto' | 'uber';
   postcodeDistrict: string | null;
+  selectedDate: string;
+  smartDate: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,18 +64,24 @@ function ancillaryGbp(opt: LegOption): number {
   return opt.cabin_bag_cost_gbp + opt.checked_bag_cost_gbp + opt.seat_cost_gbp;
 }
 
+// Fix 1 — match on airline + origin + destination only, no departure_time
 function isRecommended(opt: LegOption, rec: RecommendedOption | null | undefined): boolean {
   if (!rec) return false;
   return (
     opt.airline_iata     === rec.airline_iata &&
     opt.origin_iata      === rec.origin_iata &&
-    opt.destination_iata === rec.destination_iata &&
-    opt.departure_time.slice(0, 5) === (rec.departure_time ?? '').slice(0, 5)
+    opt.destination_iata === rec.destination_iata
   );
 }
 
 function gbp(n: number): string {
   return `£${Math.round(n).toLocaleString('en-GB')}`;
+}
+
+function formatDate(iso: string): string {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 function fmt(time: string): string {
@@ -102,8 +110,9 @@ function computeTransitCost(
   children: number,
   transitPreference: 'auto' | 'uber',
   isEarlyMorning: boolean,
+  direction: 'outbound' | 'return',
 ): number {
-  const totalPax    = adults + children;
+  const totalPax     = adults + children;
   const xlMultiplier = totalPax >= 4 ? 1.5 : 1.0;
 
   const uberMid = option.uber_low_pence != null && option.uber_high_pence != null
@@ -120,7 +129,7 @@ function computeTransitCost(
     ? option.transit_offpeak_fare_pence / 100.0
     : null;
 
-  // Rule 1: Early morning → Uber (high estimate)
+  // Rule 1: Early morning → Uber (high estimate) — outbound only
   if (isEarlyMorning) {
     const uberHigh = option.uber_high_pence != null
       ? (option.uber_high_pence / 100.0) * xlMultiplier
@@ -143,18 +152,14 @@ function computeTransitCost(
   }
 
   // Rule 4: Default → transit with child fare adjustment
+  const londonAirport = direction === 'outbound' ? option.origin_iata : option.destination_iata;
   const adultFarePerPerson = adults > 0 ? transitFare / adults : transitFare;
   const method = option.transit_method ?? '';
 
   let childFare = 0;
-  if (
-    method.includes('Heathrow') ||
-    method.includes('DLR') ||
-    option.origin_iata === 'LHR' ||
-    option.origin_iata === 'LCY'
-  ) {
+  if (londonAirport === 'LHR' || londonAirport === 'LCY') {
     childFare = children * 1.05;
-  } else if (method.includes('National Express') || option.origin_iata === 'LTN') {
+  } else if (londonAirport === 'LTN' || method.includes('National Express')) {
     childFare = children * adultFarePerPerson * 0.75;
   } else {
     childFare = children * adultFarePerPerson * 0.5;
@@ -163,25 +168,22 @@ function computeTransitCost(
   return adults * adultFarePerPerson + childFare;
 }
 
-// ── Mini proportion bar (4 segments) ─────────────────────────────────────────
+// ── Airport badge ─────────────────────────────────────────────────────────────
 
-function ProportionBar({ opt }: { opt: LegOption }) {
-  const total = opt.total_gbp;
-  if (total === 0) return null;
-
-  const farePct     = (opt.fare_gbp / total) * 100;
-  const ancPct      = (ancillaryGbp(opt) / total) * 100;
-  const transitPct  = ((opt.transit_cost_gbp ?? 0) / total) * 100;
-  const transferPct = (opt.destination_transfer_gbp / total) * 100;
-
+function AirportBadge({ iata, isCheapest }: { iata: string; isCheapest: boolean }) {
   return (
-    <div style={{ display: 'flex', width: '100%', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
-      <div style={{ width: `${farePct}%`,    background: '#004349' }} />
-      <div style={{ width: `${ancPct}%`,     background: '#4A6FA5' }} />
-      <div style={{ width: `${transitPct}%`, background: '#fdba49' }} />
-      {opt.destination_transfer_gbp > 0 && (
-        <div style={{ width: `${transferPct}%`, background: '#E07B54' }} />
-      )}
+    <div style={{
+      padding: '4px 8px',
+      borderRadius: 6,
+      background: isCheapest ? '#004349' : '#e1e3e3',
+      color: isCheapest ? '#ffffff' : '#3f484a',
+      fontSize: 12,
+      fontWeight: 700,
+      textAlign: 'center' as const,
+      letterSpacing: '0.03em',
+      display: 'inline-block',
+    }}>
+      {iata}
     </div>
   );
 }
@@ -191,9 +193,9 @@ function ProportionBar({ opt }: { opt: LegOption }) {
 function RowDetail({ opt }: { opt: LegOption }) {
   const rows: Array<{ label: string; value: string; bold?: boolean }> = [
     { label: 'Base fare',    value: gbp(opt.fare_gbp) },
-    { label: 'Cabin bags',   value: opt.cabin_bag_cost_gbp   === 0 ? 'Included'      : gbp(opt.cabin_bag_cost_gbp) },
-    { label: 'Checked bags', value: opt.checked_bag_cost_gbp === 0 ? 'None'          : gbp(opt.checked_bag_cost_gbp) },
-    { label: 'Seats',        value: opt.seat_cost_gbp        === 0 ? 'Not selected'  : gbp(opt.seat_cost_gbp) },
+    { label: 'Cabin bags',   value: opt.cabin_bag_cost_gbp   === 0 ? 'Included'     : gbp(opt.cabin_bag_cost_gbp) },
+    { label: 'Checked bags', value: opt.checked_bag_cost_gbp === 0 ? 'None'         : gbp(opt.checked_bag_cost_gbp) },
+    { label: 'Seats',        value: opt.seat_cost_gbp        === 0 ? 'Not selected' : gbp(opt.seat_cost_gbp) },
     {
       label: opt.transit_method ? `Transport (${opt.transit_method})` : 'Transport',
       value: opt.transit_cost_gbp != null ? gbp(opt.transit_cost_gbp) : '—',
@@ -273,154 +275,280 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
   );
 }
 
-// ── Column header + value stack ───────────────────────────────────────────────
+// ── Column header helper ──────────────────────────────────────────────────────
 
-function ColStack({ label, children }: { label: string; children?: ReactNode }) {
+function ColLabel({ children }: { children?: ReactNode }) {
   return (
-    <div>
-      <div style={{
-        fontSize: 10,
-        fontWeight: 600,
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.06em',
-        color: '#6f797a',
-        marginBottom: 2,
-      }}>
-        {label}
-      </div>
+    <div style={{
+      fontSize: 10,
+      fontWeight: 600,
+      textTransform: 'uppercase' as const,
+      letterSpacing: '0.06em',
+      color: '#6f797a',
+      marginBottom: 2,
+    }}>
       {children}
     </div>
   );
 }
 
-// ── Table row ─────────────────────────────────────────────────────────────────
+// ── Fix 2 & 4 — Transport column content ─────────────────────────────────────
 
-function OptionRow({
+function TransportCell({
   opt,
-  isCheapest,
-  isRec,
-  index,
+  transitPreference,
 }: {
   opt: LegOption;
-  isCheapest: boolean;
-  isRec: boolean;
-  index: number;
+  transitPreference: 'auto' | 'uber';
 }) {
-  const [expanded, setExpanded]   = useState(false);
-  const [showTooltip, setTooltip] = useState(false);
+  const cost = opt.transit_cost_gbp;
 
+  if (cost == null) {
+    return (
+      <div>
+        <ColLabel>Transport</ColLabel>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#6f797a' }}>—</div>
+      </div>
+    );
+  }
+
+  if (transitPreference === 'uber') {
+    return (
+      <div>
+        <ColLabel>Transport</ColLabel>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+        <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
+        {opt.transit_duration_mins != null && (
+          <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
+        )}
+      </div>
+    );
+  }
+
+  // Auto mode
+  return (
+    <div>
+      <ColLabel>Transport</ColLabel>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+      <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
+        {extractTransitMode(opt.transit_method)}
+      </div>
+      {opt.destination_transfer_gbp >= 40 && (
+        <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
+          + {gbp(opt.destination_transfer_gbp)} dest. transfer
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Lever row ─────────────────────────────────────────────────────────────────
+
+function LeverRow({
+  opt,
+  airportIata,
+  destCityIata,
+  isCheapestRow,
+  isRec,
+  notCheapestNote,
+  isFirst,
+  transitPreference,
+}: {
+  opt: LegOption;
+  airportIata: string;
+  destCityIata: string;
+  isCheapestRow: boolean;
+  isRec: boolean;
+  notCheapestNote: boolean;
+  isFirst: boolean;
+  transitPreference: 'auto' | 'uber';
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [showTooltip, setTooltip] = useState(false);
   const anc = ancillaryGbp(opt);
+  const cost = opt.transit_cost_gbp ?? 0;
 
   return (
-    <>
+    <div style={{
+      borderTop: isFirst ? 'none' : '1px solid #e8edee',
+      borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
+      background: isCheapestRow ? '#f0f8f9' : 'transparent',
+    }}>
       {isRec && (
-        <tr>
-          <td colSpan={5} style={{ paddingBottom: 2 }}>
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: '#004349',
-            }}>
-              ★ Our pick
+        <div style={{ paddingLeft: 10, paddingTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.06em',
+            color: '#004349',
+          }}>
+            ★ Our pick
+          </span>
+          {notCheapestNote && (
+            <span style={{ fontSize: 10, color: '#6f797a', fontStyle: 'italic' }}>
+              Not cheapest for this airport — chosen for overall trip cost.
             </span>
-          </td>
-        </tr>
+          )}
+        </div>
       )}
-      <tr
+
+      <div
         onClick={() => setExpanded((v: boolean) => !v)}
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 10px',
           cursor: 'pointer',
-          borderTop: index === 0 ? 'none' : '1px solid #e8edee',
-          background: isRec ? '#f0f8f9' : 'transparent',
-          borderLeft: isRec ? '3px solid #004349' : '3px solid transparent',
         }}
       >
-        {/* Col 1 — Airline + Route */}
-        <td style={{ padding: '12px 8px 12px 10px', verticalAlign: 'top', minWidth: 0 }}>
+        {/* Airport badge (70px) */}
+        <div style={{ width: 70, flexShrink: 0 }}>
+          <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
+        </div>
+
+        {/* Carrier + Route (flex-grow) */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
             {opt.airline_name}
           </div>
-          <div style={{ fontSize: 12, color: '#6f797a', lineHeight: 1.4 }}>
-            {opt.origin_iata} → {opt.destination_iata}
-          </div>
           <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.4 }}>
-            {fmt(opt.departure_time)} → {fmt(opt.arrival_time)}
+            {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
           </div>
-        </td>
+        </div>
 
-        {/* Col 2 — Fare */}
-        <td style={{ padding: '12px 8px', verticalAlign: 'top', width: 100 }}>
-          <ColStack label="Fare">
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
-              {gbp(opt.fare_gbp)}
+        {/* Fare (70px) */}
+        <div style={{ width: 70, flexShrink: 0, textAlign: 'right' as const }}>
+          <ColLabel>Fare</ColLabel>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+            {gbp(opt.fare_gbp)}
+          </div>
+        </div>
+
+        {/* Bags+Seats (80px) */}
+        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+          <ColLabel>Bags+Seats</ColLabel>
+          <div
+            style={{ position: 'relative', display: 'inline-block' }}
+            onMouseEnter={() => setTooltip(true)}
+            onMouseLeave={() => setTooltip(false)}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+              {gbp(anc)}
             </div>
-          </ColStack>
-        </td>
+            {showTooltip && <AncillaryTooltip opt={opt} />}
+          </div>
+        </div>
 
-        {/* Col 3 — Bags & Seats */}
-        <td style={{ padding: '12px 8px', verticalAlign: 'top', width: 100 }}>
-          <ColStack label="Bags + Seats">
-            <div
-              style={{ position: 'relative', display: 'inline-block' }}
-              onMouseEnter={() => setTooltip(true)}
-              onMouseLeave={() => setTooltip(false)}
-            >
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
-                {gbp(anc)}
+        {/* Transport (100px) */}
+        <div style={{ width: 100, flexShrink: 0 }}>
+          <ColLabel>Transport</ColLabel>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+          {transitPreference === 'uber' ? (
+            <>
+              <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
+              {opt.transit_duration_mins != null && (
+                <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
+              {extractTransitMode(opt.transit_method)}
+            </div>
+          )}
+        </div>
+
+        {/* Dest. Transfer (80px) */}
+        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+          <ColLabel>Dest. Transfer</ColLabel>
+          {opt.destination_transfer_gbp > 0 ? (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+                {gbp(opt.destination_transfer_gbp)}
               </div>
-              {showTooltip && <AncillaryTooltip opt={opt} />}
-            </div>
-          </ColStack>
-        </td>
+              <div style={{ fontSize: 10, color: '#6f797a' }}>
+                {destCityIata} airport
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: '#6f797a' }}>—</div>
+          )}
+        </div>
 
-        {/* Col 4 — Transport */}
-        <td style={{ padding: '12px 8px', verticalAlign: 'top', width: 120 }}>
-          <ColStack label="Transport">
-            {opt.transit_cost_gbp != null ? (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
-                  {gbp(opt.transit_cost_gbp)}
-                </div>
-                <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-                  {extractTransitMode(opt.transit_method)}
-                </div>
-                {opt.destination_transfer_gbp >= 40 && (
-                  <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
-                    + {gbp(opt.destination_transfer_gbp)} dest. transfer
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#6f797a' }}>—</div>
-            )}
-          </ColStack>
-        </td>
-
-        {/* Col 5 — Total */}
-        <td style={{ padding: '12px 10px 12px 8px', verticalAlign: 'top', width: 100, textAlign: 'right' }}>
+        {/* Total (80px) */}
+        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
           <div style={{
-            fontSize: 16,
+            fontSize: 14,
             fontWeight: 700,
-            color: isCheapest ? '#004349' : '#1a2526',
-            lineHeight: 1.2,
+            color: isCheapestRow ? '#004349' : '#1a2526',
           }}>
             {gbp(opt.total_gbp)}
           </div>
-          <ProportionBar opt={opt} />
-        </td>
-      </tr>
+        </div>
+      </div>
 
       {expanded && (
-        <tr style={{ background: isRec ? '#f0f8f9' : 'transparent' }}>
-          <td colSpan={5} style={{ padding: '0 10px 12px' }}>
-            <RowDetail opt={opt} />
-          </td>
-        </tr>
+        <div style={{ padding: '0 10px 12px' }}>
+          <RowDetail opt={opt} />
+        </div>
       )}
-    </>
+    </div>
   );
+}
+
+// ── Lever group builder ───────────────────────────────────────────────────────
+
+type ProcessedOption = LegOption & { transit_cost_gbp: number; total_gbp: number };
+
+interface LeverGroup {
+  airportIata:      string;
+  displayRow:       ProcessedOption;
+  isRec:            boolean;
+  notCheapestNote:  boolean;
+}
+
+function buildLeverGroups(
+  opts:       ProcessedOption[],
+  getAirport: (o: ProcessedOption) => string,
+  recOption:  ProcessedOption | null,
+): LeverGroup[] {
+  const groupMap = new Map<string, ProcessedOption[]>();
+  for (const opt of opts) {
+    const ap = getAirport(opt);
+    if (!groupMap.has(ap)) groupMap.set(ap, []);
+    groupMap.get(ap)!.push(opt);
+  }
+
+  const groups: LeverGroup[] = [];
+  for (const [airportIata, members] of groupMap) {
+    const sorted = [...members].sort((a, b) => a.total_gbp - b.total_gbp);
+    const cheapest = sorted[0];
+    const recInGroup = recOption && members.some(
+      o => o.airline_iata === recOption.airline_iata &&
+           o.origin_iata  === recOption.origin_iata  &&
+           o.destination_iata === recOption.destination_iata,
+    ) ? recOption : null;
+
+    if (recInGroup) {
+      groups.push({
+        airportIata,
+        displayRow:      recInGroup,
+        isRec:           true,
+        notCheapestNote: recInGroup.total_gbp > cheapest.total_gbp,
+      });
+    } else {
+      groups.push({
+        airportIata,
+        displayRow: cheapest,
+        isRec:      false,
+        notCheapestNote: false,
+      });
+    }
+  }
+
+  groups.sort((a, b) => a.displayRow.total_gbp - b.displayRow.total_gbp);
+  return groups;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -432,15 +560,19 @@ export function LegOptions({
   adults,
   children,
   transitPreference,
+  selectedDate,
+  smartDate,
 }: LegOptionsProps) {
-  const [open, setOpen]       = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const direction = data?.direction ?? 'outbound';
 
   // Apply party-size-aware transit cost computation and re-sort
-  const processedOptions = (data?.options ?? []).map((opt) => {
-    const isEarlyMorning = fmt(opt.departure_time) < '07:00';
+  const processedOptions: ProcessedOption[] = (data?.options ?? []).map((opt) => {
+    const isEarlyMorning =
+      direction === 'outbound' && fmt(opt.departure_time) < '07:00';
     const transitCost = computeTransitCost(
-      opt, adults, children, transitPreference, isEarlyMorning,
+      opt, adults, children, transitPreference, isEarlyMorning, direction,
     );
     const totalGbp =
       opt.fare_gbp +
@@ -450,23 +582,39 @@ export function LegOptions({
     return {
       ...opt,
       transit_cost_gbp: transitCost,
-      total_gbp: totalGbp,
+      total_gbp:        totalGbp,
     };
   });
   processedOptions.sort((a, b) => a.total_gbp - b.total_gbp);
 
-  const visible = showAll ? processedOptions : processedOptions.slice(0, 8);
+  function getLondonIata(o: ProcessedOption): string {
+    return direction === 'outbound' ? o.origin_iata : o.destination_iata;
+  }
+  function getDestIata(o: ProcessedOption): string {
+    return direction === 'outbound' ? o.destination_iata : o.origin_iata;
+  }
+
+  const recOption = processedOptions.find(o => isRecommended(o, recommendedOption)) ?? null;
+
+  const londonGroups = buildLeverGroups(processedOptions, getLondonIata, recOption);
+  const destGroups   = buildLeverGroups(processedOptions, getDestIata,   recOption);
+  const showDestTable = new Set(processedOptions.map(getDestIata)).size >= 2;
+
+  const table1Title = direction === 'outbound'
+    ? 'Does your departure airport matter?'
+    : 'Does your arrival airport matter?';
+  const table2Title = direction === 'outbound'
+    ? 'Does the arrival airport matter?'
+    : 'Does the departure airport matter?';
 
   return (
-    <div
-      style={{
-        background: '#ffffff',
-        borderRadius: 16,
-        boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
-        padding: 24,
-        fontFamily: 'Inter, sans-serif',
-      }}
-    >
+    <div style={{
+      background: '#ffffff',
+      borderRadius: 16,
+      boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
+      padding: 24,
+      fontFamily: 'Inter, sans-serif',
+    }}>
       {/* Header toggle */}
       <button
         onClick={() => setOpen((v: boolean) => !v)}
@@ -479,16 +627,33 @@ export function LegOptions({
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          textAlign: 'left',
+          textAlign: 'left' as const,
         }}
       >
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3, marginBottom: 4 }}>
-            {title}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3 }}>
+              {title}
+            </div>
+            {selectedDate !== smartDate && (
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: '#ffffff',
+                background: '#004349', borderRadius: 9999,
+                padding: '2px 8px', flexShrink: 0,
+              }}>
+                {formatDate(selectedDate)}
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
-            All options ranked by true all-in cost — fare, bags, seats and transport included.
-          </div>
+          {selectedDate === smartDate ? (
+            <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
+              Best option per airport — true all-in cost including fare, bags, seats and transport.
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#6f797a', lineHeight: 1.4 }}>
+              Showing options for {formatDate(selectedDate)}. Click any date in the matrix above to compare.
+            </div>
+          )}
         </div>
         <div style={{ marginLeft: 16, flexShrink: 0, color: '#004349', paddingTop: 2 }}>
           {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
@@ -504,36 +669,71 @@ export function LegOptions({
             </p>
           ) : (
             <>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                  {visible.map((opt, i) => (
-                    <OptionRow
-                      key={`${opt.airline_iata}-${opt.origin_iata}-${opt.departure_time}`}
-                      opt={opt}
-                      isCheapest={i === 0}
-                      isRec={isRecommended(opt, recommendedOption)}
-                      index={i}
-                    />
-                  ))}
-                </tbody>
-              </table>
+              {/* Table 1 — London airport lever */}
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#3f484a', marginBottom: 10 }}>
+                {table1Title}
+              </div>
+              <div style={{
+                border: '1px solid #e8edee',
+                borderRadius: 10,
+                overflow: 'hidden',
+              }}>
+                {londonGroups.map((group, i) => (
+                  <LeverRow
+                    key={`london-${group.airportIata}`}
+                    opt={group.displayRow}
+                    airportIata={getLondonIata(group.displayRow)}
+                    destCityIata={getDestIata(group.displayRow)}
+                    isCheapestRow={i === 0}
+                    isRec={group.isRec}
+                    notCheapestNote={group.notCheapestNote}
+                    isFirst={i === 0}
+                    transitPreference={transitPreference}
+                  />
+                ))}
+              </div>
 
-              {!showAll && processedOptions.length > 8 && (
-                <button
-                  onClick={() => setShowAll(true)}
-                  style={{
-                    marginTop: 12,
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    color: '#004349',
-                    textDecoration: 'underline',
-                  }}
-                >
-                  Show all {processedOptions.length} options
-                </button>
+              {/* Table 2 — Destination airport lever */}
+              {showDestTable && (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    margin: '20px 0 10px',
+                  }}>
+                    <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '0.06em',
+                      color: '#6f797a',
+                    }}>
+                      {table2Title}
+                    </div>
+                    <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
+                  </div>
+                  <div style={{
+                    border: '1px solid #e8edee',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}>
+                    {destGroups.map((group, i) => (
+                      <LeverRow
+                        key={`dest-${group.airportIata}`}
+                        opt={group.displayRow}
+                        airportIata={getDestIata(group.displayRow)}
+                        destCityIata={getDestIata(group.displayRow)}
+                        isCheapestRow={i === 0}
+                        isRec={group.isRec}
+                        notCheapestNote={group.notCheapestNote}
+                        isFirst={i === 0}
+                        transitPreference={transitPreference}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}
