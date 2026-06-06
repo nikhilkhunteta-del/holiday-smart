@@ -411,20 +411,18 @@ export function ComplianceCalculator({
         Every viable departure and return combination for your half-term, fully priced — flights, bags, seats and transfers included.
       </p>
 
-      {baselineIsRecommended ? (
-        <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
-          The standard Heathrow booking is the cheapest option with your current preferences. Adjust bags or transport to explore alternatives.
-        </p>
-      ) : combinations.length === 0 ? (
+      {combinations.length === 0 ? (
         <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
           No combinations found for this window.
         </p>
       ) : (
         <>
-          {/* Baseline reference line */}
-          <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#3f484a', marginBottom: 16 }}>
-            Baseline: {blCarrier} · {blOrigin} · {blOut}{blRet ? ` → ${blRet}` : ''} · {gbp(baselineTotal)} · no optimisation
-          </p>
+          {/* Baseline reference line — hidden when baseline is the recommendation */}
+          {!baselineIsRecommended && (
+            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#3f484a', marginBottom: 16 }}>
+              Baseline: {blCarrier} · {blOrigin} · {blOut}{blRet ? ` → ${blRet}` : ''} · {gbp(baselineTotal)} · no optimisation
+            </p>
+          )}
 
           {/* Matrix */}
           <div style={{ position: 'relative' }}>
@@ -496,12 +494,40 @@ export function ComplianceCalculator({
                           )}
                         </td>
                         {retDates.map((ret) => {
-                          const c           = cellMap.get(`${dep}|${ret}`);
-                          const cellKey     = `${dep}|${ret}`;
-                          const isRec       = recommendation
-                            ? dep === recommendation.outbound_date && ret === recommendation.return_date
-                            : false;
+                          const c             = cellMap.get(`${dep}|${ret}`);
+                          const cellKey       = `${dep}|${ret}`;
                           const isBaselinePos = dep === baseline.outbound_date && ret === baseline.return_date;
+
+                          // When baseline is recommended: baseline pos = OUR PICK, no other cell gets star
+                          const isRec = baselineIsRecommended
+                            ? false
+                            : (recommendation
+                                ? dep === recommendation.outbound_date && ret === recommendation.return_date
+                                : false);
+
+                          if (isBaselinePos && baselineIsRecommended) {
+                            // Render baseline position as OUR PICK (dark teal, white text)
+                            return (
+                              <td
+                                key={ret}
+                                style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: '#0d5c63', borderRadius: 6 }}
+                              >
+                                <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
+                                  <div style={{
+                                    position: 'absolute', top: 0, left: 0,
+                                    fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.85)',
+                                    letterSpacing: '0.04em', textTransform: 'uppercase' as const,
+                                    whiteSpace: 'nowrap' as const,
+                                  }}>
+                                    ★ Our pick
+                                  </div>
+                                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#ffffff', display: 'block' }}>
+                                    {gbp(baselineTotal)}
+                                  </span>
+                                </div>
+                              </td>
+                            );
+                          }
 
                           if (c) {
                             if (isBaselinePos && baseline.total_cost_gbp <= c.total_inc_fine) {
