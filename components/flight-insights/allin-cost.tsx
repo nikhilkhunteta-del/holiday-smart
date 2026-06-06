@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -62,17 +62,15 @@ export interface AllInCostProps {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const AIRLINE_NAMES: Record<string, string> = {
-  FR: 'Ryanair',
+const PHASE1_CARRIERS = ['BA', 'U2', 'W6', 'VY', 'FR']
+
+const CARRIER_NAMES: Record<string, string> = {
+  BA: 'British Airways',
   U2: 'easyJet',
   W6: 'Wizz Air',
   VY: 'Vueling',
-  TP: 'TAP Air Portugal',
-  BA: 'British Airways',
+  FR: 'Ryanair',
 }
-
-const CABIN_INCLUDED_CARRIERS = new Set(['BA', 'TP'])
-const CABIN_BUNDLE_ONLY_CARRIERS = new Set(['FR'])
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -87,100 +85,303 @@ function fmtDate(iso: string | undefined): string {
   return `${d.getDate()} ${months[d.getMonth()]}`
 }
 
-function cabinBagLegCost(
-  carrier: string,
-  cabinFee: number | null,
-  bundleDelta: number | null,
-  bundleInclChecked: boolean | null,
-): number {
-  if (CABIN_INCLUDED_CARRIERS.has(carrier)) return 0
-  if (
-    CABIN_BUNDLE_ONLY_CARRIERS.has(carrier) &&
-    bundleInclChecked === false &&
-    bundleDelta !== null
-  ) {
-    return Math.min(cabinFee ?? Infinity, bundleDelta)
-  }
-  return cabinFee ?? 0
+interface EnrichedRow extends CarrierRow {
+  cabinCost: number
+  checkedCost: number
+  bagCost: number
+  seatCost: number
+  trueTotal: number
 }
 
-function deriveBagCost(row: CarrierRow, pCabinBags: number, pCheckedBags: number): number {
-  // If RPC pre-computed baggage_cost, prefer it
-  if (row.baggage_cost !== null) return row.baggage_cost
+function deriveEnriched(row: CarrierRow, pCabinBags: number, pCheckedBags: number): EnrichedRow {
+  const cabinCost =
+    (row.outbound_cabin_bag_included ? 0 : (row.outbound_cabin_bag_fee_gbp ?? 0)) +
+    (row.return_cabin_bag_included   ? 0 : (row.return_cabin_bag_fee_gbp   ?? 0))
 
-  let cost = 0
+  const checkedCost =
+    ((row.outbound_bag_fee_pp ?? 0) * pCheckedBags) +
+    ((row.return_bag_fee_pp   ?? 0) * pCheckedBags)
 
-  // Cabin bags
-  if (pCabinBags > 0) {
-    const outCabin = cabinBagLegCost(
-      row.outbound_carrier,
-      row.outbound_cabin_bag_fee_gbp,
-      row.bundle_price_delta_gbp,
-      row.bundle_includes_checked,
-    ) * pCabinBags
+  const bagCost   = cabinCost + checkedCost
+  const seatCost  = row.seat_cost ?? 0
+  const trueTotal = row.base_fare_total + bagCost + seatCost
 
-    const retCabin = cabinBagLegCost(
-      row.return_carrier,
-      row.return_cabin_bag_fee_gbp,
-      row.return_bundle_price_delta_gbp,
-      row.return_bundle_includes_checked,
-    ) * pCabinBags
-
-    cost += outCabin + retCabin
-  }
-
-  // Checked bags (one bag shared — fee per leg, not × party)
-  if (pCheckedBags > 0) {
-    cost += (row.outbound_bag_fee_pp ?? 0) + (row.return_bag_fee_pp ?? 0)
-  }
-
-  return cost
+  return { ...row, cabinCost, checkedCost, bagCost, seatCost, trueTotal }
 }
 
-function trueTotalGbp(row: CarrierRow, bagCost: number): number {
-  return row.base_fare_total + bagCost + (row.seat_cost ?? 0)
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+
+function Tooltip({ row }: { row: EnrichedRow }) {
+  const name        = CARRIER_NAMES[row.outbound_carrier] ?? row.outbound_carrier
+  const returnName  = CARRIER_NAMES[row.return_carrier]   ?? row.return_carrier
+  const isSplit     = row.outbound_carrier !== row.return_carrier
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 'calc(100% + 8px)',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: '#2e3131',
+        color: '#eff1f1',
+        borderRadius: 8,
+        padding: 12,
+        maxWidth: 240,
+        width: 'max-content',
+        fontSize: 12,
+        fontFamily: 'Inter, sans-serif',
+        lineHeight: 1.5,
+        zIndex: 10,
+        pointerEvents: 'none',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: isSplit ? 2 : 8 }}>{name}</div>
+      {isSplit && (
+        <div style={{ color: '#bfc8c9', marginBottom: 8, fontSize: 11 }}>
+          Return: {returnName}
+        </div>
+      )}
+      <div style={{ borderTop: '1px solid #3f484a', marginBottom: 8 }} />
+      <TooltipRow label="Base fare outbound" value={gbp(row.outbound_fare)} />
+      <TooltipRow label="Base fare return"   value={gbp(row.return_fare)} />
+      <TooltipRow
+        label="Cabin bags"
+        value={row.cabinCost > 0 ? gbp(row.cabinCost) : 'Included'}
+      />
+      <TooltipRow
+        label="Checked bags"
+        value={row.checkedCost > 0 ? gbp(row.checkedCost) : 'None'}
+      />
+      <TooltipRow
+        label="Seats"
+        value={row.seatCost > 0 ? gbp(row.seatCost) : 'Not selected'}
+      />
+      <div style={{ borderTop: '1px solid #3f484a', margin: '8px 0' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+        <span>Total</span>
+        <span>{gbp(row.trueTotal)}</span>
+      </div>
+      {row.family_split_risk && (
+        <div style={{ marginTop: 8, color: '#fdba49', fontSize: 11 }}>
+          ⚠ Family split risk
+        </div>
+      )}
+    </div>
+  )
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function TooltipRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <span style={{ color: '#bfc8c9' }}>{label}</span>
+      <span>{value}</span>
+    </div>
+  )
+}
+
+// ── Chart row ─────────────────────────────────────────────────────────────────
+
+function ChartRow({
+  row,
+  maxTotal,
+  isCheapest,
+}: {
+  row: EnrichedRow
+  maxTotal: number
+  isCheapest: boolean
+}) {
+  const [showTip, setShowTip] = useState(false)
+  const tapRef = useRef(false)
+
+  const name       = CARRIER_NAMES[row.outbound_carrier] ?? row.outbound_carrier
+  const returnName = CARRIER_NAMES[row.return_carrier]   ?? row.return_carrier
+  const isSplit    = row.outbound_carrier !== row.return_carrier
+
+  // Bar width: max carrier gets 85%, others scaled proportionally, min 20%
+  const MAX_PCT = 85
+  const MIN_PCT = 20
+  const rawPct  = maxTotal > 0 ? (row.trueTotal / maxTotal) * MAX_PCT : MAX_PCT
+  const barPct  = Math.max(MIN_PCT, rawPct)
+
+  // Stacked bar segment widths (proportional within the bar)
+  const total   = row.trueTotal
+  const basePct = total > 0 ? (row.base_fare_total / total) * 100 : 100
+  const cabPct  = total > 0 ? (row.cabinCost   / total) * 100 : 0
+  const chkPct  = total > 0 ? (row.checkedCost / total) * 100 : 0
+  const seatPct = total > 0 ? (row.seatCost    / total) * 100 : 0
+
+  function handleMouseEnter() { setShowTip(true) }
+  function handleMouseLeave() { setShowTip(false) }
+  function handleTap() {
+    if (tapRef.current) {
+      setShowTip(false)
+      tapRef.current = false
+    } else {
+      setShowTip(true)
+      tapRef.current = true
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      {/* Label column */}
+      <div style={{ width: 160, flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#191c1d', lineHeight: 1.3 }}>
+          {name}
+          {row.family_split_risk && (
+            <span style={{ color: '#fdba49', marginLeft: 5, fontSize: 11 }}>⚠</span>
+          )}
+        </div>
+        {isSplit && (
+          <div style={{ fontSize: 11, color: '#6f797a', marginTop: 2 }}>
+            return: {returnName}
+          </div>
+        )}
+      </div>
+
+      {/* Bar + total */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {isCheapest && (
+          <div
+            style={{
+              fontSize: 10,
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 600,
+              color: '#004349',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: 4,
+            }}
+          >
+            ★ Cheapest
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Bar wrapper */}
+          <div
+            style={{ flex: 1, position: 'relative' }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onClick={handleTap}
+          >
+            {/* Outer track */}
+            <div
+              style={{
+                width: `${barPct}%`,
+                display: 'flex',
+                height: 32,
+                borderRadius: 999,
+                overflow: 'hidden',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ width: `${basePct}%`, background: '#004349' }} />
+              {cabPct > 0 && (
+                <div style={{ width: `${cabPct}%`, background: '#fdba49' }} />
+              )}
+              {chkPct > 0 && (
+                <div style={{ width: `${chkPct}%`, background: '#f5a623' }} />
+              )}
+              {seatPct > 0 && (
+                <div style={{ width: `${seatPct}%`, background: '#fdd98a' }} />
+              )}
+            </div>
+
+            {/* Tooltip */}
+            {showTip && <Tooltip row={row} />}
+          </div>
+
+          {/* Total label */}
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: '#191c1d',
+              fontFamily: 'Inter, sans-serif',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {gbp(row.trueTotal)}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Legend ────────────────────────────────────────────────────────────────────
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span
+        style={{
+          display: 'inline-block',
+          width: 10,
+          height: 10,
+          borderRadius: 2,
+          background: color,
+          flexShrink: 0,
+        }}
+      />
+      <span>{label}</span>
+    </span>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export function AllInCost({
   data,
   partySize,
   pCabinBags,
   pCheckedBags,
-  seatsTogether,
   smartOutboundDate,
   smartReturnDate,
 }: AllInCostProps) {
-  const [open, setOpen]           = useState(false)
-  const [showAll, setShowAll]     = useState(false)
-  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
 
-  const enriched = useMemo(() => {
+  const chartRows = useMemo<EnrichedRow[]>(() => {
     if (!data?.carriers) return []
-    return data.carriers
-      .map((r) => {
-        const bagCost   = deriveBagCost(r, pCabinBags, pCheckedBags)
-        const trueTotal = trueTotalGbp(r, bagCost)
-        return { ...r, bagCost, trueTotal }
-      })
-      .sort((a, b) => a.trueTotal - b.trueTotal)
+
+    // One best row per Phase 1 carrier (lowest trueTotal)
+    const result: EnrichedRow[] = []
+    for (const iata of PHASE1_CARRIERS) {
+      const matching = data.carriers.filter((r) => r.outbound_carrier === iata)
+      if (matching.length === 0) continue
+
+      const enriched = matching.map((r) => deriveEnriched(r, pCabinBags, pCheckedBags))
+      enriched.sort((a, b) => a.trueTotal - b.trueTotal)
+      result.push(enriched[0])
+    }
+
+    // Sort cheapest first
+    result.sort((a, b) => a.trueTotal - b.trueTotal)
+    return result
   }, [data, pCabinBags, pCheckedBags])
 
-  if (!data || enriched.length === 0) return null
+  if (!data || chartRows.length === 0) return null
 
-  const cheapestTotal = enriched[0].trueTotal
-  const visibleCarriers = showAll ? enriched : enriched.slice(0, 5)
-  const hiddenCount = enriched.length - 5
+  const maxTotal    = Math.max(...chartRows.map((r) => r.trueTotal))
+  const cheapestTotal = chartRows[0].trueTotal
+
+  // Determine which legend items actually appear
+  const hasCabin   = chartRows.some((r) => r.cabinCost   > 0)
+  const hasChecked = chartRows.some((r) => r.checkedCost > 0)
+  const hasSeats   = chartRows.some((r) => r.seatCost    > 0)
+  const hasSplitRisk = chartRows.some((r) => r.family_split_risk)
 
   const subLabel = `Base fare + bags + seats for ${fmtDate(smartOutboundDate)} → ${fmtDate(smartReturnDate)}, party of ${partySize}`
 
   return (
     <div
-      className="bg-white rounded-lg font-inter"
-      style={{ boxShadow: '0 2px 12px rgba(13,92,99,0.08)', padding: 24 }}
+      className="bg-white rounded-lg"
+      style={{ boxShadow: '0 2px 12px rgba(13,92,99,0.08)', padding: 24, fontFamily: 'Inter, sans-serif' }}
     >
-      {/* Toggle button */}
+      {/* Toggle */}
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -209,264 +410,41 @@ export function AllInCost({
         </div>
       </button>
 
-      {/* Expanded content */}
+      {/* Chart */}
       {open && (
-        <div style={{ marginTop: 24 }}>
-          {visibleCarriers.map((row) => {
-            const key       = `${row.outbound_carrier}-${row.return_carrier}`
-            const isExp     = expandedKey === key
-            const name      = AIRLINE_NAMES[row.outbound_carrier] ?? row.outbound_carrier
-            const isCheapest = row.trueTotal === cheapestTotal
+        <div style={{ marginTop: 28 }}>
+          {chartRows.map((row) => (
+            <ChartRow
+              key={row.outbound_carrier}
+              row={row}
+              maxTotal={maxTotal}
+              isCheapest={row.trueTotal === cheapestTotal}
+            />
+          ))}
 
-            const { bagCost, trueTotal } = row
-            const seatCost  = row.seat_cost ?? 0
-            const headlinePP = Math.round(row.base_fare_total / partySize)
-
-            // Stacked bar proportions
-            const barTotal = row.base_fare_total + bagCost + seatCost
-            const basePct  = barTotal > 0 ? (row.base_fare_total / barTotal) * 100 : 100
-            const bagPct   = barTotal > 0 ? (bagCost / barTotal) * 100 : 0
-            const seatPct  = barTotal > 0 ? (seatCost / barTotal) * 100 : 0
-
-            const cabinIncluded =
-              CABIN_INCLUDED_CARRIERS.has(row.outbound_carrier) ||
-              CABIN_INCLUDED_CARRIERS.has(row.return_carrier)
-
-            return (
-              <div
-                key={key}
-                style={{
-                  background: '#ffffff',
-                  borderRadius: 12,
-                  border: '1px solid #bfc8c9',
-                  padding: 16,
-                  marginBottom: 12,
-                }}
-              >
-                {/* Row 1 — header */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: 14,
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#191c1d' }}>{name}</div>
-                    <div style={{ fontSize: 12, color: '#6f797a', marginTop: 2 }}>
-                      {row.outbound_airport} → {row.return_carrier !== row.outbound_carrier ? row.return_carrier : row.outbound_airport}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
-                    {isCheapest && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '3px 9px',
-                          background: '#004349',
-                          color: '#ffffff',
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          fontFamily: 'Inter, sans-serif',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        ★ Cheapest all-in
-                      </span>
-                    )}
-                    {row.family_split_risk && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '3px 9px',
-                          background: '#fffbeb',
-                          color: '#92400e',
-                          border: '1px solid #fdba49',
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          fontFamily: 'Inter, sans-serif',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Family split risk
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Row 2 — stacked bar */}
-                <div
-                  style={{
-                    display: 'flex',
-                    height: 8,
-                    borderRadius: 999,
-                    overflow: 'hidden',
-                    background: '#eceeee',
-                    marginBottom: 8,
-                  }}
-                >
-                  <div style={{ width: `${basePct}%`, background: '#004349' }} />
-                  {bagCost > 0 && (
-                    <div style={{ width: `${bagPct}%`, background: '#fdba49' }} />
-                  )}
-                  {seatCost > 0 && (
-                    <div style={{ width: `${seatPct}%`, background: '#fdd98a' }} />
-                  )}
-                </div>
-
-                {/* Bar legend */}
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#6f797a', marginBottom: 14 }}>
-                  <LegendDot color="#004349" label={`Base fares (×${partySize}): ${gbp(row.base_fare_total)}`} />
-                  {bagCost > 0 ? (
-                    <LegendDot color="#fdba49" label={`Bags: ${gbp(bagCost)}`} />
-                  ) : cabinIncluded ? (
-                    <span style={{ color: '#6f797a' }}>Bags included in fare</span>
-                  ) : (
-                    <span style={{ color: '#6f797a' }}>No bags added</span>
-                  )}
-                  {seatCost > 0 ? (
-                    <LegendDot color="#fdd98a" label={`Seats: ${gbp(seatCost)}`} />
-                  ) : !seatsTogether ? (
-                    <span style={{ color: '#6f797a' }}>No seat selection</span>
-                  ) : null}
-                </div>
-
-                {/* Row 3 — summary */}
-                <div style={{ fontSize: 13, color: '#191c1d', marginBottom: 12 }}>
-                  <span style={{ color: '#6f797a' }}>Headline:</span>{' '}
-                  <strong>£{headlinePP}pp</strong>
-                  <span style={{ color: '#bfc8c9', margin: '0 8px' }}>·</span>
-                  <span style={{ color: '#6f797a' }}>True total:</span>{' '}
-                  <strong style={{ color: '#004349' }}>{gbp(trueTotal)}</strong>
-                </div>
-
-                {/* Row 4 — expandable breakdown */}
-                <button
-                  onClick={() => setExpandedKey(isExp ? null : key)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#004349',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    padding: 0,
-                    fontFamily: 'Inter, sans-serif',
-                    textDecoration: 'underline',
-                    textUnderlineOffset: 3,
-                  }}
-                >
-                  {isExp ? 'Hide breakdown' : 'Show full breakdown'}
-                </button>
-
-                {isExp && (
-                  <div style={{ marginTop: 14 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'Inter, sans-serif' }}>
-                      <tbody>
-                        <tr style={{ borderBottom: '1px solid #e1e3e3' }}>
-                          <td style={{ padding: '8px 0', color: '#3f484a' }}>Base fare outbound</td>
-                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#191c1d' }}>{gbp(row.outbound_fare)}</td>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #e1e3e3' }}>
-                          <td style={{ padding: '8px 0', color: '#3f484a' }}>Base fare return</td>
-                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#191c1d' }}>{gbp(row.return_fare)}</td>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #e1e3e3' }}>
-                          <td style={{ padding: '8px 0', color: '#3f484a' }}>
-                            Cabin bags
-                            {pCabinBags > 0 && <span style={{ color: '#9ba8a9', marginLeft: 4 }}>×{pCabinBags}</span>}
-                          </td>
-                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#191c1d' }}>
-                            {pCabinBags === 0 ? <span style={{ color: '#9ba8a9' }}>—</span>
-                              : cabinIncluded ? <span style={{ color: '#6f797a' }}>Included</span>
-                              : gbp(cabinBagLegCost(row.outbound_carrier, row.outbound_cabin_bag_fee_gbp, row.bundle_price_delta_gbp, row.bundle_includes_checked) * pCabinBags
-                                  + cabinBagLegCost(row.return_carrier, row.return_cabin_bag_fee_gbp, row.return_bundle_price_delta_gbp, row.return_bundle_includes_checked) * pCabinBags)}
-                          </td>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #e1e3e3' }}>
-                          <td style={{ padding: '8px 0', color: '#3f484a' }}>
-                            Checked bags
-                            {pCheckedBags > 0 && <span style={{ color: '#9ba8a9', marginLeft: 4 }}>×{pCheckedBags}</span>}
-                          </td>
-                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#191c1d' }}>
-                            {pCheckedBags === 0 ? <span style={{ color: '#9ba8a9' }}>—</span>
-                              : gbp((row.outbound_bag_fee_pp ?? 0) + (row.return_bag_fee_pp ?? 0))}
-                          </td>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #e1e3e3' }}>
-                          <td style={{ padding: '8px 0', color: '#3f484a' }}>Seats</td>
-                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#191c1d' }}>
-                            {seatCost > 0 ? gbp(seatCost) : <span style={{ color: '#9ba8a9' }}>—</span>}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ padding: '12px 0 0', fontWeight: 700, color: '#191c1d' }}>Total</td>
-                          <td style={{ padding: '12px 0 0', textAlign: 'right', fontWeight: 700, color: '#004349' }}>
-                            {gbp(trueTotal)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    {row.family_split_risk && (
-                      <p style={{ marginTop: 12, fontSize: 11, color: '#805600', lineHeight: 1.5 }}>
-                        ⚠ {name} uses algorithmic seating — family members may be split without seat selection.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {/* Show all link */}
-          {!showAll && hiddenCount > 0 && (
-            <button
-              onClick={() => setShowAll(true)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#004349',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                padding: '4px 0',
-                fontFamily: 'Inter, sans-serif',
-                textDecoration: 'underline',
-                textUnderlineOffset: 3,
-              }}
-            >
-              Show all {enriched.length} airlines
-            </button>
-          )}
+          {/* Legend */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 14,
+              flexWrap: 'wrap',
+              fontSize: 11,
+              color: '#6f797a',
+              marginTop: 8,
+              paddingTop: 12,
+              borderTop: '1px solid #e1e3e3',
+            }}
+          >
+            <LegendSwatch color="#004349" label="Base fare" />
+            {hasCabin   && <LegendSwatch color="#fdba49" label="Cabin bags" />}
+            {hasChecked && <LegendSwatch color="#f5a623" label="Checked bags" />}
+            {hasSeats   && <LegendSwatch color="#fdd98a" label="Seats" />}
+            {hasSplitRisk && (
+              <span style={{ color: '#fdba49' }}>⚠ Family split risk</span>
+            )}
+          </div>
         </div>
       )}
     </div>
-  )
-}
-
-// ── Sub-component ─────────────────────────────────────────────────────────────
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <span
-        style={{
-          display: 'inline-block',
-          width: 8,
-          height: 8,
-          borderRadius: 2,
-          background: color,
-          flexShrink: 0,
-        }}
-      />
-      {label}
-    </span>
   )
 }
