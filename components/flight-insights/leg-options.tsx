@@ -23,6 +23,7 @@ export interface LegOption {
   transit_duration_mins: number | null;
   transit_changes: number | null;
   destination_transfer_gbp: number;
+  total_gbp: number;
   baggage_is_estimate: boolean;
   family_split_risk: boolean;
 }
@@ -50,23 +51,35 @@ function ancillaryGbp(opt: LegOption): number {
   return opt.cabin_bag_cost_gbp + opt.checked_bag_cost_gbp + opt.seat_cost_gbp;
 }
 
-function totalGbp(opt: LegOption): number {
-  return (
-    opt.fare_gbp +
-    ancillaryGbp(opt) +
-    (opt.transit_cost_gbp ?? 0) +
-    opt.destination_transfer_gbp
-  );
-}
-
 function isRecommended(opt: LegOption, rec: RecommendedOption | null | undefined): boolean {
   if (!rec) return false;
   return (
     opt.airline_iata     === rec.airline_iata &&
     opt.origin_iata      === rec.origin_iata &&
     opt.destination_iata === rec.destination_iata &&
-    opt.departure_time   === rec.departure_time
+    opt.departure_time.slice(0, 5) === rec.departure_time.slice(0, 5)
   );
+}
+
+// ── Transit method display ─────────────────────────────────────────────────────
+// Extract the key transport mode from a long transit_method string.
+
+function extractTransitMode(method: string): string {
+  const segments = method.split(' → ');
+  // Find the segment that mentions an airport (contains IATA-like code or 'Airport')
+  const airportIdx = segments.findIndex(s => /airport/i.test(s));
+  const modeSegment = airportIdx > 0
+    ? segments[airportIdx - 1]
+    : segments[segments.length - 1];
+  // Strip duration patterns like "(12min)"
+  const cleaned = modeSegment.replace(/\s*\(\d+min\)/gi, '').trim();
+  if (/national express/i.test(cleaned))  return 'National Express';
+  if (/stansted express/i.test(cleaned))  return 'Stansted Express';
+  if (/gatwick express/i.test(cleaned))   return 'Gatwick Express';
+  if (/thameslink/i.test(cleaned))        return 'Thameslink';
+  if (/dlr/i.test(cleaned))              return 'DLR';
+  if (/bus/i.test(cleaned))              return 'Bus';
+  return method.slice(0, 25);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -105,7 +118,7 @@ function ProportionBar({ fare, ancillary, transport, total }: {
 
 function RowDetail({ opt }: { opt: LegOption }) {
   const anc   = ancillaryGbp(opt);
-  const total = totalGbp(opt);
+  const total = opt.total_gbp;
 
   const rows: Array<{ label: string; value: string; bold?: boolean }> = [
     { label: 'Base fare',      value: gbp(opt.fare_gbp) },
@@ -223,7 +236,7 @@ function OptionRow({
   const [showTooltip, setTooltip] = useState(false);
 
   const anc   = ancillaryGbp(opt);
-  const total = totalGbp(opt);
+  const total = opt.total_gbp;
 
   return (
     <>
@@ -293,7 +306,7 @@ function OptionRow({
               </div>
               {opt.transit_method && (
                 <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-                  {truncate(opt.transit_method, 30)}
+                  {extractTransitMode(opt.transit_method)}
                 </div>
               )}
             </>
@@ -339,7 +352,7 @@ export function LegOptions({ data, title, recommendedOption }: LegOptionsProps) 
   const [showAll, setShowAll]     = useState(false);
 
   const options = data?.options ?? [];
-  const sorted  = [...options].sort((a, b) => totalGbp(a) - totalGbp(b));
+  const sorted  = [...options].sort((a, b) => a.total_gbp - b.total_gbp);
   const visible = showAll ? sorted : sorted.slice(0, 8);
 
   return (
