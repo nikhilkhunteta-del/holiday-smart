@@ -498,6 +498,9 @@ export function ComplianceCalculator({
                           const isBaselinePos = dep === baseline.outbound_date && ret === baseline.return_date;
 
                           if (c) {
+                            if (isBaselinePos && baseline.total_cost_gbp <= c.total_inc_fine) {
+                              return <BaselineCell key={ret} total={baseline.total_cost_gbp} />;
+                            }
                             return (
                               <DataCell
                                 key={ret}
