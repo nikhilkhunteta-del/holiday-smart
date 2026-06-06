@@ -1,10 +1,8 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
-import { AllInCost } from '@/components/flight-insights/allin-cost';
-import { BucketSplit } from '@/components/flight-insights/bucket-split';
-import { MultiAirport } from '@/components/flight-insights/multi-airport';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
+import { LegOptions } from '@/components/flight-insights/leg-options';
 import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
@@ -47,53 +45,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
 
-  const DESTINATION_NAMES: Record<string, string> = {
-    'barcelona':            'Barcelona',
-    'andalusian-corridor':  'Andalusia',
-    'algarve':              'the Algarve',
-    'tuscany':              'Tuscany',
-    'apulia':               'Apulia',
-    'french-riviera':       'the French Riviera',
-    'crete':                'Crete',
-    'catalonia':            'Catalonia',
-    'croatia':              'Croatia',
-    'porto':                'Porto',
-    'malta':                'Malta',
-    'rome':                 'Rome',
-    'lisbon':               'Lisbon',
-    'amsterdam':            'Amsterdam',
-    'copenhagen':           'Copenhagen',
-    'munich':               'Munich',
-    'vienna':               'Vienna',
-    'venice':               'Venice',
-    'seville':              'Seville',
-    'gran-canaria':         'Gran Canaria',
-  };
-  const destinationName = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
-
-  const DESTINATION_AIRPORT: Record<string, string> = {
-    'barcelona':            'BCN',
-    'andalusian-corridor':  'SVQ',
-    'algarve':              'FAO',
-    'tuscany':              'PSA',
-    'apulia':               'BRI',
-    'french-riviera':       'NCE',
-    'crete':                'CHQ',
-    'catalonia':            'BCN',
-    'croatia':              'SPU',
-    'porto':                'OPO',
-    'malta':                'MLA',
-    'rome':                 'FCO',
-    'lisbon':               'LIS',
-    'amsterdam':            'AMS',
-    'copenhagen':           'CPH',
-    'munich':               'MUC',
-    'vienna':               'VIE',
-    'venice':               'VCE',
-    'seville':              'SVQ',
-    'gran-canaria':         'LPA',
-  };
-  const destinationAirport = DESTINATION_AIRPORT[destinationSlug];
 
   if (!urn || !windowStart || !windowEnd) {
     return (
@@ -153,11 +104,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const bestOutboundDate = savingsData?.best_outbound_date as string | undefined;
   const bestReturnDate   = savingsData?.best_return_date   as string | undefined;
 
-  const airportLever   = savingsData?.levers?.find(
-    (l: any) => l.label?.startsWith('London airport')
-  );
-  const bestOriginIata = airportLever?.winner ?? 'LHR';
-
   if (!bestOutboundDate || !bestReturnDate) {
     console.error('[FlightInsights] best_outbound_date or best_return_date missing. savingsResult.data shape:', JSON.stringify(savingsResult.data, null, 2));
     return (
@@ -190,46 +136,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     ? assembled?.baseline?.return_date
     : assembled?.recommendation?.return_date ?? bestReturnDate;
 
-  const smartOriginIata = assembled?.baselineIsRecommended
-    ? assembled?.baseline?.origin_iata
-    : assembled?.recommendation?.origin_iata ?? bestOriginIata;
-
   // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
   const [
-    allinResult,
-    multiAirportResult,
-    bucketSplitResult,
     openJawResult,
     nearbyAirportsResult,
+    outboundLegResult,
+    returnLegResult,
   ] = await Promise.all([
-    supabase.rpc('get_allin_flight_cost', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_outbound_date:    smartOutboundDate,
-      p_return_date:      smartReturnDate,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-      p_transport_mode:   'public_transport',
-    }),
-    supabase.rpc('get_multi_airport', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_outbound_date:    smartOutboundDate,
-      p_return_date:      smartReturnDate,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-    }),
-    supabase.rpc('get_bucket_split', {
-      p_destination_slug: destinationSlug,
-      p_origin_iata:      smartOriginIata,
-      p_outbound_date:    smartOutboundDate,
-      p_return_date:      smartReturnDate,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-    }),
     supabase.rpc('get_open_jaw', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
@@ -248,9 +161,40 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       p_children:         children,
       p_infants:          infants,
     }),
+    supabase.rpc('get_leg_options', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_date:             smartOutboundDate,
+      p_direction:        'outbound',
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+      p_cabin_bags:       cabinBags,
+      p_checked_bags:     checkedBags,
+      p_seats_together:   seatsTogether,
+    }),
+    supabase.rpc('get_leg_options', {
+      p_destination_slug: destinationSlug,
+      p_school_urn:       urn,
+      p_date:             smartReturnDate,
+      p_direction:        'return',
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+      p_cabin_bags:       cabinBags,
+      p_checked_bags:     checkedBags,
+      p_seats_together:   seatsTogether,
+    }),
   ]);
 
   // Wave 2 errors are non-fatal — null means that section won't render
+
+  function formatDate(iso: string): string {
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = new Date(iso + 'T00:00:00');
+    return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
@@ -297,22 +241,25 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             baselineIsRecommended={assembled.baselineIsRecommended}
           />
         )}
-        <AllInCost
-          data={allinResult.error ? null : (allinResult.data as any)}
-          partySize={adults + children}
-          pCabinBags={cabinBags}
-          pCheckedBags={checkedBags}
-          seatsTogether={seatsTogether}
-          smartOutboundDate={smartOutboundDate}
-          smartReturnDate={smartReturnDate}
-          destinationAirport={destinationAirport}
+        <LegOptions
+          data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
+          title={`Outbound options · ${formatDate(smartOutboundDate)}`}
+          recommendedOption={assembled?.recommendation ? {
+            airline_iata:     assembled.recommendation.outbound_carrier,
+            origin_iata:      assembled.recommendation.origin_iata,
+            destination_iata: assembled.recommendation.out_dest_iata,
+            departure_time:   assembled.recommendation.outbound_departure_time ?? '',
+          } : null}
         />
-        <BucketSplit
-          data={bucketSplitResult.error ? null : (bucketSplitResult.data as any)}
-        />
-        <MultiAirport
-          data={multiAirportResult.error ? null : (multiAirportResult.data as any)}
-          postcodeDistrict={postcodeDistrict}
+        <LegOptions
+          data={returnLegResult?.error ? null : returnLegResult?.data as any}
+          title={`Return options · ${formatDate(smartReturnDate)}`}
+          recommendedOption={assembled?.recommendation ? {
+            airline_iata:     assembled.recommendation.return_carrier,
+            origin_iata:      assembled.recommendation.out_dest_iata,
+            destination_iata: assembled.recommendation.ret_dest_iata,
+            departure_time:   assembled.recommendation.return_arrival_time ?? '',
+          } : null}
         />
       </div>
     </main>
