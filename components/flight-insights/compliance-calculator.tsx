@@ -86,17 +86,19 @@ interface ComplianceCalculatorProps {
   partySize: number;
   pCabinBags: number;
   pCheckedBags: number;
+  seatsTogether: boolean;
 }
 
 // ── Expand panel ──────────────────────────────────────────────────────────────
 
 function ExpandPanel({
-  c, partySize, pCabinBags, pCheckedBags, onClose,
+  c, partySize, pCabinBags, pCheckedBags, seatsTogether, onClose,
 }: {
   c: AssembledCombination;
   partySize: number;
   pCabinBags: number;
   pCheckedBags: number;
+  seatsTogether: boolean;
   onClose: () => void;
 }) {
   const nights      = nightsBetween(c.outbound_date, c.return_date);
@@ -106,20 +108,16 @@ function ExpandPanel({
   const hasRyanair  = c.outbound_carrier === 'FR' || c.return_carrier === 'FR';
   const destCost    = c.destination_transfer_cost_gbp ?? 0;
 
-  // Bundle-safe ancillary total
-  const flightTotal    = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
-  const ancillaryTotal = (c.fare_plus_ancillary_gbp ?? 0) - flightTotal;
-  const ancillarySum   = (c.cabin_bag_cost_gbp ?? 0) + (c.checked_bag_cost_gbp ?? 0) + (c.seat_cost_gbp ?? 0);
-  const bundleApplied  = ancillaryTotal < ancillarySum - 0.5;
-  const cabinIsEst     = c.outbound_carrier === 'FR' || c.return_carrier === 'FR' ||
-                         c.outbound_carrier === 'W6' || c.return_carrier === 'W6';
-  const ancillaryDetail = [
-    `${pCabinBags} cabin bag${pCabinBags !== 1 ? 's' : ''}`,
-    `${pCheckedBags} checked bag${pCheckedBags !== 1 ? 's' : ''}`,
-    `seats together${hasRyanair ? ' · children free on Ryanair' : ''}`,
-    ...(cabinIsEst ? ['estimated'] : []),
-    ...(bundleApplied ? ['bundle applied'] : []),
-  ].join(' · ');
+  const cabinIsEst = c.outbound_carrier === 'FR' || c.return_carrier === 'FR' ||
+                     c.outbound_carrier === 'W6' || c.return_carrier === 'W6';
+
+  // Bundle detection (simplified)
+  const bundleApplied = (c.cabin_bag_cost_gbp + c.checked_bag_cost_gbp + c.seat_cost_gbp) >
+    (c.fare_plus_ancillary_gbp - c.outbound_fare_gbp - c.return_fare_gbp);
+
+  const carriersStr = c.outbound_carrier === c.return_carrier
+    ? carrierName(c.outbound_carrier)
+    : `${carrierName(c.outbound_carrier)} + ${carrierName(c.return_carrier)}`;
 
   const rowStyle = {
     display: 'flex',
@@ -143,78 +141,122 @@ function ExpandPanel({
       </button>
 
       <div style={{ maxWidth: 480 }}>
-      <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#004349', marginBottom: 12, paddingRight: 24 }}>
-        {carrierName(c.outbound_carrier)} from {c.origin_iata} · {carrierName(c.return_carrier)} to {c.ret_dest_iata} · {nights} night{nights === 1 ? '' : 's'}
-      </p>
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Flights</span>
-          <span style={detailStyle}>
-            {carrierName(c.outbound_carrier)} {c.origin_iata}→{c.out_dest_iata} · {carrierName(c.return_carrier)} {c.out_dest_iata}←{c.ret_dest_iata}
-          </span>
-        </div>
-        <span style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</span>
-      </div>
+        <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#004349', marginBottom: 12, paddingRight: 24 }}>
+          {carrierName(c.outbound_carrier)} from {c.origin_iata} · {carrierName(c.return_carrier)} to {c.ret_dest_iata} · {nights} night{nights === 1 ? '' : 's'}
+        </p>
 
-      {/* Bags & seats — bundle-safe total */}
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Bags &amp; seats</span>
-          <span style={detailStyle}>{ancillaryDetail}</span>
-        </div>
-        <span style={costStyle}>{gbp(ancillaryTotal)}</span>
-      </div>
-
-      {/* London transport */}
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>London transport</span>
-          <span style={detailStyle}>↑ {outDetail} · {gbp(c.outbound_transit_cost_gbp)}</span>
-          <span style={detailStyle}>↓ {retDetail} · {gbp(c.return_transit_cost_gbp)}</span>
-        </div>
-        <span style={costStyle}>{gbp(c.transit_cost_gbp)}</span>
-      </div>
-
-      {/* Destination transfers */}
-      <div style={rowStyle}>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Destination transfers</span>
-          <span style={detailStyle}>{destCost === 0 ? 'Not included' : `${c.out_dest_iata} airport · both ways`}</span>
-        </div>
-        <span style={costStyle}>{gbp(destCost)}</span>
-      </div>
-
-      {/* Fine */}
-      {hasFine && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px', borderRadius: 4, background: '#fff8e7', marginTop: 2 }}>
+        {/* Flights */}
+        <div style={rowStyle}>
           <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Fine</span>
-            <span style={detailStyle}>{c.absence_days} day{c.absence_days === 1 ? '' : 's'} absence</span>
+            <span style={labelStyle}>Flights</span>
+            <span style={detailStyle}>
+              {carrierName(c.outbound_carrier)} {c.origin_iata}→{c.out_dest_iata} · {carrierName(c.return_carrier)} {c.out_dest_iata}←{c.ret_dest_iata}
+            </span>
           </div>
-          <span style={costStyle}>{gbp(c.fine_gbp ?? 0)}</span>
+          <span style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</span>
         </div>
-      )}
 
-      {/* Total */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0 0', borderTop: '1.5px solid #004349', marginTop: 4 }}>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>Total</span>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>{gbp(c.total_inc_fine)}</span>
+        {/* Cabin bags */}
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <span style={labelStyle}>Cabin bags</span>
+            <span style={detailStyle}>
+              {c.cabin_bag_cost_gbp === 0
+                ? 'Included in fare'
+                : `${pCabinBags} bag${pCabinBags !== 1 ? 's' : ''} per leg${cabinIsEst ? ' · estimated' : ''}`}
+            </span>
+          </div>
+          <span style={costStyle}>{gbp(c.cabin_bag_cost_gbp)}</span>
+        </div>
+
+        {/* Checked bags */}
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <span style={labelStyle}>Checked bags</span>
+            <span style={detailStyle}>
+              {c.checked_bag_cost_gbp === 0
+                ? 'None'
+                : `${pCheckedBags} bag${pCheckedBags !== 1 ? 's' : ''} per leg`}
+            </span>
+          </div>
+          <span style={costStyle}>{gbp(c.checked_bag_cost_gbp)}</span>
+        </div>
+
+        {/* Seats */}
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <span style={labelStyle}>Seats</span>
+            <span style={detailStyle}>
+              {seatsTogether
+                ? `${partySize} seats reserved · ${carriersStr}${hasRyanair ? ' · children free on Ryanair' : ''}${bundleApplied ? ' · bundle applied' : ''}`
+                : 'No advance seat selection · family split risk'}
+            </span>
+          </div>
+          <span style={costStyle}>{gbp(c.seat_cost_gbp)}</span>
+        </div>
+
+        {/* London transport */}
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <span style={labelStyle}>London transport</span>
+            <span style={detailStyle}>↑ {outDetail} · {gbp(c.outbound_transit_cost_gbp)}</span>
+            <span style={detailStyle}>↓ {retDetail} · {gbp(c.return_transit_cost_gbp)}</span>
+          </div>
+          <span style={costStyle}>{gbp(c.transit_cost_gbp)}</span>
+        </div>
+
+        {/* Destination transfers */}
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <span style={labelStyle}>Destination transfers</span>
+            <span style={detailStyle}>{destCost === 0 ? 'Not included' : `${c.out_dest_iata} airport · both ways`}</span>
+          </div>
+          <span style={costStyle}>{gbp(destCost)}</span>
+        </div>
+
+        {/* Fine */}
+        {hasFine && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px', borderRadius: 4, background: '#fff8e7', marginTop: 2 }}>
+            <div style={{ flex: 1 }}>
+              <span style={labelStyle}>Fine</span>
+              <span style={detailStyle}>{c.absence_days} day{c.absence_days === 1 ? '' : 's'} absence</span>
+            </div>
+            <span style={costStyle}>{gbp(c.fine_gbp ?? 0)}</span>
+          </div>
+        )}
+
+        {/* Total */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0 0', borderTop: '1.5px solid #004349', marginTop: 4 }}>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>Total</span>
+          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>{gbp(c.total_inc_fine)}</span>
+        </div>
       </div>
-      </div>{/* end maxWidth:480 content wrapper */}
     </div>
+  );
+}
+
+// ── Baseline cell ──────────────────────────────────────────────────────────────
+
+function BaselineCell({ total }: { total: number }) {
+  return (
+    <td style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: '#f2f4f4', border: '1px solid #bfc8c9', borderRadius: 6 }}>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#6f797a', display: 'block' }}>{gbp(total)}</span>
+      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: '#9ba8a9', display: 'block', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: 2 }}>Baseline</span>
+    </td>
   );
 }
 
 // ── Data cell ──────────────────────────────────────────────────────────────────
 
 function DataCell({
-  c, baselineTotal, isRec, isActive, onClick,
+  c, baselineTotal, isRec, isActive, onClick, baselineNote,
 }: {
   c: AssembledCombination;
   baselineTotal: number;
   isRec: boolean;
   isActive: boolean;
   onClick: () => void;
+  baselineNote?: number;
 }) {
   const saving    = baselineTotal - c.total_inc_fine;
   const { bg, color } = cellColour(saving);
@@ -238,7 +280,6 @@ function DataCell({
       style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
     >
       {isRec ? (
-        // position:relative wrapper ensures absolute "Our pick" label doesn't widen the cell
         <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
           <div style={{
             position: 'absolute', top: 0, left: 0,
@@ -252,6 +293,11 @@ function DataCell({
             {gbp(c.total_inc_fine)}
           </span>
           {fineBadge}
+          {baselineNote !== undefined && (
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: starColor === '#004349' ? '#6f797a' : 'rgba(255,255,255,0.7)', display: 'block', marginTop: 3 }}>
+              vs baseline {gbp(baselineNote)}
+            </span>
+          )}
         </div>
       ) : (
         <>
@@ -259,6 +305,11 @@ function DataCell({
             {gbp(c.total_inc_fine)}
           </span>
           {fineBadge}
+          {baselineNote !== undefined && (
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#6f797a', display: 'block', marginTop: 3 }}>
+              vs baseline {gbp(baselineNote)}
+            </span>
+          )}
         </>
       )}
     </td>
@@ -288,7 +339,6 @@ const AMBER_LABEL = {
   whiteSpace: 'nowrap' as const,
 };
 
-// Column headers allow wrapping so long absence text doesn't widen the column
 const AMBER_LABEL_WRAP = {
   ...AMBER_LABEL,
   whiteSpace: 'normal' as const,
@@ -305,6 +355,7 @@ export function ComplianceCalculator({
   partySize,
   pCabinBags,
   pCheckedBags,
+  seatsTogether,
 }: ComplianceCalculatorProps) {
   const [activeCell, setActiveCell] = useState<string | null>(null);
 
@@ -316,8 +367,14 @@ export function ComplianceCalculator({
     if (!cellMap.has(key)) cellMap.set(key, c);
   }
 
-  const depDates = Array.from(new Set(combinations.map(c => c.outbound_date))).sort();
-  const retDates = Array.from(new Set(combinations.map(c => c.return_date))).sort();
+  // Include baseline dates in the matrix axes (Change 4)
+  const allDepDates = new Set(combinations.map(c => c.outbound_date));
+  if (baseline.outbound_date) allDepDates.add(baseline.outbound_date);
+  const depDates = Array.from(allDepDates).sort();
+
+  const allRetDates = new Set(combinations.map(c => c.return_date));
+  if (baseline.return_date) allRetDates.add(baseline.return_date);
+  const retDates = Array.from(allRetDates).sort();
 
   const STICKY = { position: 'sticky' as const, left: 0, background: '#ffffff', zIndex: 10 };
 
@@ -326,7 +383,6 @@ export function ComplianceCalculator({
   const blCarrier = carrierName(baseline.carrier ?? '');
   const blOrigin  = baseline.origin_iata ?? 'LHR';
 
-  // Derive activeComb once — used by ExpandPanel outside the table
   const [activeDep, activeRetDate] = activeCell ? activeCell.split('|') : [null, null];
   const activeComb = activeDep && activeRetDate
     ? cellMap.get(`${activeDep}|${activeRetDate}`) ?? null
@@ -372,7 +428,6 @@ export function ComplianceCalculator({
               pointerEvents: 'none', zIndex: 20,
             }} />
 
-            {/* Scrollable table — ExpandPanel is NOT inside this div to avoid overflow */}
             <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
               <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
                 <thead>
@@ -382,13 +437,10 @@ export function ComplianceCalculator({
                       const retCombos   = combinations.filter(c => c.return_date === ret);
                       const allAbsence  = retCombos.length > 0 && retCombos.every(c => c.requires_absence);
                       const absenceDays = allAbsence ? Math.max(...retCombos.map(c => c.absence_days)) : null;
-                      const retFine     = allAbsence
-                        ? retCombos.find(c => (c.fine_gbp ?? 0) > 0)?.fine_gbp ?? null
-                        : null;
+                      const isBaselineRet = ret === baseline.return_date;
                       return (
-                        // Bug 3 fix: fixed minWidth + no maxWidth expansion; absence text wraps
                         <th key={ret} style={{ minWidth: 80, width: 80, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
-                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: isBaselineRet ? '#6f797a' : '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(ret)}
                           </span>
                           {absenceDays !== null && (
@@ -409,9 +461,6 @@ export function ComplianceCalculator({
                     const isWindowEnd   = dep === windowEnd;
 
                     const daysAbsent = dep < windowStart ? weekdaysBetween(dep, windowStart) : 0;
-                    const rowFine    = daysAbsent > 0
-                      ? depCombos.find(c => c.requires_absence && (c.fine_gbp ?? 0) > 0)?.fine_gbp ?? null
-                      : null;
 
                     return (
                       <tr key={dep}>
@@ -441,21 +490,30 @@ export function ComplianceCalculator({
                           )}
                         </td>
                         {retDates.map((ret) => {
-                          const c       = cellMap.get(`${dep}|${ret}`);
-                          const cellKey = `${dep}|${ret}`;
-                          const isRec   = recommendation
+                          const c           = cellMap.get(`${dep}|${ret}`);
+                          const cellKey     = `${dep}|${ret}`;
+                          const isRec       = recommendation
                             ? dep === recommendation.outbound_date && ret === recommendation.return_date
                             : false;
-                          return c
-                            ? <DataCell
+                          const isBaselinePos = dep === baseline.outbound_date && ret === baseline.return_date;
+
+                          if (c) {
+                            return (
+                              <DataCell
                                 key={ret}
                                 c={c}
                                 baselineTotal={baselineTotal}
                                 isRec={isRec}
                                 isActive={activeCell === cellKey}
                                 onClick={() => handleCellClick(cellKey)}
+                                baselineNote={isBaselinePos ? baseline.total_cost_gbp : undefined}
                               />
-                            : <EmptyCell key={ret} />;
+                            );
+                          }
+                          if (isBaselinePos) {
+                            return <BaselineCell key={ret} total={baseline.total_cost_gbp} />;
+                          }
+                          return <EmptyCell key={ret} />;
                         })}
                       </tr>
                     );
@@ -463,7 +521,6 @@ export function ComplianceCalculator({
                 </tbody>
               </table>
             </div>
-
           </div>
 
           {/* ExpandPanel — sibling of matrix div, full card width */}
@@ -478,6 +535,7 @@ export function ComplianceCalculator({
                 partySize={partySize}
                 pCabinBags={pCabinBags}
                 pCheckedBags={pCheckedBags}
+                seatsTogether={seatsTogether}
                 onClose={() => setActiveCell(null)}
               />
             )}

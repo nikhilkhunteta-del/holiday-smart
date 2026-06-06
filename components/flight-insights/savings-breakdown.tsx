@@ -42,9 +42,10 @@ interface Props {
   postcodeDistrict: string | null;
   cabinBags: number;
   checkedBags: number;
+  seatsTogether: boolean;
   party_size: number;
   combinations?: AssembledCombination[];
-  savingCategory: 'significant' | 'modest' | 'minimal';
+  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   schoolName: string | null;
 }
 
@@ -125,7 +126,7 @@ function transitLabel(
 export function SavingsBreakdown({
   recommendation, baseline, destinationSlug, boroughName,
   outbound_transit, return_transit,
-  cabinBags, checkedBags, party_size,
+  postcodeDistrict, cabinBags, checkedBags, seatsTogether, party_size,
   combinations,
   savingCategory, schoolName,
 }: Props) {
@@ -139,27 +140,38 @@ export function SavingsBreakdown({
 
   // ── Adaptive headline ─────────────────────────────────────────────────────
 
-  const schoolSuffix   = schoolName ? ` with children at ${schoolName}` : '';
-  const schoolAt       = schoolName ? ` at ${schoolName}` : '';
+  const schoolSuffix = schoolName ? ` with children at ${schoolName}` : '';
+  const schoolAt     = schoolName ? ` at ${schoolName}` : '';
 
-  const { line1, line2 } = (() => {
+  const { line1, line2, amberNote } = (() => {
     if (savingCategory === 'significant') return {
       line1: `Most ${borough} families${schoolSuffix} flying ${destName} this half-term will pay around £${baselineRounded.toLocaleString('en-GB')}.`,
       line2: `We found the same trip for ${fmt(recommendation.total_cost_gbp)}.`,
+      amberNote: null as string | null,
     };
     if (savingCategory === 'modest') return {
       line1: `Prices for ${destName} this half-term are fairly consistent across most families${schoolSuffix}.`,
       line2: `The cheapest all-in option we found is ${fmt(recommendation.total_cost_gbp)}.`,
+      amberNote: null as string | null,
     };
+    if (savingCategory === 'baseline_cheapest') return {
+      line1: `The cheapest all-in option we found for ${schoolName ?? borough} families this half-term.`,
+      line2: `${fmt(recommendation.total_cost_gbp)} — here's the full breakdown.`,
+      amberNote: 'Note: with your current preferences, the standard Saturday Heathrow booking is similar in cost. Try adjusting bags or transport above.' as string | null,
+    };
+    // minimal
     return {
       line1: `You've picked a good window. ${destName} this half-term is consistently priced for families${schoolAt}.`,
       line2: `${fmt(recommendation.total_cost_gbp)} is about as good as it gets — here's the full breakdown.`,
+      amberNote: null as string | null,
     };
   })();
 
   // ── Detail lines per row ──────────────────────────────────────────────────
 
   // Flights
+  const smartFlightTotal = recommendation.outbound_fare_gbp + recommendation.return_fare_gbp;
+
   const detFlightsSmart = [
     `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} · ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`,
   ];
@@ -167,38 +179,58 @@ export function SavingsBreakdown({
     `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · LHR`,
   ];
 
-  // Bags & seats — use fare_plus_ancillary_gbp minus flights to get bundle-optimised total
-  const smartFlightTotal = recommendation.outbound_fare_gbp + recommendation.return_fare_gbp;
-  const smartAncillary   = recommendation.fare_plus_ancillary_gbp - smartFlightTotal;
-  const smartAncillarySum = recommendation.cabin_bag_cost_gbp + recommendation.checked_bag_cost_gbp + recommendation.seat_cost_gbp;
-  const smartBundleApplied = smartAncillary < smartAncillarySum - 0.5;
+  // Bundle detection (simplified)
+  const bundleApplied = (
+    recommendation.cabin_bag_cost_gbp +
+    recommendation.checked_bag_cost_gbp +
+    recommendation.seat_cost_gbp
+  ) > (
+    recommendation.fare_plus_ancillary_gbp -
+    recommendation.outbound_fare_gbp -
+    recommendation.return_fare_gbp
+  );
 
   const cabinIsEstimate = ['FR', 'W6'].includes(recommendation.outbound_carrier) ||
                           ['FR', 'W6'].includes(recommendation.return_carrier);
   const hasRyanair = recommendation.outbound_carrier === 'FR' || recommendation.return_carrier === 'FR';
 
-  const detAncillarySmart = [(() => {
-    const parts: string[] = [];
-    parts.push(`${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`);
-    parts.push(`${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`);
-    parts.push(`seats together${hasRyanair ? ' · children free on Ryanair' : ''}`);
-    if (cabinIsEstimate) parts.push('estimated');
-    if (smartBundleApplied) parts.push('bundle applied');
-    return parts.join(' · ');
-  })()];
+  const carriersStr = recommendation.outbound_carrier === recommendation.return_carrier
+    ? carrierName(recommendation.outbound_carrier)
+    : `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)}`;
 
-  const baseAncillary    = baseline.fare_plus_ancillary_gbp - baseline.baseline_fare_gbp;
-  const baseAncillarySum = baseline.cabin_bag_cost_gbp + baseline.checked_bag_cost_gbp + baseline.seat_cost_gbp;
-  const baseBundleApplied = baseAncillary < baseAncillarySum - 0.5;
+  // Cabin bags
+  const detCabinSmart = [
+    recommendation.cabin_bag_cost_gbp === 0
+      ? 'Included in fare'
+      : `${cabinBags} bag${cabinBags !== 1 ? 's' : ''} per leg${cabinIsEstimate ? ' · estimated' : ''}`,
+  ];
+  const detCabinBase = [
+    baseline.cabin_bag_cost_gbp === 0
+      ? 'Included in fare'
+      : `${cabinBags} bag${cabinBags !== 1 ? 's' : ''} per leg`,
+  ];
 
-  const detAncillaryBase = [(() => {
-    const parts: string[] = [];
-    parts.push(`${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`);
-    parts.push(`${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`);
-    parts.push(`seats`);
-    if (baseBundleApplied) parts.push('bundle applied');
-    return parts.join(' · ');
-  })()];
+  // Checked bags
+  const detCheckedSmart = [
+    recommendation.checked_bag_cost_gbp === 0
+      ? 'None'
+      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
+  ];
+  const detCheckedBase = [
+    baseline.checked_bag_cost_gbp === 0
+      ? 'None'
+      : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
+  ];
+
+  // Seats
+  const detSeatsSmart = [
+    seatsTogether
+      ? `${party_size} seats reserved · ${carriersStr}${hasRyanair ? ' · children free on Ryanair' : ''}${bundleApplied ? ' · bundle applied' : ''}`
+      : 'No advance seat selection · family split risk',
+  ];
+  const detSeatsBase = [
+    `seats · ${carrierName(baseline.carrier)}`,
+  ];
 
   // London transport
   const detTransitSmart = [
@@ -225,10 +257,12 @@ export function SavingsBreakdown({
   // ── Table rows ────────────────────────────────────────────────────────────
 
   const tableRows = [
-    { label: 'Flights',               smart: smartFlightTotal,                             base: baseline.baseline_fare_gbp,                            smartDetail: detFlightsSmart,   baseDetail: detFlightsBase   },
-    { label: 'Bags & seats',          smart: smartAncillary,                               base: baseAncillary,                                         smartDetail: detAncillarySmart, baseDetail: detAncillaryBase },
-    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                             smartDetail: detTransitSmart,   baseDetail: detTransitBase   },
-    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,                smartDetail: detDestSmart,      baseDetail: detDestBase      },
+    { label: 'Flights',               smart: smartFlightTotal,                             base: baseline.baseline_fare_gbp,                   smartDetail: detFlightsSmart,  baseDetail: detFlightsBase  },
+    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,                  smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
+    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,                smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
+    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                       smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
+    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                    smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
+    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,       smartDetail: detDestSmart,     baseDetail: detDestBase     },
   ];
 
   return (
@@ -244,10 +278,15 @@ export function SavingsBreakdown({
         </p>
         <p
           className="font-newsreader"
-          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}
+          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: amberNote ? 8 : 16 }}
         >
           {line2}
         </p>
+        {amberNote && (
+          <p className="font-inter" style={{ fontSize: 12, color: '#805600', marginBottom: 16 }}>
+            {amberNote}
+          </p>
+        )}
         <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
           We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
         </p>
@@ -489,7 +528,7 @@ export function SavingsBreakdown({
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', lineHeight: 1.6, margin: 0 }}>
                 Flight prices observed recently.<br />
                 Bag fees for Ryanair and Wizz Air vary by route and demand — prices shown are estimates using published mid-range fees.<br />
-                Uber costs are estimates based on typical pricing from your area.<br />
+                Uber costs are estimates based on typical pricing from {postcodeDistrict ?? 'your area'}.<br />
                 Fines are estimates based on current borough penalty notice rates.
               </p>
             </div>
