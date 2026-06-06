@@ -273,26 +273,28 @@ export function SavingsBreakdown({
 
       {/* ── Section A: Headline ─────────────────────────────────────────────── */}
       <div>
-        <p
-          className="font-newsreader"
-          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 12 }}
-        >
-          {line1}
-        </p>
-        <p
-          className="font-newsreader"
-          style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: amberNote ? 8 : 16 }}
-        >
-          {line2}
-        </p>
-        {amberNote && (
-          <p className="font-inter" style={{ fontSize: 12, color: '#805600', marginBottom: 16 }}>
-            {amberNote}
+        {baselineIsRecommended ? (
+          <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}>
+            The cheapest all-in option we found for {schoolName ?? borough} families this half-term is {fmt(baseline.total_cost_gbp)}.
           </p>
+        ) : (
+          <>
+            <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 12 }}>
+              {line1}
+            </p>
+            <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: amberNote ? 8 : 16 }}>
+              {line2}
+            </p>
+            {amberNote && (
+              <p className="font-inter" style={{ fontSize: 12, color: '#805600', marginBottom: 16 }}>
+                {amberNote}
+              </p>
+            )}
+            <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
+              We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
+            </p>
+          </>
         )}
-        <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
-          We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
-        </p>
       </div>
 
       {/* ── Section B: Recommended itinerary ───────────────────────────────── */}
@@ -313,9 +315,6 @@ export function SavingsBreakdown({
 
         {baselineIsRecommended && baselineAsItinerary ? (
           <>
-            <p className="font-inter" style={{ fontSize: 13, color: '#805600', marginBottom: 16 }}>
-              With your current preferences, the standard Saturday Heathrow booking is the cheapest option we found. Try adjusting bags or transport above to find alternatives.
-            </p>
             <div className="flex flex-col" style={{ gap: 10 }}>
               <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
                 <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
@@ -481,8 +480,8 @@ export function SavingsBreakdown({
         )}
       </div>
 
-      {/* ── Section C: Expandable cost breakdown ────────────────────────────── */}
-      <div
+      {/* ── Section C: Expandable cost breakdown — hidden when baseline is recommended ── */}
+      {!baselineIsRecommended && <div
         className="bg-white rounded-lg"
         style={{ padding: 24, boxShadow: '0 4px 12px rgba(13,92,99,0.08)' }}
       >
@@ -589,7 +588,7 @@ export function SavingsBreakdown({
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </section>
   );
 }
