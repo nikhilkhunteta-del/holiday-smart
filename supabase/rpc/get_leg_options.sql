@@ -15,8 +15,6 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   v_postcode_district text;
-  v_window_start      date;
-  v_window_end        date;
   v_run_id            uuid;
   v_composition       record;
   v_result            jsonb;
@@ -34,8 +32,7 @@ BEGIN
   ORDER BY completed_at DESC
   LIMIT 1;
 
-  -- Match composition (same logic as get_smart_recommendation)
-  -- nearest of 1A+1C, 2A+1C, 2A+2C, 2A+1inf
+  -- Match composition — nearest of 1A+1C, 2A+1C, 2A+2C, 2A+1inf
   SELECT adults, children, infants
   INTO v_composition
   FROM (
@@ -65,22 +62,22 @@ BEGIN
       'cabin_bag_cost_gbp',
         CASE
           WHEN p_cabin_bags = 0 THEN 0
-          WHEN (CASE WHEN p_direction = 'outbound'
-                THEN ab.cabin_bag_included
-                ELSE ab.cabin_bag_included END)
-               THEN 0
+          WHEN COALESCE(ab.cabin_bag_included, false) THEN 0
           ELSE LEAST(
             ab.full_cabin_bag_fee_gbp * p_cabin_bags,
-            COALESCE(ab.bundle_price_delta_gbp *
-              (CASE WHEN ab.child_same_as_adult
-               THEN p_adults + p_children
-               ELSE p_adults END), 999999)
+            COALESCE(
+              ab.bundle_price_delta_gbp *
+                (CASE WHEN ab.child_same_as_adult
+                 THEN p_adults + p_children
+                 ELSE p_adults END),
+              999999
+            )
           )
         END,
       'checked_bag_cost_gbp',
         CASE
           WHEN p_checked_bags = 0 THEN 0
-          ELSE ab.first_checked_bag_gbp * p_checked_bags
+          ELSE COALESCE(ab.first_checked_bag_gbp, 0) * p_checked_bags
         END,
       'seat_cost_gbp',
         CASE
@@ -91,22 +88,46 @@ BEGIN
              THEN p_adults + p_children
              ELSE p_adults END)
         END,
-      'transit_cost_gbp',     dat.off_peak_fare,
-      'transit_method',       dat.route_summary,
-      'transit_duration_mins',dat.journey_time_mins,
-      'transit_changes',      dat.transit_changes,
+      -- Raw pence values for TypeScript transit computation
+      'transit_offpeak_fare_pence', dat.transit_offpeak_fare_pence,
+      'transit_peak_fare_pence',    dat.transit_peak_fare_pence,
+      'uber_low_pence',             dat.uber_low_pence,
+      'uber_high_pence',            dat.uber_high_pence,
+      -- transit_cost_gbp intentionally NULL — TypeScript computes it
+      'transit_cost_gbp',           NULL,
+      'transit_method',             dat.transit_offpeak_route_summary,
+      'transit_duration_mins',      dat.transit_offpeak_duration_mins,
+      'transit_changes',            dat.transit_changes,
       'destination_transfer_gbp',
         COALESCE(da.transfer_cost_gbp, 0) * 2,
       'baggage_is_estimate',
         (fs.airline_iata IN ('FR', 'W6')),
       'family_split_risk',
-        (ab.seat_selection_gbp IS NOT NULL
-         AND NOT p_seats_together)
+        (ab.seat_selection_gbp IS NOT NULL AND NOT p_seats_together)
     )
+    -- Sort by fare + ancillary + dest transfer only.
+    -- TypeScript adds transit and re-sorts by true all-in total.
     ORDER BY
       (fs.party_total_gbp
-       + COALESCE(dat.off_peak_fare, 0)
-       + COALESCE(da.transfer_cost_gbp * 2, 0)) ASC
+       + COALESCE(
+           CASE
+             WHEN p_cabin_bags = 0 THEN 0
+             WHEN COALESCE(ab.cabin_bag_included, false) THEN 0
+             ELSE LEAST(
+               ab.full_cabin_bag_fee_gbp * p_cabin_bags,
+               COALESCE(ab.bundle_price_delta_gbp *
+                 (CASE WHEN ab.child_same_as_adult
+                  THEN p_adults + p_children
+                  ELSE p_adults END), 999999)
+             )
+           END, 0)
+       + COALESCE(
+           CASE
+             WHEN p_checked_bags = 0 THEN 0
+             ELSE COALESCE(ab.first_checked_bag_gbp, 0) * p_checked_bags
+           END, 0)
+       + COALESCE(da.transfer_cost_gbp * 2, 0)
+      ) ASC
   )
   INTO v_result
   FROM fare_snapshots fs

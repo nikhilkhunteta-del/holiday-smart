@@ -18,6 +18,12 @@ export interface LegOption {
   cabin_bag_cost_gbp: number;
   checked_bag_cost_gbp: number;
   seat_cost_gbp: number;
+  // Raw pence values from RPC — used to compute transit_cost_gbp in TypeScript
+  transit_offpeak_fare_pence: number | null;
+  transit_peak_fare_pence: number | null;
+  uber_low_pence: number | null;
+  uber_high_pence: number | null;
+  // Computed in TypeScript after receiving RPC data
   transit_cost_gbp: number | null;
   transit_method: string | null;
   transit_duration_mins: number | null;
@@ -43,6 +49,11 @@ interface LegOptionsProps {
   } | null;
   title: string;
   recommendedOption?: RecommendedOption | null;
+  adults: number;
+  children: number;
+  infants: number;
+  transitPreference: 'auto' | 'uber';
+  postcodeDistrict: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,7 +80,7 @@ function fmt(time: string): string {
   return time.slice(0, 5);
 }
 
-// Fix 1 — keyword-first transit mode extraction
+// Keyword-first transit mode extraction
 function extractTransitMode(method: string | null): string {
   if (!method) return '—';
   if (method.includes('National Express')) return 'National Express';
@@ -82,7 +93,77 @@ function extractTransitMode(method: string | null): string {
   return method.split('→')[0].trim().slice(0, 20);
 }
 
-// ── Fix 6 — Mini proportion bar (4 segments) ─────────────────────────────────
+// ── Transit cost computation ──────────────────────────────────────────────────
+// Mirrors the 4-rule logic in transitCost.ts, simplified for count-based children.
+
+function computeTransitCost(
+  option: LegOption,
+  adults: number,
+  children: number,
+  transitPreference: 'auto' | 'uber',
+  isEarlyMorning: boolean,
+): number {
+  const totalPax    = adults + children;
+  const xlMultiplier = totalPax >= 4 ? 1.5 : 1.0;
+
+  const uberMid = option.uber_low_pence != null && option.uber_high_pence != null
+    ? (option.uber_low_pence + option.uber_high_pence) / 200.0
+    : null;
+  const uberCost = uberMid != null ? uberMid * xlMultiplier : null;
+
+  // Always-Uber preference
+  if (transitPreference === 'uber') {
+    return uberCost ?? 0;
+  }
+
+  const transitFare = option.transit_offpeak_fare_pence != null
+    ? option.transit_offpeak_fare_pence / 100.0
+    : null;
+
+  // Rule 1: Early morning → Uber (high estimate)
+  if (isEarlyMorning) {
+    const uberHigh = option.uber_high_pence != null
+      ? (option.uber_high_pence / 100.0) * xlMultiplier
+      : null;
+    return uberHigh ?? transitFare ?? 0;
+  }
+
+  // Rule 2: No transit fare → Uber
+  if (transitFare === null) {
+    return uberCost ?? 0;
+  }
+
+  // Rule 3: ≥2 changes AND Uber within £50 of transit → Uber (less hassle)
+  if (
+    (option.transit_changes ?? 0) >= 2 &&
+    uberCost != null &&
+    Math.abs(uberCost - transitFare) <= 50
+  ) {
+    return uberCost;
+  }
+
+  // Rule 4: Default → transit with child fare adjustment
+  const adultFarePerPerson = adults > 0 ? transitFare / adults : transitFare;
+  const method = option.transit_method ?? '';
+
+  let childFare = 0;
+  if (
+    method.includes('Heathrow') ||
+    method.includes('DLR') ||
+    option.origin_iata === 'LHR' ||
+    option.origin_iata === 'LCY'
+  ) {
+    childFare = children * 1.05;
+  } else if (method.includes('National Express') || option.origin_iata === 'LTN') {
+    childFare = children * adultFarePerPerson * 0.75;
+  } else {
+    childFare = children * adultFarePerPerson * 0.5;
+  }
+
+  return adults * adultFarePerPerson + childFare;
+}
+
+// ── Mini proportion bar (4 segments) ─────────────────────────────────────────
 
 function ProportionBar({ opt }: { opt: LegOption }) {
   const total = opt.total_gbp;
@@ -109,10 +190,10 @@ function ProportionBar({ opt }: { opt: LegOption }) {
 
 function RowDetail({ opt }: { opt: LegOption }) {
   const rows: Array<{ label: string; value: string; bold?: boolean }> = [
-    { label: 'Base fare',      value: gbp(opt.fare_gbp) },
-    { label: 'Cabin bags',     value: opt.cabin_bag_cost_gbp  === 0 ? 'Included'     : gbp(opt.cabin_bag_cost_gbp) },
-    { label: 'Checked bags',   value: opt.checked_bag_cost_gbp === 0 ? 'None'        : gbp(opt.checked_bag_cost_gbp) },
-    { label: 'Seats',          value: opt.seat_cost_gbp        === 0 ? 'Not selected' : gbp(opt.seat_cost_gbp) },
+    { label: 'Base fare',    value: gbp(opt.fare_gbp) },
+    { label: 'Cabin bags',   value: opt.cabin_bag_cost_gbp   === 0 ? 'Included'      : gbp(opt.cabin_bag_cost_gbp) },
+    { label: 'Checked bags', value: opt.checked_bag_cost_gbp === 0 ? 'None'          : gbp(opt.checked_bag_cost_gbp) },
+    { label: 'Seats',        value: opt.seat_cost_gbp        === 0 ? 'Not selected'  : gbp(opt.seat_cost_gbp) },
     {
       label: opt.transit_method ? `Transport (${opt.transit_method})` : 'Transport',
       value: opt.transit_cost_gbp != null ? gbp(opt.transit_cost_gbp) : '—',
@@ -139,9 +220,7 @@ function RowDetail({ opt }: { opt: LegOption }) {
           {rows.map((r, i) => (
             <tr key={i}>
               <td style={{
-                fontSize: 12,
-                color: '#3f484a',
-                padding: '3px 0',
+                fontSize: 12, color: '#3f484a', padding: '3px 0',
                 fontWeight: r.bold ? 700 : 400,
                 borderTop: r.bold ? '1px solid #d4dbdc' : undefined,
                 paddingTop: r.bold ? 8 : undefined,
@@ -149,9 +228,7 @@ function RowDetail({ opt }: { opt: LegOption }) {
                 {r.label}
               </td>
               <td style={{
-                fontSize: 12,
-                color: '#3f484a',
-                padding: '3px 0',
+                fontSize: 12, color: '#3f484a', padding: '3px 0',
                 textAlign: 'right',
                 fontWeight: r.bold ? 700 : 400,
                 borderTop: r.bold ? '1px solid #d4dbdc' : undefined,
@@ -196,7 +273,7 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
   );
 }
 
-// ── Column header + value stack (Fix 7 — tight spacing) ──────────────────────
+// ── Column header + value stack ───────────────────────────────────────────────
 
 function ColStack({ label, children }: { label: string; children?: ReactNode }) {
   return (
@@ -309,7 +386,6 @@ function OptionRow({
                 <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
                   {extractTransitMode(opt.transit_method)}
                 </div>
-                {/* Fix 5 — high destination transfer warning */}
                 {opt.destination_transfer_gbp >= 40 && (
                   <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
                     + {gbp(opt.destination_transfer_gbp)} dest. transfer
@@ -349,13 +425,37 @@ function OptionRow({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function LegOptions({ data, title, recommendedOption }: LegOptionsProps) {
+export function LegOptions({
+  data,
+  title,
+  recommendedOption,
+  adults,
+  children,
+  transitPreference,
+}: LegOptionsProps) {
   const [open, setOpen]       = useState(false);
   const [showAll, setShowAll] = useState(false);
 
-  const options = data?.options ?? [];
-  const sorted  = [...options].sort((a, b) => a.total_gbp - b.total_gbp);
-  const visible = showAll ? sorted : sorted.slice(0, 8);
+  // Apply party-size-aware transit cost computation and re-sort
+  const processedOptions = (data?.options ?? []).map((opt) => {
+    const isEarlyMorning = fmt(opt.departure_time) < '07:00';
+    const transitCost = computeTransitCost(
+      opt, adults, children, transitPreference, isEarlyMorning,
+    );
+    const totalGbp =
+      opt.fare_gbp +
+      ancillaryGbp(opt) +
+      transitCost +
+      opt.destination_transfer_gbp;
+    return {
+      ...opt,
+      transit_cost_gbp: transitCost,
+      total_gbp: totalGbp,
+    };
+  });
+  processedOptions.sort((a, b) => a.total_gbp - b.total_gbp);
+
+  const visible = showAll ? processedOptions : processedOptions.slice(0, 8);
 
   return (
     <div
@@ -398,7 +498,7 @@ export function LegOptions({ data, title, recommendedOption }: LegOptionsProps) 
       {/* Collapsible body */}
       {open && (
         <div style={{ marginTop: 20 }}>
-          {options.length === 0 ? (
+          {processedOptions.length === 0 ? (
             <p style={{ fontSize: 14, color: '#718096', margin: 0 }}>
               No options available for this date.
             </p>
@@ -418,7 +518,7 @@ export function LegOptions({ data, title, recommendedOption }: LegOptionsProps) 
                 </tbody>
               </table>
 
-              {!showAll && sorted.length > 8 && (
+              {!showAll && processedOptions.length > 8 && (
                 <button
                   onClick={() => setShowAll(true)}
                   style={{
@@ -432,7 +532,7 @@ export function LegOptions({ data, title, recommendedOption }: LegOptionsProps) 
                     textDecoration: 'underline',
                   }}
                 >
-                  Show all {sorted.length} options
+                  Show all {processedOptions.length} options
                 </button>
               )}
             </>

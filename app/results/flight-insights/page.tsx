@@ -244,6 +244,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         <LegOptions
           data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
           title={`Outbound options · ${formatDate(smartOutboundDate)}`}
+          adults={adults}
+          children={children}
+          infants={infants}
+          transitPreference={transitPreference}
+          postcodeDistrict={postcodeDistrict}
           recommendedOption={assembled?.recommendation ? {
             airline_iata:     assembled.recommendation.outbound_carrier,
             origin_iata:      assembled.recommendation.origin_iata,
@@ -254,6 +259,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         <LegOptions
           data={returnLegResult?.error ? null : returnLegResult?.data as any}
           title={`Return options · ${formatDate(smartReturnDate)}`}
+          adults={adults}
+          children={children}
+          infants={infants}
+          transitPreference={transitPreference}
+          postcodeDistrict={postcodeDistrict}
           recommendedOption={assembled?.recommendation ? {
             airline_iata:     assembled.recommendation.return_carrier,
             origin_iata:      assembled.recommendation.out_dest_iata,
