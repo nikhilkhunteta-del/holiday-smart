@@ -14,18 +14,15 @@ RETURNS jsonb
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_dest_id       uuid;
-  v_dest_airports text[];
   v_postcode_district text;
-  v_run_id        uuid;
-  v_adults        smallint;
-  v_children      smallint;
-  v_infants       smallint;
-  v_party_size    int;
-  v_result        jsonb;
+  v_run_id            uuid;
+  v_destination_id    uuid;
+  v_composition       record;
+  v_result            jsonb;
 BEGIN
 
-  -- ── 1. Destination + airport pool ──────────────────────────────────────────
+  SELECT postcode_district INTO v_postcode_district
+  FROM all_schools WHERE urn = p_school_urn;
 
   SELECT id INTO v_run_id
   FROM snapshot_runs
@@ -47,8 +44,8 @@ BEGIN
       (2::smallint, 0::smallint, 1::smallint)
   ) AS compositions(adults, children, infants)
   ORDER BY
-    ABS(adults - p_adults) + 
-    ABS(children - p_children) + 
+    ABS(adults - p_adults) +
+    ABS(children - p_children) +
     ABS(infants - p_infants)
   LIMIT 1;
 
@@ -90,7 +87,7 @@ BEGIN
       dat.transit_changes,
       COALESCE(da.transfer_cost_gbp, 0) * 2 AS destination_transfer_gbp,
       fs.airline_iata IN ('FR', 'W6') AS baggage_is_estimate,
-      ab.seat_selection_gbp IS NOT NULL 
+      ab.seat_selection_gbp IS NOT NULL
         AND NOT p_seats_together AS family_split_risk
     FROM fare_snapshots fs
     JOIN airline_baggage_fees ab ON ab.airline_iata = fs.airline_iata
@@ -123,14 +120,14 @@ BEGIN
   cheapest_per_route AS (
     SELECT DISTINCT ON (airline_iata, origin_iata, destination_iata)
       *,
-      (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp + 
+      (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp +
        seat_cost_gbp + destination_transfer_gbp) AS sort_total
     FROM all_options
     ORDER BY
       airline_iata,
       origin_iata,
       destination_iata,
-      (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp + 
+      (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp +
        seat_cost_gbp + destination_transfer_gbp) ASC
   )
 
@@ -148,7 +145,7 @@ BEGIN
       'cabin_bag_cost_gbp',         cabin_bag_cost_gbp,
       'checked_bag_cost_gbp',       checked_bag_cost_gbp,
       'seat_cost_gbp',              seat_cost_gbp,
-      'ancillary_gbp',              
+      'ancillary_gbp',
         cabin_bag_cost_gbp + checked_bag_cost_gbp + seat_cost_gbp,
       'transit_offpeak_fare_pence', transit_offpeak_fare_pence,
       'transit_peak_fare_pence',    transit_peak_fare_pence,
@@ -165,14 +162,12 @@ BEGIN
     ORDER BY sort_total ASC
   )
   INTO v_result
-  FROM ranked r;
+  FROM cheapest_per_route;
 
   RETURN jsonb_build_object(
-    'outbound_date',  p_outbound_date,
-    'return_date',    p_return_date,
-    'party_size',     v_party_size,
-    'transport_mode', p_transport_mode,
-    'carriers',       v_result
+    'date',      p_date,
+    'direction', p_direction,
+    'options',   COALESCE(v_result, '[]'::jsonb)
   );
 
 END;
