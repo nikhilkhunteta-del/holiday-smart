@@ -284,6 +284,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             pCabinBags={cabinBags}
             pCheckedBags={checkedBags}
             seatsTogether={seatsTogether}
+            baselineIsRecommended={assembled.baselineIsRecommended}
           />
         )}
         <AllInCost

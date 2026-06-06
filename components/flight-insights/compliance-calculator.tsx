@@ -87,6 +87,7 @@ interface ComplianceCalculatorProps {
   pCabinBags: number;
   pCheckedBags: number;
   seatsTogether: boolean;
+  baselineIsRecommended?: boolean;
 }
 
 // ── Expand panel ──────────────────────────────────────────────────────────────
@@ -356,6 +357,7 @@ export function ComplianceCalculator({
   pCabinBags,
   pCheckedBags,
   seatsTogether,
+  baselineIsRecommended,
 }: ComplianceCalculatorProps) {
   const [activeCell, setActiveCell] = useState<string | null>(null);
 
@@ -409,7 +411,11 @@ export function ComplianceCalculator({
         Every viable departure and return combination for your half-term, fully priced — flights, bags, seats and transfers included.
       </p>
 
-      {combinations.length === 0 ? (
+      {baselineIsRecommended ? (
+        <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
+          The standard Heathrow booking is the cheapest option with your current preferences. Adjust bags or transport to explore alternatives.
+        </p>
+      ) : combinations.length === 0 ? (
         <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
           No combinations found for this window.
         </p>
