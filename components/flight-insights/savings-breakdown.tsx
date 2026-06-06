@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
+import type { AssembledCombination, AssembledBaseline, BaselineAsItinerary } from '@/lib/flights/assembleRecommendation';
 
 // ── Interfaces ─────────────────────────────────────────────────────────────────
 
@@ -47,6 +47,8 @@ interface Props {
   combinations?: AssembledCombination[];
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   schoolName: string | null;
+  baselineIsRecommended?: boolean;
+  baselineAsItinerary?: BaselineAsItinerary;
 }
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
@@ -129,6 +131,7 @@ export function SavingsBreakdown({
   postcodeDistrict, cabinBags, checkedBags, seatsTogether, party_size,
   combinations,
   savingCategory, schoolName,
+  baselineIsRecommended, baselineAsItinerary,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -308,121 +311,173 @@ export function SavingsBreakdown({
           Recommended itinerary
         </p>
 
-        {/* Itinerary insight line */}
-        {(() => {
-          let insight = '';
-          if (recommendation.is_inset_day) {
-            insight = "Flying on your school's inset day — one day earlier than most families, at no extra cost.";
-          } else if (!recommendation.requires_absence) {
-            const cheapestInset = (combinations ?? [])
-              .filter(c => c.is_inset_day && !c.requires_absence)
-              .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
-            if (cheapestInset) {
-              const diff = Math.round(cheapestInset.total_inc_fine - recommendation.total_inc_fine);
-              if (diff > 0 && diff <= 20) {
-                insight = `Alternatively, fly the inset day (${fmtShortDate(cheapestInset.outbound_date)}) for just ${fmt(diff)} more and gain an extra day.`;
-              }
-            }
-            if (!insight) insight = 'No school absence required for this trip.';
-          }
-          return insight ? (
-            <p className="font-inter" style={{ fontSize: 13, color: '#3f484a', fontStyle: 'italic', marginBottom: 16 }}>
-              {insight}
+        {baselineIsRecommended && baselineAsItinerary ? (
+          <>
+            <p className="font-inter" style={{ fontSize: 13, color: '#805600', marginBottom: 16 }}>
+              With your current preferences, the standard Saturday Heathrow booking is the cheapest option we found. Try adjusting bags or transport above to find alternatives.
             </p>
-          ) : null;
-        })()}
-
-        <div className="flex flex-col" style={{ gap: 10 }}>
-          {/* Outbound row */}
-          <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
-            <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
-              Outbound
-            </span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              {fmtShortDate(recommendation.outbound_date)}
-            </span>
-            <span style={{ color: '#bfc8c9' }}>·</span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              {carrierName(recommendation.outbound_carrier)}
-            </span>
-            <span style={{ color: '#bfc8c9' }}>·</span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              from {recommendation.origin_iata}
-            </span>
-            {recommendation.outbound_departure_time && (
-              <>
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
+                  Outbound
+                </span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {fmtShortDate(baselineAsItinerary.outbound_date)}
+                </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  departs {recommendation.outbound_departure_time}
+                  {carrierName(baselineAsItinerary.outbound_carrier)}
                 </span>
-              </>
-            )}
-          </div>
-
-          {/* Return row */}
-          <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
-            <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
-              Return
-            </span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              {fmtShortDate(recommendation.return_date)}
-            </span>
-            <span style={{ color: '#bfc8c9' }}>·</span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              {carrierName(recommendation.return_carrier)}
-            </span>
-            <span style={{ color: '#bfc8c9' }}>·</span>
-            <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-              to {recommendation.ret_dest_iata}
-            </span>
-            {recommendation.return_arrival_time && (
-              <>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  arrives {recommendation.return_arrival_time}
+                  from {baselineAsItinerary.origin_iata}
                 </span>
-              </>
-            )}
-          </div>
-        </div>
+                {baselineAsItinerary.outbound_departure_time && (
+                  <>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      departs {baselineAsItinerary.outbound_departure_time}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
+                  Return
+                </span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {fmtShortDate(baselineAsItinerary.return_date)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {carrierName(baselineAsItinerary.return_carrier)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  to LHR
+                </span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Itinerary insight line */}
+            {(() => {
+              let insight = '';
+              if (recommendation.is_inset_day) {
+                insight = "Flying on your school's inset day — one day earlier than most families, at no extra cost.";
+              } else if (!recommendation.requires_absence) {
+                const cheapestInset = (combinations ?? [])
+                  .filter(c => c.is_inset_day && !c.requires_absence)
+                  .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
+                if (cheapestInset) {
+                  const diff = Math.round(cheapestInset.total_inc_fine - recommendation.total_inc_fine);
+                  if (diff > 0 && diff <= 20) {
+                    insight = `Alternatively, fly the inset day (${fmtShortDate(cheapestInset.outbound_date)}) for just ${fmt(diff)} more and gain an extra day.`;
+                  }
+                }
+                if (!insight) insight = 'No school absence required for this trip.';
+              }
+              return insight ? (
+                <p className="font-inter" style={{ fontSize: 13, color: '#3f484a', fontStyle: 'italic', marginBottom: 16 }}>
+                  {insight}
+                </p>
+              ) : null;
+            })()}
 
-        {/* Warning badges */}
-        {(recommendation.family_split_risk || recommendation.requires_absence) && (
-          <div className="flex flex-wrap" style={{ gap: 8, marginTop: 16 }}>
-            {recommendation.family_split_risk && (
-              <span
-                className="font-inter"
-                style={{
-                  fontSize: 12,
-                  background: '#fffbf0',
-                  color: '#704b00',
-                  border: '1px solid #fdba49',
-                  borderRadius: 6,
-                  padding: '3px 10px',
-                }}
-              >
-                Family split risk
-              </span>
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              {/* Outbound row */}
+              <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
+                  Outbound
+                </span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {fmtShortDate(recommendation.outbound_date)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {carrierName(recommendation.outbound_carrier)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  from {recommendation.origin_iata}
+                </span>
+                {recommendation.outbound_departure_time && (
+                  <>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      departs {recommendation.outbound_departure_time}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Return row */}
+              <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                <span className="font-inter" style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}>
+                  Return
+                </span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {fmtShortDate(recommendation.return_date)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  {carrierName(recommendation.return_carrier)}
+                </span>
+                <span style={{ color: '#bfc8c9' }}>·</span>
+                <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                  to {recommendation.ret_dest_iata}
+                </span>
+                {recommendation.return_arrival_time && (
+                  <>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      arrives {recommendation.return_arrival_time}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Warning badges */}
+            {(recommendation.family_split_risk || recommendation.requires_absence) && (
+              <div className="flex flex-wrap" style={{ gap: 8, marginTop: 16 }}>
+                {recommendation.family_split_risk && (
+                  <span
+                    className="font-inter"
+                    style={{
+                      fontSize: 12,
+                      background: '#fffbf0',
+                      color: '#704b00',
+                      border: '1px solid #fdba49',
+                      borderRadius: 6,
+                      padding: '3px 10px',
+                    }}
+                  >
+                    Family split risk
+                  </span>
+                )}
+                {recommendation.requires_absence && (
+                  <span
+                    className="font-inter"
+                    style={{
+                      fontSize: 12,
+                      background: '#fffbf0',
+                      color: '#704b00',
+                      border: '1px solid #fdba49',
+                      borderRadius: 6,
+                      padding: '3px 10px',
+                    }}
+                  >
+                    Requires school absence
+                    {recommendation.fine_gbp != null
+                      ? ` · fine est. ${fmt(recommendation.fine_gbp)}`
+                      : ''}
+                  </span>
+                )}
+              </div>
             )}
-            {recommendation.requires_absence && (
-              <span
-                className="font-inter"
-                style={{
-                  fontSize: 12,
-                  background: '#fffbf0',
-                  color: '#704b00',
-                  border: '1px solid #fdba49',
-                  borderRadius: 6,
-                  padding: '3px 10px',
-                }}
-              >
-                Requires school absence
-                {recommendation.fine_gbp != null
-                  ? ` · fine est. ${fmt(recommendation.fine_gbp)}`
-                  : ''}
-              </span>
-            )}
-          </div>
+          </>
         )}
       </div>
 

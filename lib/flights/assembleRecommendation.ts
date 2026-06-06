@@ -77,6 +77,16 @@ function parseDepartureDate(dateStr: string, timeStr: string | null | undefined)
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+export type BaselineAsItinerary = {
+  outbound_date: string;
+  return_date: string;
+  origin_iata: string;
+  outbound_carrier: string;
+  return_carrier: string;
+  total_cost_gbp: number;
+  outbound_departure_time: string | null;
+};
+
 export async function assembleRecommendation(
   rawResult: any,
   postcodeDistrict: string,
@@ -89,6 +99,8 @@ export async function assembleRecommendation(
   baseline: AssembledBaseline;
   recommendation: AssembledCombination;
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  baselineIsRecommended: boolean;
+  baselineAsItinerary: BaselineAsItinerary;
 }> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -290,10 +302,24 @@ export async function assembleRecommendation(
     saving >= 0  ? 'minimal' :
                    'baseline_cheapest';
 
+  const baselineIsRecommended = savingCategory === 'baseline_cheapest';
+
+  const baselineAsItinerary: BaselineAsItinerary = {
+    outbound_date: assembledBaseline.outbound_date,
+    return_date: assembledBaseline.return_date,
+    origin_iata: assembledBaseline.origin_iata,
+    outbound_carrier: assembledBaseline.carrier,
+    return_carrier: assembledBaseline.carrier,
+    total_cost_gbp: assembledBaseline.total_cost_gbp,
+    outbound_departure_time: assembledBaseline.outbound_departure_time,
+  };
+
   return {
     combinations: assembled,
     baseline: assembledBaseline,
     recommendation: assembled[0],
     savingCategory,
+    baselineIsRecommended,
+    baselineAsItinerary,
   };
 }

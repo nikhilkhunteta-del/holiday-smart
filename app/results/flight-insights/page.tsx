@@ -270,6 +270,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           combinations={assembled?.combinations}
           savingCategory={savingCategory}
           schoolName={schoolName}
+          baselineIsRecommended={assembled?.baselineIsRecommended}
+          baselineAsItinerary={assembled?.baselineAsItinerary}
         />
         {assembled && (
           <ComplianceCalculator
