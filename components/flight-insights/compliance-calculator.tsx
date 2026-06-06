@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 
@@ -88,159 +88,33 @@ interface ComplianceCalculatorProps {
   pCheckedBags: number;
   seatsTogether: boolean;
   baselineIsRecommended?: boolean;
-}
-
-// ── Expand panel ──────────────────────────────────────────────────────────────
-
-function ExpandPanel({
-  c, partySize, pCabinBags, pCheckedBags, seatsTogether, onClose,
-}: {
-  c: AssembledCombination;
-  partySize: number;
-  pCabinBags: number;
-  pCheckedBags: number;
-  seatsTogether: boolean;
-  onClose: () => void;
-}) {
-  const nights      = nightsBetween(c.outbound_date, c.return_date);
-  const hasFine     = (c.fine_gbp ?? 0) > 0;
-  const outDetail   = transportDetail(c.outbound_transit, c.origin_iata, '↑');
-  const retDetail   = transportDetail(c.return_transit, c.ret_dest_iata, '↓');
-  const hasRyanair  = c.outbound_carrier === 'FR' || c.return_carrier === 'FR';
-  const destCost    = c.destination_transfer_cost_gbp ?? 0;
-
-  const cabinIsEst = c.outbound_carrier === 'FR' || c.return_carrier === 'FR' ||
-                     c.outbound_carrier === 'W6' || c.return_carrier === 'W6';
-
-  // Bundle detection (simplified)
-  const bundleApplied = (c.cabin_bag_cost_gbp + c.checked_bag_cost_gbp + c.seat_cost_gbp) >
-    (c.fare_plus_ancillary_gbp - c.outbound_fare_gbp - c.return_fare_gbp);
-
-  const carriersStr = c.outbound_carrier === c.return_carrier
-    ? carrierName(c.outbound_carrier)
-    : `${carrierName(c.outbound_carrier)} + ${carrierName(c.return_carrier)}`;
-
-  const rowStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    padding: '8px 0',
-    borderBottom: '1px solid #f2f4f4',
-  };
-  const labelStyle  = { fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#191c1d', display: 'block' as const };
-  const detailStyle = { fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#3f484a', display: 'block' as const, marginTop: 2 };
-  const costStyle   = { fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#191c1d', whiteSpace: 'nowrap' as const, marginLeft: 16, flexShrink: 0 };
-
-  return (
-    <div style={{ position: 'relative', background: '#ffffff', boxShadow: '0 8px 16px rgba(13,92,99,0.08)', padding: 16, borderRadius: '0 0 8px 8px' }}>
-      <button
-        onClick={onClose}
-        style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6f797a', lineHeight: 1, padding: '0 4px' }}
-        aria-label="Close breakdown"
-      >
-        ×
-      </button>
-
-      <div style={{ maxWidth: 480 }}>
-        <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 600, color: '#004349', marginBottom: 12, paddingRight: 24 }}>
-          {carrierName(c.outbound_carrier)} from {c.origin_iata} · {carrierName(c.return_carrier)} to {c.ret_dest_iata} · {nights} night{nights === 1 ? '' : 's'}
-        </p>
-
-        {/* Flights */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Flights</span>
-            <span style={detailStyle}>
-              {carrierName(c.outbound_carrier)} {c.origin_iata}→{c.out_dest_iata} · {carrierName(c.return_carrier)} {c.out_dest_iata}←{c.ret_dest_iata}
-            </span>
-          </div>
-          <span style={costStyle}>{gbp((c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0))}</span>
-        </div>
-
-        {/* Cabin bags */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Cabin bags</span>
-            <span style={detailStyle}>
-              {c.cabin_bag_cost_gbp === 0
-                ? 'Included in fare'
-                : `${pCabinBags} bag${pCabinBags !== 1 ? 's' : ''} per leg${cabinIsEst ? ' · estimated' : ''}`}
-            </span>
-          </div>
-          <span style={costStyle}>{gbp(c.cabin_bag_cost_gbp)}</span>
-        </div>
-
-        {/* Checked bags */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Checked bags</span>
-            <span style={detailStyle}>
-              {c.checked_bag_cost_gbp === 0
-                ? 'None'
-                : `${pCheckedBags} bag${pCheckedBags !== 1 ? 's' : ''} per leg`}
-            </span>
-          </div>
-          <span style={costStyle}>{gbp(c.checked_bag_cost_gbp)}</span>
-        </div>
-
-        {/* Seats */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Seats</span>
-            <span style={detailStyle}>
-              {seatsTogether
-                ? `${partySize} seats reserved · ${carriersStr}${hasRyanair ? ' · children free on Ryanair' : ''}${bundleApplied ? ' · bundle applied' : ''}`
-                : 'No advance seat selection · family split risk'}
-            </span>
-          </div>
-          <span style={costStyle}>{gbp(c.seat_cost_gbp)}</span>
-        </div>
-
-        {/* London transport */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>London transport</span>
-            <span style={detailStyle}>↑ {outDetail} · {gbp(c.outbound_transit_cost_gbp)}</span>
-            <span style={detailStyle}>↓ {retDetail} · {gbp(c.return_transit_cost_gbp)}</span>
-          </div>
-          <span style={costStyle}>{gbp(c.transit_cost_gbp)}</span>
-        </div>
-
-        {/* Destination transfers */}
-        <div style={rowStyle}>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Destination transfers</span>
-            <span style={detailStyle}>{destCost === 0 ? 'Not included' : `${c.out_dest_iata} airport · both ways`}</span>
-          </div>
-          <span style={costStyle}>{gbp(destCost)}</span>
-        </div>
-
-        {/* Fine */}
-        {hasFine && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px', borderRadius: 4, background: '#fff8e7', marginTop: 2 }}>
-            <div style={{ flex: 1 }}>
-              <span style={labelStyle}>Fine</span>
-              <span style={detailStyle}>{c.absence_days} day{c.absence_days === 1 ? '' : 's'} absence</span>
-            </div>
-            <span style={costStyle}>{gbp(c.fine_gbp ?? 0)}</span>
-          </div>
-        )}
-
-        {/* Total */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0 0', borderTop: '1.5px solid #004349', marginTop: 4 }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>Total</span>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: '#004349' }}>{gbp(c.total_inc_fine)}</span>
-        </div>
-      </div>
-    </div>
-  );
+  selectedOutbound?: string;
+  selectedReturn?: string;
 }
 
 // ── Baseline cell ──────────────────────────────────────────────────────────────
 
-function BaselineCell({ total }: { total: number }) {
+function BaselineCell({ total, isSelected, onClick }: { total: number; isSelected?: boolean; onClick?: () => void }) {
   return (
-    <td style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: '#f2f4f4', border: '1px solid #bfc8c9', borderRadius: 6 }}>
+    <td
+      onClick={onClick}
+      style={{
+        minWidth: 80, padding: 8, verticalAlign: 'top',
+        background: '#f2f4f4',
+        border: isSelected ? '2px solid #004349' : '1px solid #bfc8c9',
+        borderRadius: 6,
+        cursor: onClick ? 'pointer' : undefined,
+      }}
+    >
+      {isSelected && (
+        <span style={{
+          fontFamily: 'Inter, sans-serif', fontSize: 9, fontWeight: 600,
+          color: '#004349', display: 'block', letterSpacing: '0.05em',
+          textTransform: 'uppercase', marginBottom: 2,
+        }}>
+          Viewing
+        </span>
+      )}
       <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#6f797a', display: 'block' }}>{gbp(total)}</span>
       <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: '#9ba8a9', display: 'block', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: 2 }}>Baseline</span>
     </td>
@@ -250,19 +124,19 @@ function BaselineCell({ total }: { total: number }) {
 // ── Data cell ──────────────────────────────────────────────────────────────────
 
 function DataCell({
-  c, baselineTotal, isRec, isActive, onClick, baselineNote,
+  c, baselineTotal, isRec, isSelected, onClick, baselineNote,
 }: {
   c: AssembledCombination;
   baselineTotal: number;
   isRec: boolean;
-  isActive: boolean;
+  isSelected: boolean;
   onClick: () => void;
   baselineNote?: number;
 }) {
   const saving    = baselineTotal - c.total_inc_fine;
   const { bg, color } = cellColour(saving);
   const starColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
-  const border    = isActive || isRec ? '1.5px solid #004349' : 'none';
+  const border    = isSelected ? '2px solid #004349' : isRec ? '1.5px solid #004349' : 'none';
   const hasFine   = c.requires_absence && (c.fine_gbp ?? 0) > 0;
 
   const fineBadge = hasFine ? (
@@ -275,20 +149,25 @@ function DataCell({
     </span>
   ) : null;
 
+  // Label to show above price: OUR PICK takes priority, then VIEWING
+  const showOurPick = isRec;
+  const showViewing = isSelected && !isRec;
+
   return (
     <td
       onClick={onClick}
       style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
     >
-      {isRec ? (
+      {(showOurPick || showViewing) ? (
         <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
           <div style={{
             position: 'absolute', top: 0, left: 0,
-            fontSize: 9, fontWeight: 600, color: starColor,
+            fontSize: 9, fontWeight: 600,
+            color: showOurPick ? starColor : '#004349',
             letterSpacing: '0.04em', textTransform: 'uppercase' as const,
             whiteSpace: 'nowrap' as const,
           }}>
-            ★ Our pick
+            {showOurPick ? '★ Our pick' : 'Viewing'}
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_inc_fine)}
@@ -358,8 +237,11 @@ export function ComplianceCalculator({
   pCheckedBags,
   seatsTogether,
   baselineIsRecommended,
+  selectedOutbound,
+  selectedReturn,
 }: ComplianceCalculatorProps) {
-  const [activeCell, setActiveCell] = useState<string | null>(null);
+  const router        = useRouter();
+  const currentParams = useSearchParams();
 
   const baselineTotal = baseline.total_cost_gbp;
 
@@ -369,7 +251,7 @@ export function ComplianceCalculator({
     if (!cellMap.has(key)) cellMap.set(key, c);
   }
 
-  // Include baseline dates in the matrix axes (Change 4)
+  // Include baseline dates in the matrix axes
   const allDepDates = new Set(combinations.map(c => c.outbound_date));
   if (baseline.outbound_date) allDepDates.add(baseline.outbound_date);
   const depDates = Array.from(allDepDates).sort();
@@ -385,13 +267,11 @@ export function ComplianceCalculator({
   const blCarrier = carrierName(baseline.carrier ?? '');
   const blOrigin  = baseline.origin_iata ?? 'LHR';
 
-  const [activeDep, activeRetDate] = activeCell ? activeCell.split('|') : [null, null];
-  const activeComb = activeDep && activeRetDate
-    ? cellMap.get(`${activeDep}|${activeRetDate}`) ?? null
-    : null;
-
-  function handleCellClick(key: string) {
-    setActiveCell((prev: string | null) => prev === key ? null : key);
+  function handleCellClick(outbound_date: string, return_date: string) {
+    const params = new URLSearchParams(currentParams?.toString() ?? '');
+    params.set('selected_outbound', outbound_date);
+    params.set('selected_return', return_date);
+    router.push(`?${params.toString()}#leg-options`);
   }
 
   return (
@@ -505,12 +385,20 @@ export function ComplianceCalculator({
                                 ? dep === recommendation.outbound_date && ret === recommendation.return_date
                                 : false);
 
+                          const isSelected = dep === selectedOutbound && ret === selectedReturn;
+
                           if (isBaselinePos && baselineIsRecommended) {
                             // Render baseline position as OUR PICK (dark teal, white text)
                             return (
                               <td
                                 key={ret}
-                                style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: '#0d5c63', borderRadius: 6 }}
+                                onClick={() => handleCellClick(dep, ret)}
+                                style={{
+                                  minWidth: 80, padding: 8, verticalAlign: 'top',
+                                  background: '#0d5c63',
+                                  border: isSelected ? '2px solid #004349' : 'none',
+                                  borderRadius: 6, cursor: 'pointer',
+                                }}
                               >
                                 <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
                                   <div style={{
@@ -531,7 +419,14 @@ export function ComplianceCalculator({
 
                           if (c) {
                             if (isBaselinePos && baseline.total_cost_gbp <= c.total_inc_fine) {
-                              return <BaselineCell key={ret} total={baseline.total_cost_gbp} />;
+                              return (
+                                <BaselineCell
+                                  key={ret}
+                                  total={baseline.total_cost_gbp}
+                                  isSelected={isSelected}
+                                  onClick={() => handleCellClick(dep, ret)}
+                                />
+                              );
                             }
                             return (
                               <DataCell
@@ -539,14 +434,21 @@ export function ComplianceCalculator({
                                 c={c}
                                 baselineTotal={baselineTotal}
                                 isRec={isRec}
-                                isActive={activeCell === cellKey}
-                                onClick={() => handleCellClick(cellKey)}
+                                isSelected={isSelected}
+                                onClick={() => handleCellClick(c.outbound_date, c.return_date)}
                                 baselineNote={isBaselinePos ? baseline.total_cost_gbp : undefined}
                               />
                             );
                           }
                           if (isBaselinePos) {
-                            return <BaselineCell key={ret} total={baseline.total_cost_gbp} />;
+                            return (
+                              <BaselineCell
+                                key={ret}
+                                total={baseline.total_cost_gbp}
+                                isSelected={isSelected}
+                                onClick={() => handleCellClick(dep, ret)}
+                              />
+                            );
                           }
                           return <EmptyCell key={ret} />;
                         })}
@@ -556,24 +458,6 @@ export function ComplianceCalculator({
                 </tbody>
               </table>
             </div>
-          </div>
-
-          {/* ExpandPanel — sibling of matrix div, full card width */}
-          <div style={{
-            maxHeight: activeComb ? '600px' : '0',
-            overflow: 'hidden',
-            transition: 'max-height 0.25s ease',
-          }}>
-            {activeComb && (
-              <ExpandPanel
-                c={activeComb}
-                partySize={partySize}
-                pCabinBags={pCabinBags}
-                pCheckedBags={pCheckedBags}
-                seatsTogether={seatsTogether}
-                onClose={() => setActiveCell(null)}
-              />
-            )}
           </div>
 
           {/* Legend */}

@@ -54,6 +54,8 @@ interface LegOptionsProps {
   infants: number;
   transitPreference: 'auto' | 'uber';
   postcodeDistrict: string | null;
+  selectedDate: string;
+  smartDate: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -74,6 +76,12 @@ function isRecommended(opt: LegOption, rec: RecommendedOption | null | undefined
 
 function gbp(n: number): string {
   return `£${Math.round(n).toLocaleString('en-GB')}`;
+}
+
+function formatDate(iso: string): string {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 function fmt(time: string): string {
@@ -552,6 +560,8 @@ export function LegOptions({
   adults,
   children,
   transitPreference,
+  selectedDate,
+  smartDate,
 }: LegOptionsProps) {
   const [open, setOpen] = useState(false);
 
@@ -621,12 +631,29 @@ export function LegOptions({
         }}
       >
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3, marginBottom: 4 }}>
-            {title}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3 }}>
+              {title}
+            </div>
+            {selectedDate !== smartDate && (
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: '#ffffff',
+                background: '#004349', borderRadius: 9999,
+                padding: '2px 8px', flexShrink: 0,
+              }}>
+                {formatDate(selectedDate)}
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
-            Best option per airport — true all-in cost including fare, bags, seats and transport.
-          </div>
+          {selectedDate === smartDate ? (
+            <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
+              Best option per airport — true all-in cost including fare, bags, seats and transport.
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#6f797a', lineHeight: 1.4 }}>
+              Showing options for {formatDate(selectedDate)}. Click any date in the matrix above to compare.
+            </div>
+          )}
         </div>
         <div style={{ marginLeft: 16, flexShrink: 0, color: '#004349', paddingTop: 2 }}>
           {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
