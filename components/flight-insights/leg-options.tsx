@@ -614,25 +614,24 @@ export function LegOptions({
               <table style={{
                 width: '100%',
                 borderCollapse: 'collapse',
-                tableLayout: 'fixed',
                 border: '1px solid #e8edee',
                 borderRadius: 10,
                 overflow: 'hidden',
               }}>
                 <colgroup>
-                  <col style={{ width: 44 }} />
-                  <col />
-                  <col style={{ width: 60 }} />
-                  <col style={{ width: 70 }} />
-                  <col style={{ width: 110 }} />
-                  <col style={{ width: 75 }} />
-                  <col style={{ width: 65 }} />
+                  <col style={{ width: '44px' }} />
+                  <col style={{ width: '180px' }} />
+                  <col style={{ width: '55px' }} />
+                  <col style={{ width: '55px' }} />
+                  <col style={{ width: '120px' }} />
+                  <col style={{ width: '80px' }} />
+                  <col style={{ width: '60px' }} />
                 </colgroup>
                 <thead>
                   <tr>
                     <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
                     <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
-                    {(['Fare', 'Bags', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                    {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
                       <th key={h} style={{
                         fontSize: 9, fontWeight: 600, color: '#6f797a',
                         letterSpacing: '0.05em', textTransform: 'uppercase',
@@ -687,25 +686,24 @@ export function LegOptions({
                   <table style={{
                     width: '100%',
                     borderCollapse: 'collapse',
-                    tableLayout: 'fixed',
                     border: '1px solid #e8edee',
                     borderRadius: 10,
                     overflow: 'hidden',
                   }}>
                     <colgroup>
-                      <col style={{ width: 44 }} />
-                      <col />
-                      <col style={{ width: 60 }} />
-                      <col style={{ width: 70 }} />
-                      <col style={{ width: 110 }} />
-                      <col style={{ width: 75 }} />
-                      <col style={{ width: 65 }} />
+                      <col style={{ width: '44px' }} />
+                      <col style={{ width: '180px' }} />
+                      <col style={{ width: '55px' }} />
+                      <col style={{ width: '55px' }} />
+                      <col style={{ width: '120px' }} />
+                      <col style={{ width: '80px' }} />
+                      <col style={{ width: '60px' }} />
                     </colgroup>
                     <thead>
                       <tr>
                         <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
                         <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
-                        {(['Fare', 'Bags', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                        {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
                           <th key={h} style={{
                             fontSize: 9, fontWeight: 600, color: '#6f797a',
                             letterSpacing: '0.05em', textTransform: 'uppercase',
