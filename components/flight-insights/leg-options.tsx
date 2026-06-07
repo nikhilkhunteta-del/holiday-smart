@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -279,74 +279,22 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
   );
 }
 
-// ── Column header helper ──────────────────────────────────────────────────────
+// ── Grid constants ────────────────────────────────────────────────────────────
 
-function ColLabel({ children }: { children?: ReactNode }) {
-  return (
-    <div style={{
-      fontSize: 9,
-      fontWeight: 600,
-      textTransform: 'uppercase' as const,
-      letterSpacing: '0.06em',
-      color: '#6f797a',
-      marginBottom: 2,
-    }}>
-      {children}
-    </div>
-  );
-}
+const GRID_COLS = '52px 1fr 60px 75px 100px 70px 70px';
 
-// ── Fix 2 & 4 — Transport column content ─────────────────────────────────────
+const HEADER_STYLE = {
+  fontSize: 9,
+  fontWeight: 600,
+  color: '#6f797a',
+  letterSpacing: '0.05em',
+  textTransform: 'uppercase' as const,
+  textAlign: 'right' as const,
+  paddingBottom: 8,
+  alignSelf: 'end' as const,
+};
 
-function TransportCell({
-  opt,
-  transitPreference,
-}: {
-  opt: LegOption;
-  transitPreference: 'auto' | 'uber';
-}) {
-  const cost = opt.transit_cost_gbp;
-
-  if (cost == null) {
-    return (
-      <div>
-        <ColLabel>Transport</ColLabel>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#6f797a' }}>—</div>
-      </div>
-    );
-  }
-
-  if (transitPreference === 'uber') {
-    return (
-      <div>
-        <ColLabel>Transport</ColLabel>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-        <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
-        {opt.transit_duration_mins != null && (
-          <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
-        )}
-      </div>
-    );
-  }
-
-  // Auto mode
-  return (
-    <div>
-      <ColLabel>Transport</ColLabel>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-      <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-        {extractTransitMode(opt.transit_method)}
-      </div>
-      {opt.destination_transfer_gbp >= 40 && (
-        <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
-          + {gbp(opt.destination_transfer_gbp)} dest. transfer
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Lever row ─────────────────────────────────────────────────────────────────
+// ── Lever row (display: contents — cells drop directly into parent grid) ──────
 
 function LeverRow({
   opt,
@@ -371,139 +319,127 @@ function LeverRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showTooltip, setTooltip] = useState(false);
-  const anc = ancillaryGbp(opt);
+  const anc  = ancillaryGbp(opt);
   const cost = opt.transit_cost_gbp ?? 0;
 
-  // Label logic: OUR PICK only on smart date; CHEAPEST label on non-smart date cheapest row
   const showOurPick  = isSmartDate && isRec;
   const showCheapest = !isSmartDate && isCheapestRow;
+  const bg           = isCheapestRow ? '#f0f8f9' : undefined;
+  const toggle       = () => setExpanded((v: boolean) => !v);
+
+  const cell = {
+    backgroundColor: bg,
+    cursor: 'pointer' as const,
+    padding: '10px 0',
+    alignSelf: 'center' as const,
+  };
 
   return (
-    <div style={{
-      borderTop: isFirst ? 'none' : '1px solid #e8edee',
-      borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
-      background: isCheapestRow ? '#f0f8f9' : 'transparent',
-    }}>
+    <>
+      {/* Row separator */}
+      {!isFirst && (
+        <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid #e8edee' }} />
+      )}
+
+      {/* OUR PICK / CHEAPEST label */}
       {(showOurPick || showCheapest) && (
-        <div style={{ paddingLeft: 10, paddingTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span style={{
-            fontSize: 9,
-            fontWeight: 700,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.06em',
-            color: '#004349',
-          }}>
-            {showOurPick ? '★ Our pick' : '★ Cheapest'}
-          </span>
+        <div style={{
+          gridColumn: '1 / -1',
+          fontSize: 9, fontWeight: 700, color: '#004349',
+          letterSpacing: '0.05em', textTransform: 'uppercase' as const,
+          paddingTop: 8, paddingBottom: 2,
+          backgroundColor: bg,
+        }}>
+          {showOurPick ? '★ Our pick' : '★ Cheapest'}
           {showOurPick && notCheapestNote && (
-            <span style={{ fontSize: 10, color: '#6f797a', fontStyle: 'italic' }}>
+            <span style={{
+              fontSize: 9, fontWeight: 400, color: '#6f797a',
+              fontStyle: 'italic', marginLeft: 8,
+              textTransform: 'none' as const,
+            }}>
               Not cheapest for this airport — chosen for overall trip cost.
             </span>
           )}
         </div>
       )}
 
-      <div
-        onClick={() => setExpanded((v: boolean) => !v)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '10px 0',
-          cursor: 'pointer',
-        }}
-      >
-        {/* Airport badge (70px) */}
-        <div style={{ width: 70, flexShrink: 0 }}>
-          <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
-        </div>
+      {/* Col 1: Airport badge */}
+      <div onClick={toggle} style={{
+        ...cell,
+        borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
+        display: 'flex', alignItems: 'center', paddingRight: 8,
+      }}>
+        <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
+      </div>
 
-        {/* Carrier + Route (180px) */}
-        <div style={{ maxWidth: 180, flexShrink: 0, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
-            {opt.airline_name}
-          </div>
-          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
-            {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
-          </div>
+      {/* Col 2: Airline + Route */}
+      <div onClick={toggle} style={{ ...cell, paddingRight: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
+          {opt.airline_name}
         </div>
-
-        {/* Fare (65px) */}
-        <div style={{ width: 65, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Fare</ColLabel>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
-            {gbp(opt.fare_gbp)}
-          </div>
-        </div>
-
-        {/* Bags+Seats (75px) */}
-        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Bags+Seats</ColLabel>
-          <div
-            style={{ position: 'relative', display: 'inline-block' }}
-            onMouseEnter={() => setTooltip(true)}
-            onMouseLeave={() => setTooltip(false)}
-          >
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
-              {gbp(anc)}
-            </div>
-            {showTooltip && <AncillaryTooltip opt={opt} />}
-          </div>
-        </div>
-
-        {/* Transport (110px) */}
-        <div style={{ width: 110, flexShrink: 0 }}>
-          <ColLabel>Transport</ColLabel>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-          {transitPreference === 'uber' ? (
-            <>
-              <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
-              {opt.transit_duration_mins != null && (
-                <div style={{ fontSize: 9, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>
-              {extractTransitMode(opt.transit_method)}
-            </div>
-          )}
-        </div>
-
-        {/* Dest. Transfer (75px) */}
-        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Dest. Transfer</ColLabel>
-          {opt.destination_transfer_gbp > 0 ? (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
-                {gbp(opt.destination_transfer_gbp)}
-              </div>
-              <div style={{ fontSize: 9, color: '#6f797a' }}>
-                {destCityIata} airport
-              </div>
-            </>
-          ) : (
-            <div style={{ fontSize: 12, color: '#6f797a' }}>—</div>
-          )}
-        </div>
-
-        {/* Total (75px) */}
-        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
-          <div style={{
-            fontSize: 14,
-            fontWeight: 700,
-            color: isCheapestRow ? '#004349' : '#1a2526',
-          }}>
-            {gbp(opt.total_gbp)}
-          </div>
+        <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
+          {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
         </div>
       </div>
 
+      {/* Col 3: Fare */}
+      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
+          {gbp(opt.fare_gbp)}
+        </div>
+      </div>
+
+      {/* Col 4: Bags+Seats */}
+      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
+        <div
+          style={{ position: 'relative', display: 'inline-block' }}
+          onMouseEnter={() => setTooltip(true)}
+          onMouseLeave={() => setTooltip(false)}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(anc)}</div>
+          {showTooltip && <AncillaryTooltip opt={opt} />}
+        </div>
+      </div>
+
+      {/* Col 5: Transport */}
+      <div onClick={toggle} style={{ ...cell, paddingLeft: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+        <div style={{ fontSize: 10, color: '#3f484a' }}>
+          {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method)}
+        </div>
+      </div>
+
+      {/* Col 6: Dest. Transfer */}
+      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
+        {opt.destination_transfer_gbp > 0 ? (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
+              {gbp(opt.destination_transfer_gbp)}
+            </div>
+            <div style={{ fontSize: 10, color: '#3f484a' }}>{destCityIata} airport</div>
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: '#6f797a' }}>—</span>
+        )}
+      </div>
+
+      {/* Col 7: Total */}
+      <div onClick={toggle} style={{
+        ...cell,
+        textAlign: 'right' as const,
+        fontSize: 15, fontWeight: 700,
+        color: isCheapestRow ? '#004349' : '#191c1d',
+      }}>
+        {gbp(opt.total_gbp)}
+      </div>
+
+      {/* Expanded detail */}
       {expanded && (
-        <div style={{ padding: '0 10px 12px' }}>
+        <div style={{ gridColumn: '1 / -1', paddingBottom: 12 }}>
           <RowDetail opt={opt} />
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -641,19 +577,8 @@ export function LegOptions({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3 }}>
-              {directionLabel(direction)} · {formatDate(selectedDate)}
-            </div>
-            {selectedDate !== smartDate && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, color: '#ffffff',
-                background: '#004349', borderRadius: 9999,
-                padding: '2px 8px', flexShrink: 0,
-              }}>
-                {formatDate(selectedDate)}
-              </span>
-            )}
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3, marginBottom: 4 }}>
+            {directionLabel(direction)} · {formatDate(selectedDate)}
           </div>
           {selectedDate === smartDate ? (
             <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
@@ -684,10 +609,21 @@ export function LegOptions({
                 {table1Title}
               </div>
               <div style={{
+                display: 'grid',
+                gridTemplateColumns: GRID_COLS,
                 border: '1px solid #e8edee',
                 borderRadius: 10,
                 overflow: 'hidden',
+                padding: '0 4px',
               }}>
+                {/* Header row */}
+                <div /><div />
+                <div style={HEADER_STYLE}>Fare</div>
+                <div style={HEADER_STYLE}>Bags</div>
+                <div style={{ ...HEADER_STYLE, textAlign: 'left' as const, paddingLeft: 8 }}>Transport</div>
+                <div style={HEADER_STYLE}>Dest.</div>
+                <div style={HEADER_STYLE}>Total</div>
+                {/* Data rows */}
                 {londonGroups.map((group, i) => (
                   <LeverRow
                     key={`london-${group.airportIata}`}
@@ -726,10 +662,21 @@ export function LegOptions({
                     <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
                   </div>
                   <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: GRID_COLS,
                     border: '1px solid #e8edee',
                     borderRadius: 10,
                     overflow: 'hidden',
+                    padding: '0 4px',
                   }}>
+                    {/* Header row */}
+                    <div /><div />
+                    <div style={HEADER_STYLE}>Fare</div>
+                    <div style={HEADER_STYLE}>Bags</div>
+                    <div style={{ ...HEADER_STYLE, textAlign: 'left' as const, paddingLeft: 8 }}>Transport</div>
+                    <div style={HEADER_STYLE}>Dest.</div>
+                    <div style={HEADER_STYLE}>Total</div>
+                    {/* Data rows */}
                     {destGroups.map((group, i) => (
                       <LeverRow
                         key={`dest-${group.airportIata}`}
