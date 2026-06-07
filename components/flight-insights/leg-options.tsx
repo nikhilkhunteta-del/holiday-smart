@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -82,6 +82,10 @@ function formatDate(iso: string): string {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const d = new Date(iso + 'T00:00:00');
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function directionLabel(direction: 'outbound' | 'return'): string {
+  return direction === 'outbound' ? 'Outbound options' : 'Return options';
 }
 
 function fmt(time: string): string {
@@ -275,73 +279,6 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
   );
 }
 
-// ── Column header helper ──────────────────────────────────────────────────────
-
-function ColLabel({ children }: { children?: ReactNode }) {
-  return (
-    <div style={{
-      fontSize: 10,
-      fontWeight: 600,
-      textTransform: 'uppercase' as const,
-      letterSpacing: '0.06em',
-      color: '#6f797a',
-      marginBottom: 2,
-    }}>
-      {children}
-    </div>
-  );
-}
-
-// ── Fix 2 & 4 — Transport column content ─────────────────────────────────────
-
-function TransportCell({
-  opt,
-  transitPreference,
-}: {
-  opt: LegOption;
-  transitPreference: 'auto' | 'uber';
-}) {
-  const cost = opt.transit_cost_gbp;
-
-  if (cost == null) {
-    return (
-      <div>
-        <ColLabel>Transport</ColLabel>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#6f797a' }}>—</div>
-      </div>
-    );
-  }
-
-  if (transitPreference === 'uber') {
-    return (
-      <div>
-        <ColLabel>Transport</ColLabel>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-        <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
-        {opt.transit_duration_mins != null && (
-          <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
-        )}
-      </div>
-    );
-  }
-
-  // Auto mode
-  return (
-    <div>
-      <ColLabel>Transport</ColLabel>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-      <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-        {extractTransitMode(opt.transit_method)}
-      </div>
-      {opt.destination_transfer_gbp >= 40 && (
-        <div style={{ fontSize: 10, color: '#805600', marginTop: 2 }}>
-          + {gbp(opt.destination_transfer_gbp)} dest. transfer
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Lever row ─────────────────────────────────────────────────────────────────
 
 function LeverRow({
@@ -353,6 +290,7 @@ function LeverRow({
   notCheapestNote,
   isFirst,
   transitPreference,
+  isSmartDate,
 }: {
   opt: LegOption;
   airportIata: string;
@@ -362,138 +300,149 @@ function LeverRow({
   notCheapestNote: boolean;
   isFirst: boolean;
   transitPreference: 'auto' | 'uber';
+  isSmartDate: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showTooltip, setTooltip] = useState(false);
-  const anc = ancillaryGbp(opt);
+  const anc  = ancillaryGbp(opt);
   const cost = opt.transit_cost_gbp ?? 0;
 
+  const showOurPick  = isSmartDate && isRec;
+  const showCheapest = !isSmartDate && isCheapestRow;
+  const bg           = isCheapestRow ? '#f0f8f9' : undefined;
+  const toggle       = () => setExpanded((v: boolean) => !v);
+
+  const tdStyle = {
+    backgroundColor: bg,
+    cursor: 'pointer' as const,
+    paddingTop: 10,
+    paddingBottom: 10,
+    verticalAlign: 'middle' as const,
+  };
+
   return (
-    <div style={{
-      borderTop: isFirst ? 'none' : '1px solid #e8edee',
-      borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
-      background: isCheapestRow ? '#f0f8f9' : 'transparent',
-    }}>
-      {isRec && (
-        <div style={{ paddingLeft: 10, paddingTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span style={{
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.06em',
-            color: '#004349',
-          }}>
-            ★ Our pick
-          </span>
-          {notCheapestNote && (
-            <span style={{ fontSize: 10, color: '#6f797a', fontStyle: 'italic' }}>
-              Not cheapest for this airport — chosen for overall trip cost.
-            </span>
-          )}
-        </div>
+    <>
+      {/* Separator row */}
+      {!isFirst && (
+        <tr>
+          <td colSpan={7} style={{ borderBottom: '1px solid #e8edee', padding: 0, height: 1 }} />
+        </tr>
       )}
 
-      <div
-        onClick={() => setExpanded((v: boolean) => !v)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '10px 10px',
-          cursor: 'pointer',
-        }}
-      >
-        {/* Airport badge (70px) */}
-        <div style={{ width: 70, flexShrink: 0 }}>
-          <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
-        </div>
+      {/* OUR PICK / CHEAPEST marker row */}
+      {(showOurPick || showCheapest) && (
+        <tr>
+          <td colSpan={7} style={{
+            backgroundColor: bg,
+            fontSize: 9, fontWeight: 700, color: '#004349',
+            letterSpacing: '0.05em', textTransform: 'uppercase' as const,
+            paddingTop: 8, paddingBottom: 2,
+          }}>
+            {showOurPick ? '★ Our pick' : '★ Cheapest'}
+            {showOurPick && notCheapestNote && (
+              <span style={{
+                fontSize: 9, fontWeight: 400, color: '#6f797a',
+                fontStyle: 'italic', marginLeft: 8,
+                textTransform: 'none' as const,
+              }}>
+                Not cheapest for this airport — chosen for overall trip cost.
+              </span>
+            )}
+          </td>
+        </tr>
+      )}
 
-        {/* Carrier + Route (flex-grow) */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
+      {/* Data row */}
+      <tr onClick={toggle} style={{ cursor: 'pointer' }}>
+        {/* Col 1: Airport badge */}
+        <td style={{
+          ...tdStyle,
+          borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
+          paddingRight: 8,
+        }}>
+          <div style={{
+            width: 36, height: 36,
+            borderRadius: 6,
+            background: isCheapestRow ? '#004349' : '#e1e3e3',
+            color: isCheapestRow ? '#ffffff' : '#3f484a',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {airportIata}
+          </div>
+        </td>
+
+        {/* Col 2: Airline + Route */}
+        <td style={{ ...tdStyle, paddingRight: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
             {opt.airline_name}
           </div>
-          <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.4 }}>
+          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
             {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
           </div>
-        </div>
+        </td>
 
-        {/* Fare (70px) */}
-        <div style={{ width: 70, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Fare</ColLabel>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+        {/* Col 3: Fare */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
             {gbp(opt.fare_gbp)}
           </div>
-        </div>
+        </td>
 
-        {/* Bags+Seats (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Bags+Seats</ColLabel>
+        {/* Col 4: Bags+Seats */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
           <div
             style={{ position: 'relative', display: 'inline-block' }}
             onMouseEnter={() => setTooltip(true)}
             onMouseLeave={() => setTooltip(false)}
           >
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
-              {gbp(anc)}
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(anc)}</div>
             {showTooltip && <AncillaryTooltip opt={opt} />}
           </div>
-        </div>
+        </td>
 
-        {/* Transport (100px) */}
-        <div style={{ width: 100, flexShrink: 0 }}>
-          <ColLabel>Transport</ColLabel>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-          {transitPreference === 'uber' ? (
-            <>
-              <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
-              {opt.transit_duration_mins != null && (
-                <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
-              {extractTransitMode(opt.transit_method)}
-            </div>
-          )}
-        </div>
+        {/* Col 5: Transport */}
+        <td style={{ ...tdStyle, paddingLeft: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+          <div style={{ fontSize: 10, color: '#3f484a' }}>
+            {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method)}
+          </div>
+        </td>
 
-        {/* Dest. Transfer (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
-          <ColLabel>Dest. Transfer</ColLabel>
+        {/* Col 6: Dest. Transfer */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
           {opt.destination_transfer_gbp > 0 ? (
             <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
                 {gbp(opt.destination_transfer_gbp)}
               </div>
-              <div style={{ fontSize: 10, color: '#6f797a' }}>
-                {destCityIata} airport
-              </div>
+              <div style={{ fontSize: 10, color: '#3f484a' }}>{destCityIata} airport</div>
             </>
           ) : (
-            <div style={{ fontSize: 12, color: '#6f797a' }}>—</div>
+            <span style={{ fontSize: 12, color: '#6f797a' }}>—</span>
           )}
-        </div>
+        </td>
 
-        {/* Total (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
-          <div style={{
-            fontSize: 14,
-            fontWeight: 700,
-            color: isCheapestRow ? '#004349' : '#1a2526',
-          }}>
-            {gbp(opt.total_gbp)}
-          </div>
-        </div>
-      </div>
+        {/* Col 7: Total */}
+        <td style={{
+          ...tdStyle,
+          textAlign: 'right' as const,
+          fontSize: 15, fontWeight: 700,
+          color: isCheapestRow ? '#004349' : '#191c1d',
+        }}>
+          {gbp(opt.total_gbp)}
+        </td>
+      </tr>
 
+      {/* Expanded detail */}
       {expanded && (
-        <div style={{ padding: '0 10px 12px' }}>
-          <RowDetail opt={opt} />
-        </div>
+        <tr>
+          <td colSpan={7} style={{ paddingBottom: 12, backgroundColor: bg }}>
+            <RowDetail opt={opt} />
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
@@ -631,19 +580,8 @@ export function LegOptions({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3 }}>
-              {title}
-            </div>
-            {selectedDate !== smartDate && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, color: '#ffffff',
-                background: '#004349', borderRadius: 9999,
-                padding: '2px 8px', flexShrink: 0,
-              }}>
-                {formatDate(selectedDate)}
-              </span>
-            )}
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3, marginBottom: 4 }}>
+            {directionLabel(direction)} · {formatDate(selectedDate)}
           </div>
           {selectedDate === smartDate ? (
             <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
@@ -673,25 +611,56 @@ export function LegOptions({
               <div style={{ fontSize: 12, fontWeight: 600, color: '#3f484a', marginBottom: 10 }}>
                 {table1Title}
               </div>
-              <div style={{
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
                 border: '1px solid #e8edee',
                 borderRadius: 10,
                 overflow: 'hidden',
               }}>
-                {londonGroups.map((group, i) => (
-                  <LeverRow
-                    key={`london-${group.airportIata}`}
-                    opt={group.displayRow}
-                    airportIata={getLondonIata(group.displayRow)}
-                    destCityIata={getDestIata(group.displayRow)}
-                    isCheapestRow={i === 0}
-                    isRec={group.isRec}
-                    notCheapestNote={group.notCheapestNote}
-                    isFirst={i === 0}
-                    transitPreference={transitPreference}
-                  />
-                ))}
-              </div>
+                <colgroup>
+                  <col style={{ width: '44px' }} />
+                  <col style={{ width: '180px' }} />
+                  <col style={{ width: '55px' }} />
+                  <col style={{ width: '55px' }} />
+                  <col style={{ width: '120px' }} />
+                  <col style={{ width: '80px' }} />
+                  <col style={{ width: '60px' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                    <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                    {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                      <th key={h} style={{
+                        fontSize: 9, fontWeight: 600, color: '#6f797a',
+                        letterSpacing: '0.05em', textTransform: 'uppercase',
+                        paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                        textAlign: i === 2 ? 'left' : 'right',
+                        paddingLeft: i === 2 ? 8 : 0,
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {londonGroups.map((group, i) => (
+                    <LeverRow
+                      key={`london-${group.airportIata}`}
+                      opt={group.displayRow}
+                      airportIata={getLondonIata(group.displayRow)}
+                      destCityIata={getDestIata(group.displayRow)}
+                      isCheapestRow={i === 0}
+                      isRec={group.isRec}
+                      notCheapestNote={group.notCheapestNote}
+                      isFirst={i === 0}
+                      transitPreference={transitPreference}
+                      isSmartDate={selectedDate === smartDate}
+                    />
+                  ))}
+                </tbody>
+              </table>
 
               {/* Table 2 — Destination airport lever */}
               {showDestTable && (
@@ -714,25 +683,56 @@ export function LegOptions({
                     </div>
                     <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
                   </div>
-                  <div style={{
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
                     border: '1px solid #e8edee',
                     borderRadius: 10,
                     overflow: 'hidden',
                   }}>
-                    {destGroups.map((group, i) => (
-                      <LeverRow
-                        key={`dest-${group.airportIata}`}
-                        opt={group.displayRow}
-                        airportIata={getDestIata(group.displayRow)}
-                        destCityIata={getDestIata(group.displayRow)}
-                        isCheapestRow={i === 0}
-                        isRec={group.isRec}
-                        notCheapestNote={group.notCheapestNote}
-                        isFirst={i === 0}
-                        transitPreference={transitPreference}
-                      />
-                    ))}
-                  </div>
+                    <colgroup>
+                      <col style={{ width: '44px' }} />
+                      <col style={{ width: '180px' }} />
+                      <col style={{ width: '55px' }} />
+                      <col style={{ width: '55px' }} />
+                      <col style={{ width: '120px' }} />
+                      <col style={{ width: '80px' }} />
+                      <col style={{ width: '60px' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                        <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                        {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                          <th key={h} style={{
+                            fontSize: 9, fontWeight: 600, color: '#6f797a',
+                            letterSpacing: '0.05em', textTransform: 'uppercase',
+                            paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                            textAlign: i === 2 ? 'left' : 'right',
+                            paddingLeft: i === 2 ? 8 : 0,
+                          }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destGroups.map((group, i) => (
+                        <LeverRow
+                          key={`dest-${group.airportIata}`}
+                          opt={group.displayRow}
+                          airportIata={getDestIata(group.displayRow)}
+                          destCityIata={getDestIata(group.displayRow)}
+                          isCheapestRow={i === 0}
+                          isRec={group.isRec}
+                          notCheapestNote={group.notCheapestNote}
+                          isFirst={i === 0}
+                          transitPreference={transitPreference}
+                          isSmartDate={selectedDate === smartDate}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
                 </>
               )}
             </>
