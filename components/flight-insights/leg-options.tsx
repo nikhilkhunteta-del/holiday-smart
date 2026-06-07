@@ -279,22 +279,7 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
   );
 }
 
-// ── Grid constants ────────────────────────────────────────────────────────────
-
-const GRID_COLS = '52px 1fr 60px 75px 100px 70px 70px';
-
-const HEADER_STYLE = {
-  fontSize: 9,
-  fontWeight: 600,
-  color: '#6f797a',
-  letterSpacing: '0.05em',
-  textTransform: 'uppercase' as const,
-  textAlign: 'right' as const,
-  paddingBottom: 8,
-  alignSelf: 'end' as const,
-};
-
-// ── Lever row (display: contents — cells drop directly into parent grid) ──────
+// ── Lever row ─────────────────────────────────────────────────────────────────
 
 function LeverRow({
   opt,
@@ -327,117 +312,135 @@ function LeverRow({
   const bg           = isCheapestRow ? '#f0f8f9' : undefined;
   const toggle       = () => setExpanded((v: boolean) => !v);
 
-  const cell = {
+  const tdStyle = {
     backgroundColor: bg,
     cursor: 'pointer' as const,
-    padding: '10px 0',
-    alignSelf: 'center' as const,
+    paddingTop: 10,
+    paddingBottom: 10,
+    verticalAlign: 'middle' as const,
   };
 
   return (
     <>
-      {/* Row separator */}
+      {/* Separator row */}
       {!isFirst && (
-        <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid #e8edee' }} />
+        <tr>
+          <td colSpan={7} style={{ borderBottom: '1px solid #e8edee', padding: 0, height: 1 }} />
+        </tr>
       )}
 
-      {/* OUR PICK / CHEAPEST label */}
+      {/* OUR PICK / CHEAPEST marker row */}
       {(showOurPick || showCheapest) && (
-        <div style={{
-          gridColumn: '1 / -1',
-          fontSize: 9, fontWeight: 700, color: '#004349',
-          letterSpacing: '0.05em', textTransform: 'uppercase' as const,
-          paddingTop: 8, paddingBottom: 2,
-          backgroundColor: bg,
-        }}>
-          {showOurPick ? '★ Our pick' : '★ Cheapest'}
-          {showOurPick && notCheapestNote && (
-            <span style={{
-              fontSize: 9, fontWeight: 400, color: '#6f797a',
-              fontStyle: 'italic', marginLeft: 8,
-              textTransform: 'none' as const,
-            }}>
-              Not cheapest for this airport — chosen for overall trip cost.
-            </span>
-          )}
-        </div>
+        <tr>
+          <td colSpan={7} style={{
+            backgroundColor: bg,
+            fontSize: 9, fontWeight: 700, color: '#004349',
+            letterSpacing: '0.05em', textTransform: 'uppercase' as const,
+            paddingTop: 8, paddingBottom: 2,
+          }}>
+            {showOurPick ? '★ Our pick' : '★ Cheapest'}
+            {showOurPick && notCheapestNote && (
+              <span style={{
+                fontSize: 9, fontWeight: 400, color: '#6f797a',
+                fontStyle: 'italic', marginLeft: 8,
+                textTransform: 'none' as const,
+              }}>
+                Not cheapest for this airport — chosen for overall trip cost.
+              </span>
+            )}
+          </td>
+        </tr>
       )}
 
-      {/* Col 1: Airport badge */}
-      <div onClick={toggle} style={{
-        ...cell,
-        borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
-        display: 'flex', alignItems: 'center', paddingRight: 8,
-      }}>
-        <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
-      </div>
+      {/* Data row */}
+      <tr onClick={toggle} style={{ cursor: 'pointer' }}>
+        {/* Col 1: Airport badge */}
+        <td style={{
+          ...tdStyle,
+          borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
+          paddingRight: 8,
+        }}>
+          <div style={{
+            width: 36, height: 36,
+            borderRadius: 6,
+            background: isCheapestRow ? '#004349' : '#e1e3e3',
+            color: isCheapestRow ? '#ffffff' : '#3f484a',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {airportIata}
+          </div>
+        </td>
 
-      {/* Col 2: Airline + Route */}
-      <div onClick={toggle} style={{ ...cell, paddingRight: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
-          {opt.airline_name}
-        </div>
-        <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
-          {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
-        </div>
-      </div>
+        {/* Col 2: Airline + Route */}
+        <td style={{ ...tdStyle, paddingRight: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
+            {opt.airline_name}
+          </div>
+          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
+            {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
+          </div>
+        </td>
 
-      {/* Col 3: Fare */}
-      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
-          {gbp(opt.fare_gbp)}
-        </div>
-      </div>
+        {/* Col 3: Fare */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
+            {gbp(opt.fare_gbp)}
+          </div>
+        </td>
 
-      {/* Col 4: Bags+Seats */}
-      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
-        <div
-          style={{ position: 'relative', display: 'inline-block' }}
-          onMouseEnter={() => setTooltip(true)}
-          onMouseLeave={() => setTooltip(false)}
-        >
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(anc)}</div>
-          {showTooltip && <AncillaryTooltip opt={opt} />}
-        </div>
-      </div>
+        {/* Col 4: Bags+Seats */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
+          <div
+            style={{ position: 'relative', display: 'inline-block' }}
+            onMouseEnter={() => setTooltip(true)}
+            onMouseLeave={() => setTooltip(false)}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(anc)}</div>
+            {showTooltip && <AncillaryTooltip opt={opt} />}
+          </div>
+        </td>
 
-      {/* Col 5: Transport */}
-      <div onClick={toggle} style={{ ...cell, paddingLeft: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-        <div style={{ fontSize: 10, color: '#3f484a' }}>
-          {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method)}
-        </div>
-      </div>
+        {/* Col 5: Transport */}
+        <td style={{ ...tdStyle, paddingLeft: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+          <div style={{ fontSize: 10, color: '#3f484a' }}>
+            {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method)}
+          </div>
+        </td>
 
-      {/* Col 6: Dest. Transfer */}
-      <div onClick={toggle} style={{ ...cell, textAlign: 'right' as const }}>
-        {opt.destination_transfer_gbp > 0 ? (
-          <>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
-              {gbp(opt.destination_transfer_gbp)}
-            </div>
-            <div style={{ fontSize: 10, color: '#3f484a' }}>{destCityIata} airport</div>
-          </>
-        ) : (
-          <span style={{ fontSize: 12, color: '#6f797a' }}>—</span>
-        )}
-      </div>
+        {/* Col 6: Dest. Transfer */}
+        <td style={{ ...tdStyle, textAlign: 'right' as const }}>
+          {opt.destination_transfer_gbp > 0 ? (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
+                {gbp(opt.destination_transfer_gbp)}
+              </div>
+              <div style={{ fontSize: 10, color: '#3f484a' }}>{destCityIata} airport</div>
+            </>
+          ) : (
+            <span style={{ fontSize: 12, color: '#6f797a' }}>—</span>
+          )}
+        </td>
 
-      {/* Col 7: Total */}
-      <div onClick={toggle} style={{
-        ...cell,
-        textAlign: 'right' as const,
-        fontSize: 15, fontWeight: 700,
-        color: isCheapestRow ? '#004349' : '#191c1d',
-      }}>
-        {gbp(opt.total_gbp)}
-      </div>
+        {/* Col 7: Total */}
+        <td style={{
+          ...tdStyle,
+          textAlign: 'right' as const,
+          fontSize: 15, fontWeight: 700,
+          color: isCheapestRow ? '#004349' : '#191c1d',
+        }}>
+          {gbp(opt.total_gbp)}
+        </td>
+      </tr>
 
       {/* Expanded detail */}
       {expanded && (
-        <div style={{ gridColumn: '1 / -1', paddingBottom: 12 }}>
-          <RowDetail opt={opt} />
-        </div>
+        <tr>
+          <td colSpan={7} style={{ paddingBottom: 12, backgroundColor: bg }}>
+            <RowDetail opt={opt} />
+          </td>
+        </tr>
       )}
     </>
   );
@@ -608,37 +611,57 @@ export function LegOptions({
               <div style={{ fontSize: 12, fontWeight: 600, color: '#3f484a', marginBottom: 10 }}>
                 {table1Title}
               </div>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: GRID_COLS,
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                tableLayout: 'fixed',
                 border: '1px solid #e8edee',
                 borderRadius: 10,
                 overflow: 'hidden',
-                padding: '0 4px',
               }}>
-                {/* Header row */}
-                <div /><div />
-                <div style={HEADER_STYLE}>Fare</div>
-                <div style={HEADER_STYLE}>Bags</div>
-                <div style={{ ...HEADER_STYLE, textAlign: 'left' as const, paddingLeft: 8 }}>Transport</div>
-                <div style={HEADER_STYLE}>Dest.</div>
-                <div style={HEADER_STYLE}>Total</div>
-                {/* Data rows */}
-                {londonGroups.map((group, i) => (
-                  <LeverRow
-                    key={`london-${group.airportIata}`}
-                    opt={group.displayRow}
-                    airportIata={getLondonIata(group.displayRow)}
-                    destCityIata={getDestIata(group.displayRow)}
-                    isCheapestRow={i === 0}
-                    isRec={group.isRec}
-                    notCheapestNote={group.notCheapestNote}
-                    isFirst={i === 0}
-                    transitPreference={transitPreference}
-                    isSmartDate={selectedDate === smartDate}
-                  />
-                ))}
-              </div>
+                <colgroup>
+                  <col style={{ width: 44 }} />
+                  <col />
+                  <col style={{ width: 60 }} />
+                  <col style={{ width: 70 }} />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 75 }} />
+                  <col style={{ width: 65 }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                    <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                    {(['Fare', 'Bags', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                      <th key={h} style={{
+                        fontSize: 9, fontWeight: 600, color: '#6f797a',
+                        letterSpacing: '0.05em', textTransform: 'uppercase',
+                        paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                        textAlign: i === 2 ? 'left' : 'right',
+                        paddingLeft: i === 2 ? 8 : 0,
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {londonGroups.map((group, i) => (
+                    <LeverRow
+                      key={`london-${group.airportIata}`}
+                      opt={group.displayRow}
+                      airportIata={getLondonIata(group.displayRow)}
+                      destCityIata={getDestIata(group.displayRow)}
+                      isCheapestRow={i === 0}
+                      isRec={group.isRec}
+                      notCheapestNote={group.notCheapestNote}
+                      isFirst={i === 0}
+                      transitPreference={transitPreference}
+                      isSmartDate={selectedDate === smartDate}
+                    />
+                  ))}
+                </tbody>
+              </table>
 
               {/* Table 2 — Destination airport lever */}
               {showDestTable && (
@@ -661,37 +684,57 @@ export function LegOptions({
                     </div>
                     <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
                   </div>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: GRID_COLS,
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    tableLayout: 'fixed',
                     border: '1px solid #e8edee',
                     borderRadius: 10,
                     overflow: 'hidden',
-                    padding: '0 4px',
                   }}>
-                    {/* Header row */}
-                    <div /><div />
-                    <div style={HEADER_STYLE}>Fare</div>
-                    <div style={HEADER_STYLE}>Bags</div>
-                    <div style={{ ...HEADER_STYLE, textAlign: 'left' as const, paddingLeft: 8 }}>Transport</div>
-                    <div style={HEADER_STYLE}>Dest.</div>
-                    <div style={HEADER_STYLE}>Total</div>
-                    {/* Data rows */}
-                    {destGroups.map((group, i) => (
-                      <LeverRow
-                        key={`dest-${group.airportIata}`}
-                        opt={group.displayRow}
-                        airportIata={getDestIata(group.displayRow)}
-                        destCityIata={getDestIata(group.displayRow)}
-                        isCheapestRow={i === 0}
-                        isRec={group.isRec}
-                        notCheapestNote={group.notCheapestNote}
-                        isFirst={i === 0}
-                        transitPreference={transitPreference}
-                        isSmartDate={selectedDate === smartDate}
-                      />
-                    ))}
-                  </div>
+                    <colgroup>
+                      <col style={{ width: 44 }} />
+                      <col />
+                      <col style={{ width: 60 }} />
+                      <col style={{ width: 70 }} />
+                      <col style={{ width: 110 }} />
+                      <col style={{ width: 75 }} />
+                      <col style={{ width: 65 }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                        <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                        {(['Fare', 'Bags', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                          <th key={h} style={{
+                            fontSize: 9, fontWeight: 600, color: '#6f797a',
+                            letterSpacing: '0.05em', textTransform: 'uppercase',
+                            paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                            textAlign: i === 2 ? 'left' : 'right',
+                            paddingLeft: i === 2 ? 8 : 0,
+                          }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destGroups.map((group, i) => (
+                        <LeverRow
+                          key={`dest-${group.airportIata}`}
+                          opt={group.displayRow}
+                          airportIata={getDestIata(group.displayRow)}
+                          destCityIata={getDestIata(group.displayRow)}
+                          isCheapestRow={i === 0}
+                          isRec={group.isRec}
+                          notCheapestNote={group.notCheapestNote}
+                          isFirst={i === 0}
+                          transitPreference={transitPreference}
+                          isSmartDate={selectedDate === smartDate}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
                 </>
               )}
             </>
