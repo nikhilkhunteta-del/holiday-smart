@@ -378,7 +378,7 @@ function LeverRow({
   const bg           = isCheapestRow ? '#f0f8f9' : undefined;
   const toggle       = () => setExpanded((v: boolean) => !v);
 
-  const tdBase: React.CSSProperties = {
+  const tdBase = {
     backgroundColor: bg,
     cursor: 'pointer',
     paddingTop: 10,
