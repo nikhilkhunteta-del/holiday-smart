@@ -84,6 +84,10 @@ function formatDate(iso: string): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
+function directionLabel(direction: 'outbound' | 'return'): string {
+  return direction === 'outbound' ? 'Outbound options' : 'Return options';
+}
+
 function fmt(time: string): string {
   return time.slice(0, 5);
 }
@@ -280,7 +284,7 @@ function AncillaryTooltip({ opt }: { opt: LegOption }) {
 function ColLabel({ children }: { children?: ReactNode }) {
   return (
     <div style={{
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: 600,
       textTransform: 'uppercase' as const,
       letterSpacing: '0.06em',
@@ -353,6 +357,7 @@ function LeverRow({
   notCheapestNote,
   isFirst,
   transitPreference,
+  isSmartDate,
 }: {
   opt: LegOption;
   airportIata: string;
@@ -362,11 +367,16 @@ function LeverRow({
   notCheapestNote: boolean;
   isFirst: boolean;
   transitPreference: 'auto' | 'uber';
+  isSmartDate: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showTooltip, setTooltip] = useState(false);
   const anc = ancillaryGbp(opt);
   const cost = opt.transit_cost_gbp ?? 0;
+
+  // Label logic: OUR PICK only on smart date; CHEAPEST label on non-smart date cheapest row
+  const showOurPick  = isSmartDate && isRec;
+  const showCheapest = !isSmartDate && isCheapestRow;
 
   return (
     <div style={{
@@ -374,18 +384,18 @@ function LeverRow({
       borderLeft: isCheapestRow ? '3px solid #004349' : '3px solid transparent',
       background: isCheapestRow ? '#f0f8f9' : 'transparent',
     }}>
-      {isRec && (
+      {(showOurPick || showCheapest) && (
         <div style={{ paddingLeft: 10, paddingTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
           <span style={{
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: 700,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.06em',
             color: '#004349',
           }}>
-            ★ Our pick
+            {showOurPick ? '★ Our pick' : '★ Cheapest'}
           </span>
-          {notCheapestNote && (
+          {showOurPick && notCheapestNote && (
             <span style={{ fontSize: 10, color: '#6f797a', fontStyle: 'italic' }}>
               Not cheapest for this airport — chosen for overall trip cost.
             </span>
@@ -399,7 +409,7 @@ function LeverRow({
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          padding: '10px 10px',
+          padding: '10px 0',
           cursor: 'pointer',
         }}
       >
@@ -408,26 +418,26 @@ function LeverRow({
           <AirportBadge iata={airportIata} isCheapest={isCheapestRow} />
         </div>
 
-        {/* Carrier + Route (flex-grow) */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
+        {/* Carrier + Route (180px) */}
+        <div style={{ maxWidth: 180, flexShrink: 0, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
             {opt.airline_name}
           </div>
-          <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.4 }}>
+          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
             {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
           </div>
         </div>
 
-        {/* Fare (70px) */}
-        <div style={{ width: 70, flexShrink: 0, textAlign: 'right' as const }}>
+        {/* Fare (65px) */}
+        <div style={{ width: 65, flexShrink: 0, textAlign: 'right' as const }}>
           <ColLabel>Fare</ColLabel>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
             {gbp(opt.fare_gbp)}
           </div>
         </div>
 
-        {/* Bags+Seats (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+        {/* Bags+Seats (75px) */}
+        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
           <ColLabel>Bags+Seats</ColLabel>
           <div
             style={{ position: 'relative', display: 'inline-block' }}
@@ -441,33 +451,33 @@ function LeverRow({
           </div>
         </div>
 
-        {/* Transport (100px) */}
-        <div style={{ width: 100, flexShrink: 0 }}>
+        {/* Transport (110px) */}
+        <div style={{ width: 110, flexShrink: 0 }}>
           <ColLabel>Transport</ColLabel>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
           {transitPreference === 'uber' ? (
             <>
-              <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
+              <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>Uber (estimated)</div>
               {opt.transit_duration_mins != null && (
-                <div style={{ fontSize: 10, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
+                <div style={{ fontSize: 9, color: '#6f797a' }}>~{opt.transit_duration_mins} min</div>
               )}
             </>
           ) : (
-            <div style={{ fontSize: 11, color: '#6f797a', lineHeight: 1.3 }}>
+            <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>
               {extractTransitMode(opt.transit_method)}
             </div>
           )}
         </div>
 
-        {/* Dest. Transfer (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+        {/* Dest. Transfer (75px) */}
+        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
           <ColLabel>Dest. Transfer</ColLabel>
           {opt.destination_transfer_gbp > 0 ? (
             <>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526' }}>
                 {gbp(opt.destination_transfer_gbp)}
               </div>
-              <div style={{ fontSize: 10, color: '#6f797a' }}>
+              <div style={{ fontSize: 9, color: '#6f797a' }}>
                 {destCityIata} airport
               </div>
             </>
@@ -476,8 +486,8 @@ function LeverRow({
           )}
         </div>
 
-        {/* Total (80px) */}
-        <div style={{ width: 80, flexShrink: 0, textAlign: 'right' as const }}>
+        {/* Total (75px) */}
+        <div style={{ width: 75, flexShrink: 0, textAlign: 'right' as const }}>
           <div style={{
             fontSize: 14,
             fontWeight: 700,
@@ -633,7 +643,7 @@ export function LegOptions({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#004349', lineHeight: 1.3 }}>
-              {title}
+              {directionLabel(direction)} · {formatDate(selectedDate)}
             </div>
             {selectedDate !== smartDate && (
               <span style={{
@@ -689,6 +699,7 @@ export function LegOptions({
                     notCheapestNote={group.notCheapestNote}
                     isFirst={i === 0}
                     transitPreference={transitPreference}
+                    isSmartDate={selectedDate === smartDate}
                   />
                 ))}
               </div>
@@ -730,6 +741,7 @@ export function LegOptions({
                         notCheapestNote={group.notCheapestNote}
                         isFirst={i === 0}
                         transitPreference={transitPreference}
+                        isSmartDate={selectedDate === smartDate}
                       />
                     ))}
                   </div>
