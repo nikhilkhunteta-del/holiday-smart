@@ -281,20 +281,13 @@ function LeverTable({
       tableLayout: 'fixed',
     }}>
       <colgroup>
-        {/* Airport badge */}
         <col style={{ width: '52px' }} />
-        {/* Airline + route — takes remaining space */}
-        <col />
-        {/* Fare */}
-        <col style={{ width: '60px' }} />
-        {/* Bags+Seats */}
-        <col style={{ width: '76px' }} />
-        {/* Transport */}
-        <col style={{ width: '118px' }} />
-        {/* Dest. transfer */}
-        <col style={{ width: '68px' }} />
-        {/* Total */}
+        <col style={{ width: '180px' }} />
         <col style={{ width: '64px' }} />
+        <col style={{ width: '84px' }} />
+        <col style={{ width: '140px' }} />
+        <col style={{ width: '80px' }} />
+        <col style={{ width: '72px' }} />
       </colgroup>
       <thead>
         <tr>
@@ -705,6 +698,7 @@ export function LegOptions({
               <div style={{ fontSize: 12, fontWeight: 600, color: '#3f484a', marginBottom: 10 }}>
                 {table1Title}
               </div>
+<<<<<<< HEAD
 
               <LeverTable
                 groups={londonGroups}
@@ -714,6 +708,58 @@ export function LegOptions({
                 transitPreference={transitPreference}
                 isSmartDate={isSmartDate}
               />
+=======
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                border: '1px solid #e8edee',
+                borderRadius: 10,
+                overflow: 'hidden',
+              }}>
+                <colgroup>
+                  <col style={{ width: '52px' }} />
+                  <col style={{ width: '180px' }} />
+                  <col style={{ width: '64px' }} />
+                  <col style={{ width: '84px' }} />
+                  <col style={{ width: '140px' }} />
+                  <col style={{ width: '80px' }} />
+                  <col style={{ width: '72px' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                    <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                    {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                      <th key={h} style={{
+                        fontSize: 9, fontWeight: 600, color: '#6f797a',
+                        letterSpacing: '0.05em', textTransform: 'uppercase',
+                        paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                        textAlign: i === 2 ? 'left' : 'right',
+                        paddingLeft: i === 2 ? 8 : 0,
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {londonGroups.map((group, i) => (
+                    <LeverRow
+                      key={`london-${group.airportIata}`}
+                      opt={group.displayRow}
+                      airportIata={getLondonIata(group.displayRow)}
+                      destCityIata={getDestIata(group.displayRow)}
+                      isCheapestRow={i === 0}
+                      isRec={group.isRec}
+                      notCheapestNote={group.notCheapestNote}
+                      isFirst={i === 0}
+                      transitPreference={transitPreference}
+                      isSmartDate={selectedDate === smartDate}
+                    />
+                  ))}
+                </tbody>
+              </table>
+>>>>>>> 7c2bafd (fix(leg-options): update colgroup widths to 52/180/64/84/140/80/72px)
 
               {/* Table 2 — Destination airport lever */}
               {showDestTable && (
@@ -736,6 +782,7 @@ export function LegOptions({
                     </div>
                     <div style={{ flex: 1, height: 1, background: '#e8edee' }} />
                   </div>
+<<<<<<< HEAD
 
                   <LeverTable
                     groups={destGroups}
@@ -745,6 +792,58 @@ export function LegOptions({
                     transitPreference={transitPreference}
                     isSmartDate={isSmartDate}
                   />
+=======
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    border: '1px solid #e8edee',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}>
+                    <colgroup>
+                      <col style={{ width: '52px' }} />
+                      <col style={{ width: '180px' }} />
+                      <col style={{ width: '64px' }} />
+                      <col style={{ width: '84px' }} />
+                      <col style={{ width: '140px' }} />
+                      <col style={{ width: '80px' }} />
+                      <col style={{ width: '72px' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '0 8px 8px 4px', borderBottom: '1px solid #bfc8c9' }} />
+                        <th style={{ padding: '0 12px 8px 0', borderBottom: '1px solid #bfc8c9' }} />
+                        {(['Fare', 'Bags+Seats', 'Transport', 'Dest.', 'Total'] as const).map((h, i) => (
+                          <th key={h} style={{
+                            fontSize: 9, fontWeight: 600, color: '#6f797a',
+                            letterSpacing: '0.05em', textTransform: 'uppercase',
+                            paddingBottom: 8, borderBottom: '1px solid #bfc8c9',
+                            textAlign: i === 2 ? 'left' : 'right',
+                            paddingLeft: i === 2 ? 8 : 0,
+                          }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destGroups.map((group, i) => (
+                        <LeverRow
+                          key={`dest-${group.airportIata}`}
+                          opt={group.displayRow}
+                          airportIata={getDestIata(group.displayRow)}
+                          destCityIata={getDestIata(group.displayRow)}
+                          isCheapestRow={i === 0}
+                          isRec={group.isRec}
+                          notCheapestNote={group.notCheapestNote}
+                          isFirst={i === 0}
+                          transitPreference={transitPreference}
+                          isSmartDate={selectedDate === smartDate}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+>>>>>>> 7c2bafd (fix(leg-options): update colgroup widths to 52/180/64/84/140/80/72px)
                 </>
               )}
             </>
