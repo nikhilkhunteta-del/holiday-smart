@@ -54,13 +54,12 @@ function buildPrompt(
   baseline: AssembledBaseline,
   ctx: FamilyContext,
 ): string {
-  const top = Math.min(10, combinations.length);
-  const comboText = combinations
-    .slice(0, top)
+  const combinationsForPrompt = combinations;
+  const comboText = combinationsForPrompt
     .map((c, i) => formatCombination(c, i))
     .join('\n\n');
 
-  return `You are a family travel advisor helping London parents book flights during school holidays.
+  const prompt = `You are a family travel advisor helping London parents book flights during school holidays.
 
 FAMILY:
 - School: ${ctx.schoolName ?? 'Unknown'}, ${ctx.borough ?? 'Unknown borough'}
@@ -78,7 +77,7 @@ BASELINE (school-window flights from nearest airport, no absence):
 - Fare+ancillary: £${baseline.fare_plus_ancillary_gbp.toFixed(2)}
 - Transit: £${baseline.transit_cost_gbp.toFixed(2)}
 
-TOP ${top} COMBINATIONS (sorted by total cost inc fine, index 0 = cheapest):
+ALL ${combinationsForPrompt.length} COMBINATIONS (sorted by total cost inc fine, index 0 = cheapest):
 ${comboText}
 
 Choose the best combination for this family. Prioritise:
@@ -90,7 +89,7 @@ Choose the best combination for this family. Prioritise:
 
 Respond ONLY with valid JSON matching this exact schema — no markdown, no prose outside the JSON:
 {
-  "recommended_index": <integer 0-${top - 1}>,
+  "recommended_index": <integer 0-${combinationsForPrompt.length - 1}>,
   "recommendation_prose": "<2–3 sentence plain-English explanation for the parent>",
   "lever_insights": [
     {
@@ -104,6 +103,9 @@ Respond ONLY with valid JSON matching this exact schema — no markdown, no pros
   "confidence": "high" | "medium" | "low",
   "fallback": false
 }`;
+  console.log('[getAIRecommendation] combinations count:', combinationsForPrompt.length);
+  console.log('[getAIRecommendation] prompt length (chars):', prompt.length);
+  return prompt;
 }
 
 const FALLBACK: AIRecommendationOutput = {
