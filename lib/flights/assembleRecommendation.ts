@@ -1,4 +1,5 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
+import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -99,6 +100,13 @@ export async function assembleRecommendation(
   children: number,
   infants: number,
   transitPreference: 'auto' | 'uber' = 'auto',
+  schoolName: string | null = null,
+  borough: string | null = null,
+  windowStart: string = '',
+  windowEnd: string = '',
+  cabinBags: number = adults,
+  checkedBags: number = 0,
+  seatsTogether: boolean = true,
 ): Promise<{
   combinations: AssembledCombination[];
   baseline: AssembledBaseline;
@@ -106,6 +114,7 @@ export async function assembleRecommendation(
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   baselineIsRecommended: boolean;
   baselineAsItinerary: BaselineAsItinerary;
+  aiRecommendation: AIRecommendationOutput;
 }> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -322,8 +331,25 @@ export async function assembleRecommendation(
     return_transit: blRetTransit,
   };
 
+  // ── AI recommendation ──────────────────────────────────────────────────────
+  const aiRecommendation = await getAIRecommendation(assembled, assembledBaseline, {
+    schoolName,
+    borough,
+    postcodeDistrict,
+    windowStart,
+    windowEnd,
+    adults,
+    children,
+    infants,
+    cabinBags,
+    checkedBags,
+    seatsTogether,
+  });
+
+  const recommendation = assembled[aiRecommendation.recommended_index] ?? assembled[0];
+
   // ── Saving category ────────────────────────────────────────────────────────
-  const saving = assembledBaseline.total_cost_gbp - assembled[0].total_cost_gbp;
+  const saving = assembledBaseline.total_cost_gbp - recommendation.total_cost_gbp;
   const savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' =
     saving >= 75 ? 'significant' :
     saving >= 20 ? 'modest' :
@@ -345,9 +371,10 @@ export async function assembleRecommendation(
   return {
     combinations: assembled,
     baseline: assembledBaseline,
-    recommendation: assembled[0],
+    recommendation,
     savingCategory,
     baselineIsRecommended,
     baselineAsItinerary,
+    aiRecommendation,
   };
 }

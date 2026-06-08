@@ -122,8 +122,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
   const schoolName       = (schoolResult.data as any)?.school_name ?? null;
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
+  const borough = (schoolResult.data as any)?.borough ?? null;
   const assembled = smartRaw
-    ? await assembleRecommendation(smartRaw, postcodeDistrict, adults, children, infants, transitPreference)
+    ? await assembleRecommendation(
+        smartRaw, postcodeDistrict, adults, children, infants, transitPreference,
+        schoolName, borough, windowStart, windowEnd, cabinBags, checkedBags, seatsTogether,
+      )
     : null;
   const recommendation    = assembled?.recommendation  ?? null;
   const assembledBaseline = assembled?.baseline        ?? null;
