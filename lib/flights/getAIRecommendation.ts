@@ -180,7 +180,9 @@ IMPORTANT:
 - The cheapest option is not always the best — but you must clearly justify
   any pick that is not the cheapest
 
-Return ONLY this JSON, no other text:
+CRITICAL: Return ONLY the JSON object. Do not write any text before or after it.
+Do not explain your reasoning outside the JSON. Start your response with { and end with }.
+
 {
   "recommended_index": <number>,
   "confidence": "<high|medium|low>",
@@ -203,8 +205,14 @@ Return ONLY this JSON, no other text:
     console.log('[getAIRecommendation] pick response cached:', pickRawResponse.headers.get('cf-cache-status'));
 
     const pickText = pickMessage.content[0]?.type === 'text' ? pickMessage.content[0].text : '';
+    // Strip markdown fences and extract JSON object even if model adds preamble
     const cleanPickText = pickText.replace(/```json|```/g, '').trim();
-    const pickParsed = JSON.parse(cleanPickText);
+    const pickJsonMatch = cleanPickText.match(/\{[\s\S]*\}/);
+    if (!pickJsonMatch) {
+      console.error('[getAIRecommendation] No JSON object found in pick response:', cleanPickText.slice(0, 200));
+      return FALLBACK;
+    }
+    const pickParsed = JSON.parse(pickJsonMatch[0]);
 
     recommendedIndex = Math.max(0, Math.min(
       pickParsed.recommended_index ?? 0,
@@ -464,7 +472,9 @@ STRICT RULES:
 - For caveats: baggage_is_estimate → "Bag fees for [carrier] are estimated — actual price may vary by route." family_split_risk → "Seat costs of £[seat_cost_gbp] are included to keep your family together."
 - Every verified_field must be an exact field name from the combinations data
 
-Return ONLY this JSON, no other text:
+CRITICAL: Return ONLY the JSON object. Do not write any text before or after it.
+Do not explain your reasoning outside the JSON. Start your response with { and end with }.
+
 {
   "recommendation_prose": "<string>",
   "lever_insights": [
@@ -494,7 +504,19 @@ Return ONLY this JSON, no other text:
     const insightText = insightMessage.content[0]?.type === 'text' ? insightMessage.content[0].text : '';
     const cleanInsightText = insightText.replace(/```json|```/g, '').trim();
     console.log('[getAIRecommendation] raw insight response:', cleanInsightText);
-    const insightParsed = JSON.parse(cleanInsightText);
+    const insightJsonMatch = cleanInsightText.match(/\{[\s\S]*\}/);
+    if (!insightJsonMatch) {
+      console.error('[getAIRecommendation] No JSON object found in insight response:', cleanInsightText.slice(0, 200));
+      return {
+        recommended_index: recommendedIndex,
+        recommendation_prose: 'We found the best value option for your dates.',
+        lever_insights: [],
+        caveats: [],
+        confidence,
+        fallback: false,
+      };
+    }
+    const insightParsed = JSON.parse(insightJsonMatch[0]);
 
     console.log('[getAIRecommendation] lever count:', insightParsed.lever_insights?.length);
     console.log('[getAIRecommendation] prose:', insightParsed.recommendation_prose);
