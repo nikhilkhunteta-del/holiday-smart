@@ -75,6 +75,33 @@ function buildPrompt(
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
+    trip_nights: Math.round(
+      (new Date(c.return_date).getTime() - new Date(c.outbound_date).getTime())
+      / (1000 * 60 * 60 * 24)
+    ),
+    arrival_quality: (() => {
+      if (!c.outbound_arrival_time) return null;
+      const hour = parseInt(c.outbound_arrival_time.split(':')[0]);
+      if (hour < 14) return 'excellent';
+      if (hour < 18) return 'good';
+      if (hour < 21) return 'acceptable';
+      return 'poor';
+    })(),
+    departure_quality: (() => {
+      if (!c.return_departure_time) return null;
+      const hour = parseInt(c.return_departure_time.split(':')[0]);
+      if (hour < 6)  return 'very_early';
+      if (hour < 9)  return 'early';
+      if (hour < 14) return 'good';
+      return 'excellent';
+    })(),
+    total_outbound_travel_mins: (
+      (c.outbound_transit?.transit?.duration_mins ??
+       c.outbound_transit?.uber?.duration_mins ?? 0) +
+      (c.outbound_duration_mins ?? 0)
+    ),
+    outbound_transit_changes: c.outbound_transit?.transit?.changes ?? null,
+    return_transit_changes: c.return_transit?.transit?.changes ?? null,
   }));
 
   const prompt = `You are a financial intelligence tool helping a London family save money on their school holiday flights. You have access to every viable flight combination for their trip, fully priced including flights, bags, seats, transport to/from the airport, and any school absence fines.
