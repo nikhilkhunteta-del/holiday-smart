@@ -448,7 +448,11 @@ Example: "5:30am return — Uber worth considering" with insight explaining
 transit saves £X but Uber avoids [N] changes at that hour.
 
 11. TRANSIT CHANGES
-Condition: outbound_transit_changes >= 2
+Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2
+BUT: Do NOT surface this lever if transport_outbound or transport_return
+insight is already being generated for the same leg — it would be duplicate
+information. Only surface transit_changes as a standalone insight if the
+transport mode insight for that leg is NOT being shown.
 Insight: "Getting to [origin_iata] involves [N] changes — factor this in when travelling with children and luggage."
 This is informational, not a savings lever — saving_gbp: null
 
