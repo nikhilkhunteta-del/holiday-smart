@@ -196,8 +196,29 @@ function DataCell({
   );
 }
 
-function EmptyCell() {
-  return <td style={{ minWidth: 80, padding: 8, background: '#f2f4f4', borderRadius: 6 }} />;
+function invalidReason(dep: string, ret: string): string {
+  if (ret <= dep) return 'Return must be after departure';
+  if (nightsBetween(dep, ret) < 3) return 'Too short for this destination';
+  return 'No flights found for this combination';
+}
+
+function InvalidCell({ dep, ret }: { dep: string; ret: string }) {
+  return (
+    <td
+      title={invalidReason(dep, ret)}
+      style={{
+        background: '#f2f4f4',
+        opacity: 0.5,
+        borderRadius: 6,
+        minHeight: 48,
+        minWidth: 80,
+        padding: 8,
+        verticalAlign: 'top',
+      }}
+    >
+      <span style={{ fontSize: 10, color: '#bfc8c9' }}>—</span>
+    </td>
+  );
 }
 
 // ── Legend ─────────────────────────────────────────────────────────────────────
@@ -450,7 +471,7 @@ export function ComplianceCalculator({
                               />
                             );
                           }
-                          return <EmptyCell key={ret} />;
+                          return <InvalidCell key={ret} dep={dep} ret={ret} />;
                         })}
                       </tr>
                     );
