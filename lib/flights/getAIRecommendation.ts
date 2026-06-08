@@ -138,6 +138,7 @@ export async function getAIRecommendation(
     });
 
     const raw = message.content[0]?.type === 'text' ? message.content[0].text : '';
+    console.log('[getAIRecommendation] raw AI response:', raw);
     const parsed: AIRecommendationOutput = JSON.parse(raw);
 
     // Clamp index to valid range
@@ -146,6 +147,9 @@ export async function getAIRecommendation(
       Math.min(parsed.recommended_index, combinations.length - 1),
     );
     parsed.fallback = false;
+    console.log('[getAIRecommendation] recommended_index:', parsed.recommended_index);
+    console.log('[getAIRecommendation] confidence:', parsed.confidence);
+    console.log('[getAIRecommendation] prose:', parsed.recommendation_prose);
     return parsed;
   } catch {
     return FALLBACK;
