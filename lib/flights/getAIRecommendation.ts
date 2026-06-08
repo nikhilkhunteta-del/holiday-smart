@@ -229,6 +229,72 @@ Return ONLY this JSON, no other text:
     .filter(c => c.requires_absence && c.total_inc_fine < recommended.total_inc_fine)
     .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0] ?? null;
 
+  // ── Same-date summaries (replaces raw sameDates array in prompt) ──────────
+  const depAirportSummary = Array.from(
+    sameDates.reduce((map, c) => {
+      const existing = map.get(c.origin_iata);
+      if (!existing || c.total_cost_gbp < (existing as any).total_cost_gbp) {
+        map.set(c.origin_iata, {
+          origin_iata: c.origin_iata,
+          total_cost_gbp: c.total_cost_gbp,
+          outbound_transit_route: c.outbound_transit_route,
+          outbound_transit_duration_mins: c.outbound_transit_duration_mins,
+        });
+      }
+      return map;
+    }, new Map<string, object>()).values()
+  ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
+
+  const outDestSummary = Array.from(
+    sameDates.reduce((map, c) => {
+      const existing = map.get(c.out_dest_iata);
+      if (!existing || c.total_cost_gbp < (existing as any).total_cost_gbp) {
+        map.set(c.out_dest_iata, {
+          out_dest_iata: c.out_dest_iata,
+          total_cost_gbp: c.total_cost_gbp,
+          destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
+        });
+      }
+      return map;
+    }, new Map<string, object>()).values()
+  ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
+
+  const retDestSummary = Array.from(
+    sameDates.reduce((map, c) => {
+      const existing = map.get(c.ret_dest_iata);
+      if (!existing || c.total_cost_gbp < (existing as any).total_cost_gbp) {
+        map.set(c.ret_dest_iata, {
+          ret_dest_iata: c.ret_dest_iata,
+          total_cost_gbp: c.total_cost_gbp,
+        });
+      }
+      return map;
+    }, new Map<string, object>()).values()
+  ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
+
+  const cheapestSplit = sameDates
+    .filter(c => c.split_carrier)
+    .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0] ?? null;
+  const cheapestSingle = sameDates
+    .filter(c => !c.split_carrier)
+    .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0] ?? null;
+
+  const splitCarrierSummary = {
+    recommended_is_split: recommended.split_carrier,
+    cheapest_split: cheapestSplit ? {
+      total_cost_gbp: cheapestSplit.total_cost_gbp,
+      outbound_carrier: cheapestSplit.outbound_carrier,
+      return_carrier: cheapestSplit.return_carrier,
+    } : null,
+    cheapest_single: cheapestSingle ? {
+      total_cost_gbp: cheapestSingle.total_cost_gbp,
+      outbound_carrier: cheapestSingle.outbound_carrier,
+    } : null,
+    saving_gbp: (cheapestSplit && cheapestSingle)
+      ? Math.round((cheapestSingle.total_cost_gbp - cheapestSplit.total_cost_gbp) * 100) / 100
+      : null,
+  };
+
   const insightPrompt = `You are a financial intelligence tool helping a London family save money on their school holiday flight. Generate insights based ONLY on the pre-computed data below. Do not calculate anything yourself — every number is already computed.
 
 RECOMMENDED COMBINATION:
@@ -237,8 +303,19 @@ ${JSON.stringify(recommended, null, 2)}
 WHY THIS WAS PICKED (internal reasoning — use this to write the prose):
 ${pickingReasoning}
 
-SAME-DATE OPTIONS (for airport, transport, split carrier levers — recommended dates only):
-${JSON.stringify(sameDates, null, 2)}
+SAME-DATE SUMMARIES (pre-computed — use these numbers directly, do not recalculate):
+
+DEPARTURE AIRPORTS (cheapest per airport, recommended dates):
+${JSON.stringify(depAirportSummary, null, 2)}
+
+OUTBOUND ARRIVAL AIRPORTS (cheapest per airport, recommended dates):
+${JSON.stringify(outDestSummary, null, 2)}
+
+RETURN ARRIVAL AIRPORTS (cheapest per airport, recommended dates):
+${JSON.stringify(retDestSummary, null, 2)}
+
+SPLIT CARRIER vs SINGLE CARRIER (recommended dates):
+${JSON.stringify(splitCarrierSummary, null, 2)}
 
 CROSS-DATE LEVERS (pre-computed — use these numbers directly):
 ${JSON.stringify({
@@ -287,12 +364,17 @@ CROSS-DATE LEVERS (use pre-computed values only — do not scan combinations):
 
 1. INSET DAY
 Use: cross_date_levers.inset_day
-Condition: inset_saving_vs_non_inset > 0 (inset is cheaper) OR inset_extra_nights > 0 (same/similar cost, more nights)
-Framing: ALWAYS positive
-- If saving > 0: "Flying on [cheapest_inset_outbound_date] — your school's inset day — saves £[inset_saving_vs_non_inset] vs the next available date."
-- If saving ≤ 0 but extra_nights > 0: "Flying on [date] — your school's inset day — costs the same but gives your family [N] extra night(s) in [destination]."
-- If recommended combination IS the inset day: frame as "we chose the inset day departure — here's what that gives you"
-- If inset is more expensive with no extra nights: DO NOT surface this lever
+Condition: inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0
+IMPORTANT: If cheapest_inset_is_recommended is true (the recommended combination
+IS the inset day) — frame as "we chose the inset day: here's what that gives you."
+If cheapest_inset_is_recommended is false — frame as an ALTERNATIVE option
+the parent could consider, not as something we recommended.
+- If inset costs less: "Alternatively, flying on [date] — the inset day —
+  saves £[X] but we recommended [recommended dates] for [reason from picking_reasoning]."
+- If inset costs same/more but gives extra nights: "Alternatively, flying on
+  [date] — the inset day — costs £[X more/same] but gives [N] extra night(s).
+  Worth considering if you can be flexible."
+- If inset is more expensive with no extra nights: DO NOT surface
 
 2. ABSENCE TRADE-OFF
 Use: cross_date_levers.absence_tradeoff
@@ -301,29 +383,29 @@ Framing: neutral, factual
 "Flying on [date] costs £[total] including a £[fine] fine for [N] absence day(s) — still £[net_saving] less than the recommended option."
 If net saving ≤ £20: DO NOT surface this lever
 
-SAME-DATE LEVERS (use same_date_options data — recommended dates only):
+SAME-DATE LEVERS (use SAME-DATE SUMMARIES above — do not recalculate):
 
 3. DEPARTURE AIRPORT
-Find cheapest total_cost_gbp per unique origin_iata in same_date_options.
-Condition: more than one unique origin_iata AND cost difference > £20
-Insight: "Flying from [cheapest_airport] saves £[diff] vs [most_expensive_airport] on these dates."
+Use: dep_airport_summary (sorted cheapest first)
+Condition: more than one entry AND cost difference between first and last entry > £20
+Insight: "Flying from [cheapest.origin_iata] saves £[diff] vs [most_expensive.origin_iata] on these dates."
 Include transit route for cheapest airport if outbound_transit_route is available.
 
 4. OUTBOUND ARRIVAL AIRPORT
-Find cheapest total_cost_gbp per unique out_dest_iata in same_date_options.
-Condition: more than one unique out_dest_iata AND cost difference > £20
+Use: out_dest_summary (sorted cheapest first)
+Condition: more than one entry AND cost difference > £20
 Insight: compare airports with actual cost difference.
 
 5. RETURN ARRIVAL AIRPORT
-Find cheapest total_cost_gbp per unique ret_dest_iata in same_date_options.
-Condition: more than one unique ret_dest_iata AND cost difference > £20
+Use: ret_dest_summary (sorted cheapest first)
+Condition: more than one entry AND cost difference > £20
 
 6. SPLIT CARRIER — POSITIVE USP
-Find cheapest split_carrier: true AND cheapest split_carrier: false in same_date_options.
-Condition: split_carrier: true is cheaper by > £20
+Use: split_carrier_summary
+Condition: saving_gbp > 20 (cheapest split is cheaper than cheapest single by > £20)
 Framing: ALWAYS positive — this is a feature, not a warning
-"We found a cheaper option by combining two airlines — [outbound_carrier] outbound and [return_carrier] return saves £[diff] vs the cheapest single-airline booking."
-If split carrier is NOT cheaper: DO NOT surface this lever
+"We found a cheaper option by combining two airlines — [cheapest_split.outbound_carrier] outbound and [cheapest_split.return_carrier] return saves £[saving_gbp] vs the cheapest single-airline booking."
+If saving_gbp is null or ≤ 20: DO NOT surface this lever
 
 RECOMMENDED COMBINATION LEVERS (use recommended combination fields only):
 
@@ -345,6 +427,14 @@ Insight: state cost difference AND time difference clearly.
 
 10. TRANSPORT — RETURN
 Same pattern as outbound using return transit fields.
+For transport_return: if the recommended combination has departure_quality
+'very_early', frame the insight around convenience not just cost saving.
+If transit involves 2+ changes at an early hour, acknowledge that Uber
+may be worth the extra cost despite being more expensive.
+In this case: saving_gbp should be null (we are recommending spending more, not less).
+Headline should reflect the recommendation, not the cheaper option.
+Example: "5:30am return — Uber worth considering" with insight explaining
+transit saves £X but Uber avoids [N] changes at that hour.
 
 11. TRANSIT CHANGES
 Condition: outbound_transit_changes >= 2
@@ -376,6 +466,7 @@ Return ONLY this JSON, no other text:
   "confidence": "<high|medium|low>"
 }`;
 
+  console.log('[getAIRecommendation] insight prompt length (chars):', insightPrompt.length);
   try {
     const insightStart = Date.now();
     const insightMessage = await client.messages.create({
