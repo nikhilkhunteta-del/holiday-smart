@@ -383,17 +383,19 @@ CROSS-DATE LEVERS (use pre-computed values only — do not scan combinations):
 
 1. INSET DAY
 Use: cross_date_levers.inset_day
-Condition: inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0
-IMPORTANT: If cheapest_inset_is_recommended is true (the recommended combination
-IS the inset day) — frame as "we chose the inset day: here's what that gives you."
-If cheapest_inset_is_recommended is false — frame as an ALTERNATIVE option
-the parent could consider, not as something we recommended.
-- If inset costs less: "Alternatively, flying on [date] — the inset day —
-  saves £[X] but we recommended [recommended dates] for [reason from picking_reasoning]."
-- If inset costs same/more but gives extra nights: "Alternatively, flying on
-  [date] — the inset day — costs £[X more/same] but gives [N] extra night(s).
-  Worth considering if you can be flexible."
-- If inset is more expensive with no extra nights: DO NOT surface
+
+Case A — cheapest_inset_is_recommended is TRUE (we picked the inset day):
+ALWAYS surface this lever. Frame as what the family gains:
+"Departing on [cheapest_inset_outbound_date] — [school_name]'s inset day —
+means zero school absence and zero fines.
+[If inset_extra_nights > 0: 'You also get [N] extra night(s) vs the next available date for [£X more/the same price].']"
+saving_gbp: inset_saving_vs_non_inset (if positive) else null
+
+Case B — cheapest_inset_is_recommended is FALSE (we did not pick the inset day):
+Only surface if inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0.
+Frame as an alternative: "Alternatively, flying on [date] — the inset day —
+[saves £X / costs £X more but gives N extra night(s)]."
+If inset is more expensive with no extra nights: DO NOT surface.
 
 2. ABSENCE TRADE-OFF
 Use: cross_date_levers.absence_tradeoff
@@ -407,8 +409,12 @@ SAME-DATE LEVERS (use SAME-DATE SUMMARIES above — do not recalculate):
 3. DEPARTURE AIRPORT
 Use: dep_airport_summary (sorted cheapest first)
 Condition: more than one entry AND cost difference between first and last entry > £20
-Insight: "Flying from [cheapest.origin_iata] saves £[diff] vs [most_expensive.origin_iata] on these dates."
+Default insight: "Flying from [cheapest.origin_iata] saves £[diff] vs [most_expensive.origin_iata] on these dates."
 Include transit route for cheapest airport if outbound_transit_route is available.
+If the recommended combination's origin_iata is already the cheapest airport:
+Frame as "we chose the cheapest departure airport":
+"[origin_iata] is the cheapest departure option on these dates — [most_expensive.origin_iata] costs £[diff] more."
+Do not frame this as a saving the parent needs to act on.
 
 4. OUTBOUND ARRIVAL AIRPORT
 Use: out_dest_summary (sorted cheapest first)
@@ -432,6 +438,8 @@ If saving_gbp is null or ≤ 20: DO NOT surface this lever
 RECOMMENDED COMBINATION LEVERS (use recommended combination fields only):
 
 7. TRAVEL LIGHT — CABIN BAGS
+MANDATORY: Always include this lever if cabin_bag_cost_gbp > 0 on the
+recommended combination. Do not skip it.
 Condition: cabin_bag_cost_gbp > 0 (always surface if true)
 Insight: "Your [N] cabin bags add £[cabin_bag_cost_gbp] to this trip. Travelling with personal items only removes this cost entirely."
 saving_gbp: cabin_bag_cost_gbp value
