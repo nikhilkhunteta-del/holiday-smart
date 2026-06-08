@@ -184,12 +184,14 @@ Return ONLY this JSON, no other text:
 
   try {
     const pickStart = Date.now();
-    const pickMessage = await client.messages.create({
+    const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 512,
       messages: [{ role: 'user', content: pickPrompt }],
-    });
+    }).withResponse();
     console.log('[getAIRecommendation] pick call ms:', Date.now() - pickStart);
+    console.log('[getAIRecommendation] pick response status:', pickRawResponse.status);
+    console.log('[getAIRecommendation] pick response cached:', pickRawResponse.headers.get('cf-cache-status'));
 
     const pickText = pickMessage.content[0]?.type === 'text' ? pickMessage.content[0].text : '';
     const cleanPickText = pickText.replace(/```json|```/g, '').trim();
