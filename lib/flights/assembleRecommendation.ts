@@ -23,7 +23,11 @@ export type AssembledCombination = {
   absence_days: number;
   fine_gbp: number | null;
   outbound_departure_time: string | null;
+  outbound_arrival_time: string | null;
+  outbound_duration_mins: number | null;
+  return_departure_time: string | null;
   return_arrival_time: string | null;
+  return_duration_mins: number | null;
   is_inset_day: boolean;
   baggage_is_estimate: boolean;
   family_split_risk: boolean;
@@ -239,7 +243,11 @@ export async function assembleRecommendation(
       absence_days: c.absence_days,
       fine_gbp: c.fine_gbp,
       outbound_departure_time: c.outbound_departure_time,
+      outbound_arrival_time: c.outbound_arrival_time,
+      outbound_duration_mins: c.outbound_duration_mins,
+      return_departure_time: c.return_departure_time,
       return_arrival_time: c.return_arrival_time,
+      return_duration_mins: c.return_duration_mins,
       is_inset_day: c.is_inset_day,
       baggage_is_estimate: c.baggage_is_estimate,
       family_split_risk: c.family_split_risk,

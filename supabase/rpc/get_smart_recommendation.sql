@@ -224,7 +224,9 @@ BEGIN
         fs.origin_iata,
         fs.destination_iata,
         fs.party_total_gbp AS fare,
-        fs.departure_time
+        fs.departure_time,
+        fs.arrival_time     AS out_arr_time,
+        fs.duration_minutes AS out_duration
       FROM fare_snapshots fs
       WHERE fs.run_id           = v_run_id
         AND fs.origin_iata      IN ('LHR','LGW','STN','LTN','LCY')
@@ -244,7 +246,9 @@ BEGIN
         origin_iata                 AS best_airport,
         destination_iata            AS out_dest_iata,
         fare                        AS out_fare,
-        departure_time              AS out_dep_time
+        departure_time              AS out_dep_time,
+        out_arr_time,
+        out_duration
       FROM out_fares
       ORDER BY departure_date, airline_iata, destination_iata, fare ASC
     ),
@@ -257,7 +261,8 @@ BEGIN
         fs.origin_iata              AS ret_orig_iata,
         fs.destination_iata         AS ret_dest_iata,
         fs.party_total_gbp          AS fare,
-        fs.arrival_time
+        fs.arrival_time,
+        fs.duration_minutes         AS ret_duration
       FROM fare_snapshots fs
       WHERE fs.run_id           = v_run_id
         AND fs.origin_iata       = ANY(v_dest_airports)
@@ -276,7 +281,8 @@ BEGIN
         ret_orig_iata,
         ret_dest_iata,
         fare                        AS ret_fare,
-        arrival_time                AS ret_arr_time
+        arrival_time                AS ret_arr_time,
+        ret_duration
       FROM ret_fares
       ORDER BY ret_date, airline_iata, ret_orig_iata, fare ASC
     ),
@@ -288,7 +294,8 @@ BEGIN
         ret_dest_iata,
         airline_iata,
         ret_fare,
-        ret_arr_time
+        ret_arr_time,
+        ret_duration
       FROM best_ret
       ORDER BY ret_date, ret_orig_iata, ret_fare ASC
     ),
@@ -304,6 +311,8 @@ BEGIN
         cr.ret_orig_iata,
         bo.out_fare,
         bo.out_dep_time,
+        bo.out_arr_time,
+        bo.out_duration,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
              THEN br.airline_iata  ELSE cr.airline_iata  END             AS ret_carrier,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
@@ -312,6 +321,8 @@ BEGIN
              THEN br.ret_arr_time  ELSE cr.ret_arr_time  END             AS ret_arr_time,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
              THEN br.ret_dest_iata ELSE cr.ret_dest_iata END             AS ret_dest_iata,
+        CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
+             THEN br.ret_duration  ELSE cr.ret_duration  END             AS ret_duration,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
              THEN br.airline_iata <> bo.airline_iata
              ELSE cr.airline_iata <> bo.airline_iata END                 AS split_carrier
@@ -494,7 +505,11 @@ BEGIN
         'absence_days',                  f.absence_days,
         'fine_gbp',                      f.fine_gbp,
         'outbound_departure_time',       to_char(f.out_dep_time, 'HH24:MI'),
+        'outbound_arrival_time',         to_char(f.out_arr_time, 'HH24:MI'),
+        'outbound_duration_mins',        f.out_duration,
+        'return_departure_time',         to_char(f.ret_arr_time - (f.ret_duration || ' minutes')::interval, 'HH24:MI'),
         'return_arrival_time',           to_char(f.ret_arr_time, 'HH24:MI'),
+        'return_duration_mins',          f.ret_duration,
         'is_inset_day',                  f.is_inset_day,
         'baggage_is_estimate',           f.baggage_is_estimate,
         'family_split_risk',             f.family_split_risk,
