@@ -53,6 +53,14 @@ interface Props {
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
 
+const AIRPORT_NAMES: Record<string, string> = {
+  LHR: 'Heathrow',
+  LGW: 'Gatwick',
+  STN: 'Stansted',
+  LTN: 'Luton',
+  LCY: 'City',
+};
+
 const CARRIER_NAMES: Record<string, string> = {
   FR: 'Ryanair',
   U2: 'easyJet',
@@ -160,7 +168,7 @@ export function SavingsBreakdown({
     if (savingCategory === 'baseline_cheapest') return {
       line1: `The cheapest all-in option we found for ${schoolName ?? borough} families this half-term.`,
       line2: `${fmt(recommendation.total_cost_gbp)} — here's the full breakdown.`,
-      amberNote: 'Note: with your current preferences, the standard Saturday Heathrow booking is similar in cost. Try adjusting bags or transport above.' as string | null,
+      amberNote: `Note: with your current preferences, the standard Saturday ${AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport} booking is similar in cost. Try adjusting bags or transport above.` as string | null,
     };
     // minimal
     return {
@@ -179,7 +187,7 @@ export function SavingsBreakdown({
     `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} · ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`,
   ];
   const detFlightsBase = [
-    `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · LHR`,
+    `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · ${baseline.baseline_airport}`,
   ];
 
   // Bundle detection (simplified)
@@ -241,8 +249,8 @@ export function SavingsBreakdown({
     `↓ ${transitLabel(return_transit, recommendation.ret_dest_iata, 'from')} · ${fmt(recommendation.return_transit_cost_gbp)}`,
   ];
   const detTransitBase = [
-    `↑ ${transitLabel(baseline.outbound_transit, 'LHR', 'to')} · ${fmt(baseline.outbound_transit_cost_gbp)}`,
-    `↓ ${transitLabel(baseline.return_transit, 'LHR', 'from')} · ${fmt(baseline.return_transit_cost_gbp)}`,
+    `↑ ${transitLabel(baseline.outbound_transit, baseline.baseline_airport, 'to')} · ${fmt(baseline.outbound_transit_cost_gbp)}`,
+    `↓ ${transitLabel(baseline.return_transit, baseline.baseline_airport, 'from')} · ${fmt(baseline.return_transit_cost_gbp)}`,
   ];
 
   // Destination transfers
@@ -353,7 +361,7 @@ export function SavingsBreakdown({
                 </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  to LHR
+                  to {baseline.baseline_airport}
                 </span>
               </div>
             </div>
@@ -577,7 +585,7 @@ export function SavingsBreakdown({
             {/* Disclaimer */}
             <div style={{ marginTop: 16 }}>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', marginBottom: 6 }}>
-                Baseline: Saturday departure from Heathrow, {carrierName(baseline.carrier)}, no route optimisation.
+                Baseline: Saturday departure from {AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport}, {carrierName(baseline.carrier)}, no route optimisation.
               </p>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', lineHeight: 1.6, margin: 0 }}>
                 Flight prices observed recently.<br />
