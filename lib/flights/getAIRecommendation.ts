@@ -122,9 +122,15 @@ export async function getAIRecommendation(
   baseline: AssembledBaseline,
   ctx: FamilyContext,
 ): Promise<AIRecommendationOutput> {
+  console.log('[getAIRecommendation] function entered');
   if (combinations.length === 0) return FALLBACK;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  console.log('[getAIRecommendation] API key status:',
+    !apiKey ? 'missing' :
+    apiKey === 'your_api_key_here' ? 'placeholder' :
+    'present, length: ' + apiKey.length
+  );
   if (!apiKey || apiKey === 'your_api_key_here') return FALLBACK;
 
   try {
