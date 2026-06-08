@@ -3,7 +3,9 @@ import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { LegOptions } from '@/components/flight-insights/leg-options';
-import { assembleRecommendation } from '@/lib/flights/assembleRecommendation';
+import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { getAIRecommendation, type AIRecommendationOutput } from '@/lib/flights/getAIRecommendation';
+import { AINarrative } from '@/components/flight-insights/ai-narrative';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,14 +123,27 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // ── Assemble smart recommendation (transit-enriched) ──────────────────────
   const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
   const schoolName       = (schoolResult.data as any)?.school_name ?? null;
+  const borough          = (schoolResult.data as any)?.borough ?? null;
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
-  const borough = (schoolResult.data as any)?.borough ?? null;
   const assembled = smartRaw
-    ? await assembleRecommendation(
-        smartRaw, postcodeDistrict, adults, children, infants, transitPreference,
-        schoolName, borough, windowStart, windowEnd, cabinBags, checkedBags, seatsTogether,
-      )
+    ? await assembleCombinationsOnly(smartRaw, postcodeDistrict, adults, children, infants, transitPreference)
     : null;
+
+  const aiPromise: Promise<AIRecommendationOutput | null> = smartRaw && assembled
+    ? getAIRecommendation(assembled.combinations, {
+        schoolName,
+        borough,
+        postcodeDistrict,
+        windowStart,
+        windowEnd,
+        adults,
+        children,
+        infants,
+        cabinBags,
+        checkedBags,
+        seatsTogether,
+      })
+    : Promise.resolve(null);
   const recommendation    = assembled?.recommendation  ?? null;
   const assembledBaseline = assembled?.baseline        ?? null;
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
@@ -237,6 +252,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           baselineIsRecommended={assembled?.baselineIsRecommended}
           baselineAsItinerary={assembled?.baselineAsItinerary}
         />
+        <AINarrative promise={aiPromise} />
         {assembled && (
           <ComplianceCalculator
             combinations={assembled.combinations}
