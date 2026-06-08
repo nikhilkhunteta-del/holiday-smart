@@ -53,6 +53,7 @@ export type AssembledBaseline = {
   destination_transfer_known: boolean;
   outbound_departure_time: string | null;
   baseline_is_fallback: boolean;
+  baseline_airport: string;
   // Transit-enriched fields
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
@@ -134,21 +135,39 @@ export async function assembleRecommendation(
     }
   }
 
-  // Baseline: always LHR, always 09:00
-  const baselineOutKey = cacheKey('LHR', baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00');
+  // Resolve nearest London airport for this postcode district
+  let nearestAirport = 'LHR';
+  try {
+    const { supabaseServer } = await import('../supabase-server');
+    const { data: nearestData } = await supabaseServer
+      .from('district_airport_transit')
+      .select('airport_code')
+      .eq('postcode_district', postcodeDistrict)
+      .in('airport_code', ['LHR', 'LGW', 'STN', 'LTN', 'LCY'])
+      .order('uber_distance_km', { ascending: true })
+      .limit(1);
+    if (nearestData?.[0]?.airport_code) {
+      nearestAirport = nearestData[0].airport_code;
+    }
+  } catch {
+    // fall back to LHR
+  }
+
+  // Baseline: nearest airport to postcode district, always 09:00
+  const baselineOutKey = cacheKey(nearestAirport, baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00');
   if (!transitMap.has(baselineOutKey) && baseline.outbound_date) {
     transitMap.set(baselineOutKey, {
       postcode_district: postcodeDistrict,
-      airport_iata: 'LHR',
+      airport_iata: nearestAirport,
       departure_time: parseDepartureDate(baseline.outbound_date, baseline.outbound_departure_time ?? '09:00'),
     });
   }
 
-  const baselineRetKey = cacheKey('LHR', baseline.return_date ?? '', '09:00');
+  const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
   if (!transitMap.has(baselineRetKey) && baseline.return_date) {
     transitMap.set(baselineRetKey, {
       postcode_district: postcodeDistrict,
-      airport_iata: 'LHR',
+      airport_iata: nearestAirport,
       departure_time: parseDepartureDate(baseline.return_date, '09:00'),
     });
   }
@@ -286,6 +305,7 @@ export async function assembleRecommendation(
     destination_transfer_known: baseline.destination_transfer_known,
     outbound_departure_time: baseline.outbound_departure_time ?? null,
     baseline_is_fallback: baseline.baseline_is_fallback,
+    baseline_airport: nearestAirport,
     outbound_transit_cost_gbp: blOutTransitGbp,
     return_transit_cost_gbp: blRetTransitGbp,
     transit_cost_gbp: blTransitCostGbp,
