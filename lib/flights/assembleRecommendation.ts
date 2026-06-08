@@ -550,7 +550,7 @@ export async function assembleRecommendation(
   };
 
   // ── AI recommendation ──────────────────────────────────────────────────────
-  const aiRecommendation = await getAIRecommendation(assembled, assembledBaseline, {
+  const aiRecommendation = await getAIRecommendation(assembled, {
     schoolName,
     borough,
     postcodeDistrict,

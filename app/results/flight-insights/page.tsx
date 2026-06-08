@@ -130,7 +130,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     : null;
 
   const aiPromise: Promise<AIRecommendationOutput | null> = smartRaw && assembled
-    ? getAIRecommendation(assembled.combinations, assembled.baseline, {
+    ? getAIRecommendation(assembled.combinations, {
         schoolName,
         borough,
         postcodeDistrict,
