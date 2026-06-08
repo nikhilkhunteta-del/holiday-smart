@@ -416,8 +416,11 @@ Condition: more than one entry AND cost difference > £20
 Insight: compare airports with actual cost difference.
 
 5. RETURN ARRIVAL AIRPORT
-Use: ret_dest_summary (sorted cheapest first)
-Condition: more than one entry AND cost difference > £20
+Use: return_arrival_airports pre-computed summary
+Condition: more than one entry in return_arrival_airports AND cost difference between cheapest and most expensive > £20
+Insight: "Returning to [cheapest_ret_dest_iata] saves £[diff] vs returning to [most_expensive_ret_dest_iata] on these dates."
+The saving is the difference between the cheapest and most expensive ret_dest_iata total_cost_gbp — NOT the total trip cost.
+Do not compare against combinations from different dates.
 
 6. SPLIT CARRIER — POSITIVE USP
 Use: split_carrier_summary
@@ -468,8 +471,9 @@ STRICT RULES:
 - Use ONLY numbers from the data provided — do not calculate, estimate or invent any figure
 - Do not say "baseline"
 - Do not mention seat selection policy, transit accuracy, pre-booking advice, or generic travel tips
-- Maximum 2 caveats: only if baggage_is_estimate: true or family_split_risk: true on recommended combination
-- For caveats: baggage_is_estimate → "Bag fees for [carrier] are estimated — actual price may vary by route." family_split_risk → "Seat costs of £[seat_cost_gbp] are included to keep your family together."
+- Maximum 1 caveat, only if baggage_is_estimate: true on recommended combination
+- Caveat text: "Bag fees for [carrier] are estimated — actual price may vary by route."
+- Do not add a caveat about seats — seat costs are already included in the total
 - Every verified_field must be an exact field name from the combinations data
 
 CRITICAL: Return ONLY the JSON object. Do not write any text before or after it.
@@ -495,7 +499,8 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
   try {
     const insightStart = Date.now();
     const insightMessage = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      // Insight call — Haiku is sufficient for structured output from pre-computed data
+      model: 'claude-haiku-4-5',
       max_tokens: 1500,
       messages: [{ role: 'user', content: insightPrompt }],
     });
