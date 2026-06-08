@@ -91,16 +91,29 @@ function fmt(time: string): string {
   return time.slice(0, 5);
 }
 
-function extractTransitMode(method: string | null): string {
+function extractTransitMode(method: string | null, durationMins: number | null): string {
   if (!method) return '—';
-  if (method.includes('National Express')) return 'National Express';
-  if (method.includes('Stansted Express')) return 'Stansted Express';
-  if (method.includes('Thameslink'))       return 'Thameslink';
-  if (method.includes('Gatwick Express'))  return 'Gatwick Express';
-  if (method.includes('DLR'))              return 'DLR';
-  if (method.includes('Bus'))              return 'Bus';
-  if (method.includes('Uber'))             return 'Uber';
-  return method.split('→')[0].trim().slice(0, 20);
+  const segments = method
+    .split('→')
+    .map(s => s.replace(/\([^)]+\)/g, '').trim())
+    .filter(s => {
+      const lower = s.toLowerCase();
+      return (
+        lower.includes('line') ||
+        lower.includes('express') ||
+        lower.includes('dlr') ||
+        lower.includes('elizabeth') ||
+        lower.includes('overground') ||
+        lower.includes('national express') ||
+        lower.includes('buses route') ||
+        lower.includes('uber') ||
+        lower.includes('bus')
+      );
+    });
+  const route = segments.length > 0
+    ? segments.join(' → ')
+    : method.split('→')[0].trim().slice(0, 30);
+  return durationMins ? `${route} · ${durationMins} min` : route;
 }
 
 // ── Transit cost computation ──────────────────────────────────────────────────
@@ -312,8 +325,8 @@ function LeverTable({
               textTransform: 'uppercase' as const,
               padding: '8px 0 10px',
               borderBottom: '1px solid #bfc8c9',
-              // Transport col is left-aligned with left padding; all others right-aligned
-              textAlign: i === 2 ? 'left' : 'right',
+              // Transport col is left-aligned with left padding; all others center-aligned
+              textAlign: i === 2 ? 'left' : 'center',
               paddingLeft: i === 2 ? 8 : 0,
               verticalAlign: 'middle',
             }}>
@@ -459,20 +472,22 @@ function LeverRow({
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2526', lineHeight: 1.3 }}>
             {opt.airline_name}
           </div>
-          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.4 }}>
-            {opt.origin_iata} → {opt.destination_iata} · {fmt(opt.departure_time)}–{fmt(opt.arrival_time)}
+          <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.5 }}>
+            <span>{opt.origin_iata} → {opt.destination_iata}</span>
+            <br />
+            <span>{fmt(opt.departure_time)}–{fmt(opt.arrival_time)} · {opt.duration_minutes} min</span>
           </div>
         </td>
 
         {/* Col 3: Fare */}
-        <td style={{ ...tdBase, textAlign: 'right' }}>
+        <td style={{ ...tdBase, textAlign: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
             {gbp(opt.fare_gbp)}
           </div>
         </td>
 
         {/* Col 4: Bags + seats */}
-        <td style={{ ...tdBase, textAlign: 'right' }}>
+        <td style={{ ...tdBase, textAlign: 'center' }}>
           <div
             style={{ position: 'relative', display: 'inline-block' }}
             onMouseEnter={() => setTooltip(true)}
@@ -488,18 +503,18 @@ function LeverRow({
         <td style={{ ...tdBase, paddingLeft: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
           <div style={{ fontSize: 10, color: '#3f484a', lineHeight: 1.3 }}>
-            {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method)}
+            {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method, opt.transit_duration_mins)}
           </div>
         </td>
 
         {/* Col 6: Destination transfer */}
-        <td style={{ ...tdBase, textAlign: 'right' }}>
+        <td style={{ ...tdBase, textAlign: 'center' }}>
           {opt.destination_transfer_gbp > 0 ? (
             <>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>
                 {gbp(opt.destination_transfer_gbp)}
               </div>
-              <div style={{ fontSize: 10, color: '#3f484a', lineHeight: 1.3 }}>{destCityIata} airport</div>
+              <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>transfer</div>
             </>
           ) : (
             <span style={{ fontSize: 12, color: '#6f797a' }}>—</span>
@@ -509,7 +524,7 @@ function LeverRow({
         {/* Col 7: Total */}
         <td style={{
           ...tdBase,
-          textAlign: 'right',
+          textAlign: 'center',
           fontSize: 15,
           fontWeight: 700,
           color: isCheapestRow ? '#004349' : '#191c1d',
