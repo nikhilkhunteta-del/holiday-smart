@@ -6,9 +6,11 @@ export interface AIRecommendationOutput {
   recommendation_prose: string;
   lever_insights: Array<{
     lever: string;
+    headline?: string;
     insight: string;
     verified_field: string;
     verified_value: string | number | boolean;
+    saving_gbp?: number;
   }>;
   caveats: string[];
   confidence: 'high' | 'medium' | 'low';

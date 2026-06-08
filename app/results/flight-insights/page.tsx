@@ -4,8 +4,8 @@ import { ComplianceCalculator } from '@/components/flight-insights/compliance-ca
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { LegOptions } from '@/components/flight-insights/leg-options';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
-import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
-import { AIRecommendation } from '@/components/flight-insights/ai-recommendation';
+import { getAIRecommendation, type AIRecommendationOutput } from '@/lib/flights/getAIRecommendation';
+import { AINarrative } from '@/components/flight-insights/ai-narrative';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +129,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     ? await assembleCombinationsOnly(smartRaw, postcodeDistrict, adults, children, infants, transitPreference)
     : null;
 
-  const aiRecommendationPromise = assembled
+  const aiPromise: Promise<AIRecommendationOutput | null> = smartRaw && assembled
     ? getAIRecommendation(assembled.combinations, assembled.baseline, {
         schoolName,
         borough,
@@ -252,7 +252,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           baselineIsRecommended={assembled?.baselineIsRecommended}
           baselineAsItinerary={assembled?.baselineAsItinerary}
         />
-        <AIRecommendation promise={aiRecommendationPromise} />
+        <AINarrative promise={aiPromise} />
         {assembled && (
           <ComplianceCalculator
             combinations={assembled.combinations}
