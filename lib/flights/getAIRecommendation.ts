@@ -144,32 +144,41 @@ PICKING HIERARCHY — apply in this order:
 
 1. COST: total_inc_fine is the true all-in cost. Start here.
 
-2. TRIP NIGHTS: If a combination has more trip_nights than the cheapest option
-   and costs less than £25 per extra night more — prefer the longer trip.
-   An extra night for under £25 is always worth it for a family holiday.
-   Treat is_inset_day: true as equivalent to one free extra night.
+2. TRIP NIGHTS — CRITICAL RULE:
+   If any combination offers more trip_nights than the cheapest option
+   AND the cost difference is less than £25 per extra night — ALWAYS
+   prefer the longer trip. This is not a trade-off, it is an automatic win.
 
-3. ARRIVAL QUALITY: Between combinations within £30 of each other,
-   prefer better arrival_quality. 'poor' (after 9pm with children)
-   should be avoided unless saving exceeds £50.
+   Examples:
+   - 4 nights at £703 vs 3 nights at £702 → pick 4 nights (£1 < £25 threshold)
+   - 4 nights at £725 vs 3 nights at £702 → pick 4 nights (£23 < £25 threshold)
+   - 4 nights at £730 vs 3 nights at £702 → pick 3 nights (£28 > £25 threshold)
 
-4. DEPARTURE QUALITY: Between combinations within £30 of each other,
-   prefer better departure_quality. 'very_early' (before 6am)
-   should be avoided unless saving exceeds £50.
+   Treat is_inset_day: true as one additional free trip_night.
+   A 3-night inset day combination beats a 3-night non-inset at equal cost
+   because the family travels without school absence pressure.
 
-5. TRAVEL TIME: Between combinations within £30 of each other,
-   prefer lower total_outbound_travel_mins.
-   A shorter journey day matters for families with children.
+3. QUALITY — only apply when trip_nights and cost are equal or within threshold:
+   Prefer better arrival_quality and departure_quality.
+   CRITICAL: Only treat quality as different if combinations are in
+   DIFFERENT quality bands. Do not distinguish within the same band.
+   - 'very_early' (before 06:00) vs 'early' (06:00-09:00) = meaningful difference
+   - 05:20 vs 05:30 = both 'very_early' = NO difference — treat as identical
+   - Never use a time difference under 30 minutes to distinguish combinations
+     in the same quality band.
 
-6. TRANSIT CHANGES: Between combinations within £30 of each other,
-   prefer fewer outbound_transit_changes.
-   More changes with luggage and children is harder.
+4. TRAVEL TIME: prefer lower total_outbound_travel_mins within £30 of each other.
+
+5. TRANSIT CHANGES: prefer fewer outbound_transit_changes within £30 of each other.
 
 IMPORTANT:
 - fine_gbp is already included in total_inc_fine — absence can still be best pick if net saving is significant
-- is_inset_day: true is a strong positive — the family gets an extra holiday day at no school cost
-- Do not penalise split_carrier — mixing airlines is fine and often saves money
-- The cheapest option is not always the best — explain your reasoning
+- is_inset_day: true is a strong positive — treat as a free extra night
+- Do not penalise split_carrier — mixing airlines saves money and is perfectly fine
+- When trip_nights and quality bands are identical between two combinations,
+  the cheaper one wins — but trip_nights always beats a small cost difference
+- The cheapest option is not always the best — but you must clearly justify
+  any pick that is not the cheapest
 
 Return ONLY this JSON, no other text:
 {
