@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useFlightInsights } from './flight-insights-context';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -611,6 +612,9 @@ export function LegOptions({
   selectedDate,
   smartDate,
 }: LegOptionsProps) {
+  const { aiResult }  = useFlightInsights();
+  const aiRecommended = aiResult?.recommendedCombination ?? null;
+
   // Default open — the data is the product
   const [open, setOpen] = useState(true);
 
@@ -643,7 +647,23 @@ export function LegOptions({
     return direction === 'outbound' ? o.destination_iata : o.origin_iata;
   }
 
-  const recOption = processedOptions.find(o => isRecommended(o, recommendedOption)) ?? null;
+  // Use AI pick if available, fall back to prop
+  const recOption = (() => {
+    if (aiRecommended) {
+      // Match on carrier + airport for this direction
+      const aiMatch = processedOptions.find(o =>
+        direction === 'outbound'
+          ? o.airline_iata === aiRecommended.outbound_carrier &&
+            o.origin_iata  === aiRecommended.origin_iata &&
+            o.destination_iata === aiRecommended.out_dest_iata
+          : o.airline_iata === aiRecommended.return_carrier &&
+            o.origin_iata  === aiRecommended.out_dest_iata &&
+            o.destination_iata === aiRecommended.ret_dest_iata,
+      );
+      if (aiMatch) return aiMatch;
+    }
+    return processedOptions.find(o => isRecommended(o, recommendedOption)) ?? null;
+  })();
 
   const londonGroups = buildLeverGroups(processedOptions, getLondonIata, recOption);
   const destGroups   = buildLeverGroups(processedOptions, getDestIata,   recOption);

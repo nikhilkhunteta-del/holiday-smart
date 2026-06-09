@@ -182,12 +182,14 @@ FINAL CHECK before confirming your pick:
 2. Does your pick have outbound_departure_quality 'poor' (after 17:00)? If yes, is the cost saving vs the next 'ideal' or 'good' departure worth arriving at night?
 3. Does your pick have return_departure_quality 'very_early' (before 09:00)? If yes, is the cost saving vs the next 'early' or 'good' return worth losing the last day entirely?
 4. Is there a combination within £30 where the family gets meaningfully more usable holiday time?
+5. If your pick costs more than the cheapest combination, state the exact cost difference in picking_reasoning. Example: "costs £33 more than the cheapest option (index 6 at £702.40)."
 
 IMPORTANT:
 - fine_gbp is already included in total_inc_fine
 - Do not penalise split_carrier — mixing airlines is fine and often saves money
 - Never celebrate an inset day departure that arrives after 18:00 as giving an "extra day" — it does not
 - The cheapest option is not always the best — but always justify any pick that costs more
+- When comparing trip_nights between two combinations, always state the DIFFERENCE not the absolute value. Example: "index 1 has 1 more night than index 6" not "index 1 has 4 trip nights". The difference is what matters for the parent.
 
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
@@ -389,6 +391,7 @@ One punchy sentence. Must include the recommended cost (£${recommended.total_in
 ${benchmarkSaving != null && benchmarkSaving > 0
   ? `Include the saving vs typical Saturday booking: "£${benchmarkSaving} less than a typical Saturday booking from ${recommended.origin_iata}."`
   : 'Do not mention a saving vs typical booking — data not available.'}
+Always say "from Heathrow" in the benchmark comparison — never name any other airport. The benchmark is always the LHR Saturday booking regardless of which airport the recommended combination uses.
 Example: "We found Barcelona for £703 — £144 less than a typical Saturday booking from Heathrow."
 
 SUBHEADLINE:
@@ -400,6 +403,7 @@ RECOMMENDATION PROSE:
 2-3 sentences directly to the parent explaining the overall pick.
 - Reference actual times, costs, dates from the recommended combination
 - If not cheapest, explain what extra value it provides
+- If the recommended combination is NOT the cheapest option on these dates, the prose MUST acknowledge this explicitly in the first or second sentence: "This costs £[X] more than the cheapest option on these dates — [reason why it's worth it]." Do not bury this. The parent will notice and trust you more for being upfront.
 - Mention arrival quality honestly — if arriving after 18:00, do not call it an "extra day"
 - Mention the inset day benefit if is_inset_day: true AND arrival_quality is 'excellent' or 'good'
 - Warm, direct, specific — knowledgeable friend voice
@@ -427,16 +431,22 @@ If ≤ £20: DO NOT surface.
 SAME-DATE LEVERS:
 
 3. DEPARTURE AIRPORT
-Condition: >1 entry in dep_airport_summary AND cost difference > £20.
-If recommended IS cheapest: "we chose cheapest airport" framing.
-If not: "switching to [cheaper] saves £X" framing.
+Condition: dep_airport_summary has >1 entry AND the most expensive entry costs >£20 more than the cheapest.
+ONLY surface if the recommended combination is NOT already at the cheapest airport.
+If recommended.origin_iata === dep_airport_summary[0].origin_iata (cheapest): DO NOT surface this lever.
+If recommended is NOT cheapest: "Switching from [recommended_airport] to [cheaper_airport] saves £[diff] on these dates — [transit_route] gets you there in [mins] mins."
 
 4. OUTBOUND ARRIVAL AIRPORT
-Condition: >1 entry AND cost difference > £20.
+Condition: out_dest_summary has >1 entry AND cost difference > £20.
+ONLY surface if recommended.out_dest_iata is NOT already the cheapest.
+If recommended IS cheapest: DO NOT surface.
+If recommended is NOT cheapest: state the saving from switching.
 
 5. RETURN ARRIVAL AIRPORT
-Condition: >1 entry AND cost difference > £20.
-Compare only within ret_dest_summary — do not use total trip cost.
+Condition: ret_dest_summary has >1 entry AND cost difference > £20.
+ONLY surface if recommended.ret_dest_iata is NOT already the cheapest.
+If recommended IS cheapest: DO NOT surface.
+If recommended is NOT cheapest: state the saving from switching.
 
 6. SPLIT CARRIER
 Condition: splitCarrierSummary.saving_gbp > 20. ALWAYS positive framing.

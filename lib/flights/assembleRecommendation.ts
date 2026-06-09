@@ -420,30 +420,37 @@ export async function assembleCombinationsOnly(
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
   const shortlist = buildCandidateShortlist(assembled);
 
-  // Compute benchmark cost
-  const recommendation = assembled[0];
-  const primaryDestAirport = assembled
-    .filter(c => !c.split_carrier)
-    .reduce((acc, c) => {
-      const count = assembled.filter(x => x.out_dest_iata === c.out_dest_iata).length;
-      return count > (assembled.filter(x => x.out_dest_iata === acc).length) ? c.out_dest_iata : acc;
-    }, assembled[0]?.out_dest_iata ?? 'BCN');
+  // Primary destination airport = most frequent out_dest_iata in no-absence combinations
+  const noAbsenceCombinations = assembled.filter(c => !c.requires_absence);
+  const destFrequency = noAbsenceCombinations.reduce((acc, c) => {
+    acc[c.out_dest_iata] = (acc[c.out_dest_iata] ?? 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  const primaryDestAirport = Object.entries(destFrequency)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'BCN';
 
-  const benchmark = buildCandidateShortlist.length > 0
+  const recommendedTripNights = shortlist[0]
+    ? Math.round(
+        (new Date(shortlist[0].return_date + 'T00:00:00').getTime() -
+         new Date(shortlist[0].outbound_date + 'T00:00:00').getTime()) /
+        (1000 * 60 * 60 * 24),
+      )
+    : 4;
+
+  // computeBenchmark expects ScoredCombination[] but only uses fields present on
+  // AssembledCombination (total_inc_fine, outbound_date, return_date, origin_iata,
+  // out_dest_iata, ret_dest_iata, requires_absence, split_carrier, trip_nights).
+  const benchmark = assembled.length > 0
     ? computeBenchmark(
-        shortlist,
+        assembled as any,
         baseline.outbound_date ?? '',
         nearestAirport,
         primaryDestAirport,
-        shortlist[0]
-          ? Math.round(
-              (new Date(shortlist[0].return_date + 'T00:00:00').getTime() -
-               new Date(shortlist[0].outbound_date + 'T00:00:00').getTime()) /
-              (1000 * 60 * 60 * 24),
-            )
-          : 4,
+        recommendedTripNights,
       )
     : null;
+
+  const recommendation = assembled[0];
 
   const savingCategory = computeSavingCategory(
     assembledBaseline.total_cost_gbp,

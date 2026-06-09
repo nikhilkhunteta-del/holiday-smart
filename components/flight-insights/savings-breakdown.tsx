@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useFlightInsights } from './flight-insights-context';
 import type { AssembledCombination, AssembledBaseline, BaselineAsItinerary } from '@/lib/flights/assembleRecommendation';
 
 // ── Interfaces ─────────────────────────────────────────────────────────────────
@@ -142,8 +143,10 @@ export function SavingsBreakdown({
   baselineIsRecommended, baselineAsItinerary,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const { aiResult } = useFlightInsights();
+  const effectiveRecommendation = aiResult?.recommendedCombination ?? recommendation;
 
-  if (!recommendation || !baseline) return null;
+  if (!effectiveRecommendation || !baseline) return null;
 
   const destName        = DESTINATION_NAMES[destinationSlug] ?? destinationSlug;
   const borough         = boroughName ?? 'London';
@@ -157,23 +160,23 @@ export function SavingsBreakdown({
   const { line1, line2, amberNote } = (() => {
     if (savingCategory === 'significant') return {
       line1: `Most ${borough} families${schoolSuffix} flying ${destName} this half-term will pay around £${baselineRounded.toLocaleString('en-GB')}.`,
-      line2: `We found the same trip for ${fmt(recommendation.total_cost_gbp)}.`,
+      line2: `We found the same trip for ${fmt(effectiveRecommendation.total_cost_gbp)}.`,
       amberNote: null as string | null,
     };
     if (savingCategory === 'modest') return {
       line1: `Prices for ${destName} this half-term are fairly consistent across most families${schoolSuffix}.`,
-      line2: `The cheapest all-in option we found is ${fmt(recommendation.total_cost_gbp)}.`,
+      line2: `The cheapest all-in option we found is ${fmt(effectiveRecommendation.total_cost_gbp)}.`,
       amberNote: null as string | null,
     };
     if (savingCategory === 'baseline_cheapest') return {
       line1: `The cheapest all-in option we found for ${schoolName ?? borough} families this half-term.`,
-      line2: `${fmt(recommendation.total_cost_gbp)} — here's the full breakdown.`,
+      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} — here's the full breakdown.`,
       amberNote: `Note: with your current preferences, the standard Saturday ${AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport} booking is similar in cost. Try adjusting bags or transport above.` as string | null,
     };
     // minimal
     return {
       line1: `You've picked a good window. ${destName} this half-term is consistently priced for families${schoolAt}.`,
-      line2: `${fmt(recommendation.total_cost_gbp)} is about as good as it gets — here's the full breakdown.`,
+      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} is about as good as it gets — here's the full breakdown.`,
       amberNote: null as string | null,
     };
   })();
@@ -181,10 +184,10 @@ export function SavingsBreakdown({
   // ── Detail lines per row ──────────────────────────────────────────────────
 
   // Flights
-  const smartFlightTotal = recommendation.outbound_fare_gbp + recommendation.return_fare_gbp;
+  const smartFlightTotal = effectiveRecommendation.outbound_fare_gbp + effectiveRecommendation.return_fare_gbp;
 
   const detFlightsSmart = [
-    `${carrierName(recommendation.outbound_carrier)} ${fmt(recommendation.outbound_fare_gbp)} · ${carrierName(recommendation.return_carrier)} ${fmt(recommendation.return_fare_gbp)}`,
+    `${carrierName(effectiveRecommendation.outbound_carrier)} ${fmt(effectiveRecommendation.outbound_fare_gbp)} · ${carrierName(effectiveRecommendation.return_carrier)} ${fmt(effectiveRecommendation.return_fare_gbp)}`,
   ];
   const detFlightsBase = [
     `${carrierName(baseline.carrier)} · ${fmtShortDate(baseline.outbound_date)} · ${baseline.baseline_airport}`,
@@ -192,26 +195,26 @@ export function SavingsBreakdown({
 
   // Bundle detection (simplified)
   const bundleApplied = (
-    recommendation.cabin_bag_cost_gbp +
-    recommendation.checked_bag_cost_gbp +
-    recommendation.seat_cost_gbp
+    effectiveRecommendation.cabin_bag_cost_gbp +
+    effectiveRecommendation.checked_bag_cost_gbp +
+    effectiveRecommendation.seat_cost_gbp
   ) > (
-    recommendation.fare_plus_ancillary_gbp -
-    recommendation.outbound_fare_gbp -
-    recommendation.return_fare_gbp
+    effectiveRecommendation.fare_plus_ancillary_gbp -
+    effectiveRecommendation.outbound_fare_gbp -
+    effectiveRecommendation.return_fare_gbp
   );
 
-  const cabinIsEstimate = ['FR', 'W6'].includes(recommendation.outbound_carrier) ||
-                          ['FR', 'W6'].includes(recommendation.return_carrier);
-  const hasRyanair = recommendation.outbound_carrier === 'FR' || recommendation.return_carrier === 'FR';
+  const cabinIsEstimate = ['FR', 'W6'].includes(effectiveRecommendation.outbound_carrier) ||
+                          ['FR', 'W6'].includes(effectiveRecommendation.return_carrier);
+  const hasRyanair = effectiveRecommendation.outbound_carrier === 'FR' || effectiveRecommendation.return_carrier === 'FR';
 
-  const carriersStr = recommendation.outbound_carrier === recommendation.return_carrier
-    ? carrierName(recommendation.outbound_carrier)
-    : `${carrierName(recommendation.outbound_carrier)} + ${carrierName(recommendation.return_carrier)}`;
+  const carriersStr = effectiveRecommendation.outbound_carrier === effectiveRecommendation.return_carrier
+    ? carrierName(effectiveRecommendation.outbound_carrier)
+    : `${carrierName(effectiveRecommendation.outbound_carrier)} + ${carrierName(effectiveRecommendation.return_carrier)}`;
 
   // Cabin bags
   const detCabinSmart = [
-    recommendation.cabin_bag_cost_gbp === 0
+    effectiveRecommendation.cabin_bag_cost_gbp === 0
       ? 'Included in fare'
       : `${cabinBags} bag${cabinBags !== 1 ? 's' : ''} per leg${cabinIsEstimate ? ' · estimated' : ''}`,
   ];
@@ -223,7 +226,7 @@ export function SavingsBreakdown({
 
   // Checked bags
   const detCheckedSmart = [
-    recommendation.checked_bag_cost_gbp === 0
+    effectiveRecommendation.checked_bag_cost_gbp === 0
       ? 'None'
       : `${checkedBags} bag${checkedBags !== 1 ? 's' : ''} per leg`,
   ];
@@ -245,8 +248,8 @@ export function SavingsBreakdown({
 
   // London transport
   const detTransitSmart = [
-    `↑ ${transitLabel(outbound_transit, recommendation.origin_iata, 'to')} · ${fmt(recommendation.outbound_transit_cost_gbp)}`,
-    `↓ ${transitLabel(return_transit, recommendation.ret_dest_iata, 'from')} · ${fmt(recommendation.return_transit_cost_gbp)}`,
+    `↑ ${transitLabel(outbound_transit, effectiveRecommendation.origin_iata, 'to')} · ${fmt(effectiveRecommendation.outbound_transit_cost_gbp)}`,
+    `↓ ${transitLabel(return_transit, effectiveRecommendation.ret_dest_iata, 'from')} · ${fmt(effectiveRecommendation.return_transit_cost_gbp)}`,
   ];
   const detTransitBase = [
     `↑ ${transitLabel(baseline.outbound_transit, baseline.baseline_airport, 'to')} · ${fmt(baseline.outbound_transit_cost_gbp)}`,
@@ -255,9 +258,9 @@ export function SavingsBreakdown({
 
   // Destination transfers
   const detDestSmart = [
-    recommendation.destination_transfer_cost_gbp === 0
+    effectiveRecommendation.destination_transfer_cost_gbp === 0
       ? 'Not included'
-      : `${recommendation.out_dest_iata} airport · both ways`,
+      : `${effectiveRecommendation.out_dest_iata} airport · both ways`,
   ];
   const detDestBase = [
     baseline.destination_transfer_cost_gbp === 0
@@ -269,11 +272,11 @@ export function SavingsBreakdown({
 
   const tableRows = [
     { label: 'Flights',               smart: smartFlightTotal,                             base: baseline.baseline_fare_gbp,                   smartDetail: detFlightsSmart,  baseDetail: detFlightsBase  },
-    { label: 'Cabin bags',            smart: recommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,                  smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
-    { label: 'Checked bags',          smart: recommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,                smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
-    { label: 'Seats',                 smart: recommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                       smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
-    { label: 'London transport',      smart: recommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                    smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
-    { label: 'Destination transfers', smart: recommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,       smartDetail: detDestSmart,     baseDetail: detDestBase     },
+    { label: 'Cabin bags',            smart: effectiveRecommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,                  smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
+    { label: 'Checked bags',          smart: effectiveRecommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,                smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
+    { label: 'Seats',                 smart: effectiveRecommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                       smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
+    { label: 'London transport',      smart: effectiveRecommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                    smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
+    { label: 'Destination transfers', smart: effectiveRecommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,       smartDetail: detDestSmart,     baseDetail: detDestBase     },
   ];
 
   return (
@@ -371,14 +374,14 @@ export function SavingsBreakdown({
             {/* Itinerary insight line */}
             {(() => {
               let insight = '';
-              if (recommendation.is_inset_day) {
+              if (effectiveRecommendation.is_inset_day) {
                 insight = "Flying on your school's inset day — one day earlier than most families, at no extra cost.";
-              } else if (!recommendation.requires_absence) {
+              } else if (!effectiveRecommendation.requires_absence) {
                 const cheapestInset = (combinations ?? [])
                   .filter(c => c.is_inset_day && !c.requires_absence)
                   .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
                 if (cheapestInset) {
-                  const diff = Math.round(cheapestInset.total_inc_fine - recommendation.total_inc_fine);
+                  const diff = Math.round(cheapestInset.total_inc_fine - effectiveRecommendation.total_inc_fine);
                   if (diff > 0 && diff <= 20) {
                     insight = `Alternatively, fly the inset day (${fmtShortDate(cheapestInset.outbound_date)}) for just ${fmt(diff)} more and gain an extra day.`;
                   }
@@ -399,21 +402,21 @@ export function SavingsBreakdown({
                   Outbound
                 </span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  {fmtShortDate(recommendation.outbound_date)}
+                  {fmtShortDate(effectiveRecommendation.outbound_date)}
                 </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  {carrierName(recommendation.outbound_carrier)}
+                  {carrierName(effectiveRecommendation.outbound_carrier)}
                 </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  from {recommendation.origin_iata}
+                  from {effectiveRecommendation.origin_iata}
                 </span>
-                {recommendation.outbound_departure_time && (
+                {effectiveRecommendation.outbound_departure_time && (
                   <>
                     <span style={{ color: '#bfc8c9' }}>·</span>
                     <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                      departs {recommendation.outbound_departure_time}
+                      departs {effectiveRecommendation.outbound_departure_time}
                     </span>
                   </>
                 )}
@@ -425,21 +428,21 @@ export function SavingsBreakdown({
                   Return
                 </span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  {fmtShortDate(recommendation.return_date)}
+                  {fmtShortDate(effectiveRecommendation.return_date)}
                 </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  {carrierName(recommendation.return_carrier)}
+                  {carrierName(effectiveRecommendation.return_carrier)}
                 </span>
                 <span style={{ color: '#bfc8c9' }}>·</span>
                 <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                  to {recommendation.ret_dest_iata}
+                  to {effectiveRecommendation.ret_dest_iata}
                 </span>
-                {recommendation.return_arrival_time && (
+                {effectiveRecommendation.return_arrival_time && (
                   <>
                     <span style={{ color: '#bfc8c9' }}>·</span>
                     <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
-                      arrives {recommendation.return_arrival_time}
+                      arrives {effectiveRecommendation.return_arrival_time}
                     </span>
                   </>
                 )}
@@ -447,9 +450,9 @@ export function SavingsBreakdown({
             </div>
 
             {/* Warning badges */}
-            {(recommendation.family_split_risk || recommendation.requires_absence) && (
+            {(effectiveRecommendation.family_split_risk || effectiveRecommendation.requires_absence) && (
               <div className="flex flex-wrap" style={{ gap: 8, marginTop: 16 }}>
-                {recommendation.family_split_risk && (
+                {effectiveRecommendation.family_split_risk && (
                   <span
                     className="font-inter"
                     style={{
@@ -464,7 +467,7 @@ export function SavingsBreakdown({
                     Family split risk
                   </span>
                 )}
-                {recommendation.requires_absence && (
+                {effectiveRecommendation.requires_absence && (
                   <span
                     className="font-inter"
                     style={{
@@ -477,8 +480,8 @@ export function SavingsBreakdown({
                     }}
                   >
                     Requires school absence
-                    {recommendation.fine_gbp != null
-                      ? ` · fine est. ${fmt(recommendation.fine_gbp)}`
+                    {effectiveRecommendation.fine_gbp != null
+                      ? ` · fine est. ${fmt(effectiveRecommendation.fine_gbp)}`
                       : ''}
                   </span>
                 )}
@@ -534,7 +537,7 @@ export function SavingsBreakdown({
                     className="text-right"
                     style={{ paddingBottom: 10, paddingLeft: 16, color: '#9ba8a9', fontWeight: 500 }}
                   >
-                    Baseline
+                    Saturday booking
                   </th>
                 </tr>
               </thead>
@@ -570,7 +573,7 @@ export function SavingsBreakdown({
                     className="text-right"
                     style={{ padding: '12px 16px 4px', color: '#004349', fontWeight: 700 }}
                   >
-                    {fmt(recommendation.total_cost_gbp)}
+                    {fmt(effectiveRecommendation.total_cost_gbp)}
                   </td>
                   <td
                     className="text-right"
@@ -585,7 +588,7 @@ export function SavingsBreakdown({
             {/* Disclaimer */}
             <div style={{ marginTop: 16 }}>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', marginBottom: 6 }}>
-                Baseline: Saturday departure from {AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport}, {carrierName(baseline.carrier)}, no route optimisation.
+                Typical Saturday booking: {carrierName(baseline.carrier)} · {baseline.baseline_airport} · {fmtShortDate(baseline.outbound_date)} → {fmtShortDate(baseline.return_date)} · {fmt(baseline.total_cost_gbp)}
               </p>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', lineHeight: 1.6, margin: 0 }}>
                 Flight prices observed recently.<br />
