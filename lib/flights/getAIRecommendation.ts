@@ -427,16 +427,22 @@ If ≤ £20: DO NOT surface.
 SAME-DATE LEVERS:
 
 3. DEPARTURE AIRPORT
-Condition: >1 entry in dep_airport_summary AND cost difference > £20.
-If recommended IS cheapest: "we chose cheapest airport" framing.
-If not: "switching to [cheaper] saves £X" framing.
+Condition: dep_airport_summary has >1 entry AND the most expensive entry costs >£20 more than the cheapest.
+ONLY surface if the recommended combination is NOT already at the cheapest airport.
+If recommended.origin_iata === dep_airport_summary[0].origin_iata (cheapest): DO NOT surface this lever.
+If recommended is NOT cheapest: "Switching from [recommended_airport] to [cheaper_airport] saves £[diff] on these dates — [transit_route] gets you there in [mins] mins."
 
 4. OUTBOUND ARRIVAL AIRPORT
-Condition: >1 entry AND cost difference > £20.
+Condition: out_dest_summary has >1 entry AND cost difference > £20.
+ONLY surface if recommended.out_dest_iata is NOT already the cheapest.
+If recommended IS cheapest: DO NOT surface.
+If recommended is NOT cheapest: state the saving from switching.
 
 5. RETURN ARRIVAL AIRPORT
-Condition: >1 entry AND cost difference > £20.
-Compare only within ret_dest_summary — do not use total trip cost.
+Condition: ret_dest_summary has >1 entry AND cost difference > £20.
+ONLY surface if recommended.ret_dest_iata is NOT already the cheapest.
+If recommended IS cheapest: DO NOT surface.
+If recommended is NOT cheapest: state the saving from switching.
 
 6. SPLIT CARRIER
 Condition: splitCarrierSummary.saving_gbp > 20. ALWAYS positive framing.
