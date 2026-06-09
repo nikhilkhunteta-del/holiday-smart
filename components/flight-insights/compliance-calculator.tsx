@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useFlightInsights, isAIPick } from './flight-insights-context';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 
@@ -263,6 +264,8 @@ export function ComplianceCalculator({
 }: ComplianceCalculatorProps) {
   const router        = useRouter();
   const currentParams = useSearchParams();
+  const { aiResult }  = useFlightInsights();
+  const aiRecommended = aiResult?.recommendedCombination ?? null;
 
   const baselineTotal = baseline.total_cost_gbp;
 
@@ -402,9 +405,12 @@ export function ComplianceCalculator({
                           // When baseline is recommended: baseline pos = OUR PICK, no other cell gets star
                           const isRec = baselineIsRecommended
                             ? false
-                            : (recommendation
-                                ? dep === recommendation.outbound_date && ret === recommendation.return_date
-                                : false);
+                            : !!(isAIPick(
+                                { outbound_date: dep, return_date: ret },
+                                aiRecommended,
+                              ) || (!aiRecommended && recommendation &&
+                                dep === recommendation.outbound_date &&
+                                ret === recommendation.return_date));
 
                           const isSelected = dep === selectedOutbound && ret === selectedReturn;
 
