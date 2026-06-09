@@ -534,7 +534,7 @@ export function SavingsBreakdown({
                     className="text-right"
                     style={{ paddingBottom: 10, paddingLeft: 16, color: '#9ba8a9', fontWeight: 500 }}
                   >
-                    Baseline
+                    Saturday booking
                   </th>
                 </tr>
               </thead>
@@ -585,7 +585,7 @@ export function SavingsBreakdown({
             {/* Disclaimer */}
             <div style={{ marginTop: 16 }}>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', marginBottom: 6 }}>
-                Baseline: Saturday departure from {AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport}, {carrierName(baseline.carrier)}, no route optimisation.
+                Typical Saturday booking: {carrierName(baseline.carrier)} · {baseline.baseline_airport} · {fmtShortDate(baseline.outbound_date)} → {fmtShortDate(baseline.return_date)} · {fmt(baseline.total_cost_gbp)}
               </p>
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', lineHeight: 1.6, margin: 0 }}>
                 Flight prices observed recently.<br />
