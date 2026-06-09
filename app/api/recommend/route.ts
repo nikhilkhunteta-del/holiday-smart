@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       ...aiResult,
       // Include the full recommended combination so client can
       // identify OUR PICK in matrix and leg tables
-      recommendedCombination: assembled.combinations[aiResult.recommended_index] ?? null,
+      recommendedCombination: assembled.shortlist[aiResult.recommended_index] ?? null,
     });
 
   } catch (err) {
