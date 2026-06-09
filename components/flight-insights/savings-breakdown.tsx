@@ -450,41 +450,24 @@ export function SavingsBreakdown({
             </div>
 
             {/* Warning badges */}
-            {(effectiveRecommendation.family_split_risk || effectiveRecommendation.requires_absence) && (
+            {effectiveRecommendation.requires_absence && (
               <div className="flex flex-wrap" style={{ gap: 8, marginTop: 16 }}>
-                {effectiveRecommendation.family_split_risk && (
-                  <span
-                    className="font-inter"
-                    style={{
-                      fontSize: 12,
-                      background: '#fffbf0',
-                      color: '#704b00',
-                      border: '1px solid #fdba49',
-                      borderRadius: 6,
-                      padding: '3px 10px',
-                    }}
-                  >
-                    Family split risk
-                  </span>
-                )}
-                {effectiveRecommendation.requires_absence && (
-                  <span
-                    className="font-inter"
-                    style={{
-                      fontSize: 12,
-                      background: '#fffbf0',
-                      color: '#704b00',
-                      border: '1px solid #fdba49',
-                      borderRadius: 6,
-                      padding: '3px 10px',
-                    }}
-                  >
-                    Requires school absence
-                    {effectiveRecommendation.fine_gbp != null
-                      ? ` · fine est. ${fmt(effectiveRecommendation.fine_gbp)}`
-                      : ''}
-                  </span>
-                )}
+                <span
+                  className="font-inter"
+                  style={{
+                    fontSize: 12,
+                    background: '#fffbf0',
+                    color: '#704b00',
+                    border: '1px solid #fdba49',
+                    borderRadius: 6,
+                    padding: '3px 10px',
+                  }}
+                >
+                  Requires school absence
+                  {effectiveRecommendation.fine_gbp != null
+                    ? ` · fine est. ${fmt(effectiveRecommendation.fine_gbp)}`
+                    : ''}
+                </span>
               </div>
             )}
           </>
