@@ -1,8 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AssembledCombination } from './assembleRecommendation';
+import type { ScoredCombination } from './buildCandidates';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
+  headline: string;
+  subheadline: string;
   recommendation_prose: string;
   lever_insights: Array<{
     lever: string;
@@ -10,7 +12,7 @@ export interface AIRecommendationOutput {
     insight: string;
     verified_field: string;
     verified_value: string | number | boolean;
-    saving_gbp?: number;
+    saving_gbp?: number | null;
   }>;
   caveats: string[];
   confidence: 'high' | 'medium' | 'low';
@@ -29,15 +31,18 @@ export interface FamilyContext {
   cabinBags: number;
   checkedBags: number;
   seatsTogether: boolean;
+  benchmarkCost: number | null; // pre-computed typical Saturday booking cost
 }
 
 export async function getAIRecommendation(
-  combinations: AssembledCombination[],
+  combinations: ScoredCombination[],
   context: FamilyContext,
 ): Promise<AIRecommendationOutput> {
 
   const FALLBACK: AIRecommendationOutput = {
     recommended_index: 0,
+    headline: 'We found the best value option for your dates.',
+    subheadline: '',
     recommendation_prose: 'We found the best value option for your dates.',
     lever_insights: [],
     caveats: [],
@@ -56,7 +61,13 @@ export async function getAIRecommendation(
   );
   if (!apiKey || apiKey === 'your_api_key_here') return FALLBACK;
 
+  console.log('[getAIRecommendation] combinations count:', combinations.length);
+
+  const client = new Anthropic({ apiKey });
+
   // ── Build compact combinations for prompt ─────────────────────────────────
+  // ScoredCombination already has quality fields from buildCandidates.ts —
+  // no need to recompute them here.
   const combinationsForPrompt = combinations.map((c, i) => ({
     index: i,
     outbound_date: c.outbound_date,
@@ -77,6 +88,9 @@ export async function getAIRecommendation(
     absence_days: c.absence_days,
     fine_gbp: c.fine_gbp,
     cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
+    // Per-leg bag costs (new — helps AI reason about carrier-specific bag charges)
+    outbound_cabin_bag_cost_gbp: c.outbound_cabin_bag_cost_gbp,
+    return_cabin_bag_cost_gbp: c.return_cabin_bag_cost_gbp,
     checked_bag_cost_gbp: c.checked_bag_cost_gbp,
     seat_cost_gbp: c.seat_cost_gbp,
     outbound_transit_cost_gbp: c.outbound_transit_cost_gbp,
@@ -96,39 +110,17 @@ export async function getAIRecommendation(
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
-    trip_nights: Math.round(
-      (new Date(c.return_date).getTime() - new Date(c.outbound_date).getTime())
-      / (1000 * 60 * 60 * 24)
-    ),
-    arrival_quality: (() => {
-      if (!c.outbound_arrival_time) return null;
-      const hour = parseInt(c.outbound_arrival_time.split(':')[0]);
-      if (hour < 14) return 'excellent';
-      if (hour < 18) return 'good';
-      if (hour < 21) return 'acceptable';
-      return 'poor';
-    })(),
-    departure_quality: (() => {
-      if (!c.return_departure_time) return null;
-      const hour = parseInt(c.return_departure_time.split(':')[0]);
-      if (hour < 6)  return 'very_early';
-      if (hour < 9)  return 'early';
-      if (hour < 14) return 'good';
-      return 'excellent';
-    })(),
-    total_outbound_travel_mins: (
-      (c.outbound_transit?.transit?.duration_mins ??
-       c.outbound_transit?.uber?.duration_mins ?? 0) +
-      (c.outbound_duration_mins ?? 0)
-    ),
+    // Pre-computed quality fields from buildCandidates.ts — use directly
+    trip_nights: c.trip_nights,
+    arrival_quality: c.arrival_quality,
+    outbound_departure_quality: c.outbound_departure_quality,
+    return_departure_quality: c.return_departure_quality,
+    total_outbound_travel_mins: c.total_outbound_travel_mins,
+    pre_score: c.pre_score,
   }));
 
-  console.log('[getAIRecommendation] combinations count:', combinationsForPrompt.length);
-
-  const client = new Anthropic({ apiKey });
-
   // ── Call 1 — Pick the best combination ───────────────────────────────────
-  const pickPrompt = `You are advising a London family booking a school holiday flight. Pick the single best combination from the list below.
+  const pickPrompt = `You are advising a London family booking a school holiday flight. Pick the single best combination from the shortlist below.
 
 FAMILY:
 - School: ${context.schoolName ?? 'unknown'}, ${context.borough ?? 'London'} (${context.postcodeDistrict})
@@ -137,56 +129,72 @@ FAMILY:
 - Bags: ${context.cabinBags} cabin bags, ${context.checkedBags} checked bags
 - Seats together: yes (already included in seat_cost_gbp)
 
-ALL COMBINATIONS (${combinations.length} options):
+SHORTLIST (${combinations.length} curated candidates — each represents the best of its type):
 ${JSON.stringify(combinationsForPrompt, null, 2)}
 
-PICKING HIERARCHY — apply in this order:
+SCORING FRAMEWORK:
+Score each combination out of 100. Show your working for the top 5 before giving your answer.
 
-1. COST: total_inc_fine is the true all-in cost. Start here.
+COST SCORE (35 points):
+- Cheapest combination = 35 points
+- Each £25 more expensive = -1 point
+- Floor: 15 points
 
-2. TRIP NIGHTS — CRITICAL RULE:
-   If any combination offers more trip_nights than the cheapest option
-   AND the cost difference is less than £25 per extra night — ALWAYS
-   prefer the longer trip. This is not a trade-off, it is an automatic win.
+INSET DAY BONUS (10 points):
+- is_inset_day: true AND arrival_quality 'excellent' or 'good': 10 points
+  (genuine extra day — family arrives in time to use it)
+- is_inset_day: true AND arrival_quality 'acceptable': 3 points
+  (no absence benefit only — not a usable extra day)
+- is_inset_day: true AND arrival_quality 'poor': 0 points
+  (flying a day early but arriving at night — no benefit)
+- is_inset_day: false: 0 points
 
-   Examples:
-   - 4 nights at £703 vs 3 nights at £702 → pick 4 nights (£1 < £25 threshold)
-   - 4 nights at £725 vs 3 nights at £702 → pick 4 nights (£23 < £25 threshold)
-   - 4 nights at £730 vs 3 nights at £702 → pick 3 nights (£28 > £25 threshold)
+ARRIVAL QUALITY SCORE (20 points):
+- 'excellent' (before 14:00): 20 points
+- 'good' (14:00–18:00): 15 points
+- 'acceptable' (18:00–21:00): 6 points
+- 'poor' (after 21:00): 0 points
 
-   Treat is_inset_day: true as one additional free trip_night.
-   A 3-night inset day combination beats a 3-night non-inset at equal cost
-   because the family travels without school absence pressure.
+OUTBOUND DEPARTURE QUALITY SCORE (15 points):
+- 'ideal' (09:00–13:00): 15 points — comfortable morning, arrives with time to enjoy destination
+- 'good' (13:00–17:00): 10 points — relaxed but arrives late afternoon
+- 'very_early' (before 09:00): 6 points — stressful but compensated by early arrival
+- 'poor' (after 17:00): 2 points — arrives at night, first day wasted
 
-3. QUALITY — only apply when trip_nights and cost are equal or within threshold:
-   Prefer better arrival_quality and departure_quality.
-   CRITICAL: Only treat quality as different if combinations are in
-   DIFFERENT quality bands. Do not distinguish within the same band.
-   - 'very_early' (before 06:00) vs 'early' (06:00-09:00) = meaningful difference
-   - 05:20 vs 05:30 = both 'very_early' = NO difference — treat as identical
-   - Never use a time difference under 30 minutes to distinguish combinations
-     in the same quality band.
+RETURN DEPARTURE QUALITY SCORE (15 points):
+- 'excellent' (after 17:00): 15 points — full last day at destination
+- 'good' (13:00–17:00): 12 points — most of last day usable
+- 'early' (09:00–13:00): 5 points — morning checkout only, last day mostly lost
+- 'very_early' (before 09:00): 2 points — last day completely lost
 
-4. TRAVEL TIME: prefer lower total_outbound_travel_mins within £30 of each other.
+JOURNEY EASE SCORE (5 points):
+- 0 transit changes AND total_outbound_travel_mins < 90: 5 points
+- 0 transit changes AND total_outbound_travel_mins 90–120: 4 points
+- 1 transit change: 3 points
+- 2+ transit changes: 1 point
+- null: 3 points
 
-5. TRANSIT CHANGES: prefer fewer outbound_transit_changes within £30 of each other.
+PICK: highest total score wins.
+If two combinations score within 2 points of each other, pick the cheaper one.
+
+FINAL CHECK before confirming your pick:
+1. Is there any combination with is_inset_day: true AND arrival_quality 'excellent' or 'good'? If yes and you have not picked it, explain why not.
+2. Does your pick have outbound_departure_quality 'poor' (after 17:00)? If yes, is the cost saving vs the next 'ideal' or 'good' departure worth arriving at night?
+3. Does your pick have return_departure_quality 'very_early' (before 09:00)? If yes, is the cost saving vs the next 'early' or 'good' return worth losing the last day entirely?
+4. Is there a combination within £30 where the family gets meaningfully more usable holiday time?
 
 IMPORTANT:
-- fine_gbp is already included in total_inc_fine — absence can still be best pick if net saving is significant
-- is_inset_day: true is a strong positive — treat as a free extra night
-- Do not penalise split_carrier — mixing airlines saves money and is perfectly fine
-- When trip_nights and quality bands are identical between two combinations,
-  the cheaper one wins — but trip_nights always beats a small cost difference
-- The cheapest option is not always the best — but you must clearly justify
-  any pick that is not the cheapest
+- fine_gbp is already included in total_inc_fine
+- Do not penalise split_carrier — mixing airlines is fine and often saves money
+- Never celebrate an inset day departure that arrives after 18:00 as giving an "extra day" — it does not
+- The cheapest option is not always the best — but always justify any pick that costs more
 
-CRITICAL: Return ONLY the JSON object. Do not write any text before or after it.
-Do not explain your reasoning outside the JSON. Start your response with { and end with }.
+CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
 {
   "recommended_index": <number>,
   "confidence": "<high|medium|low>",
-  "picking_reasoning": "<2-3 sentences explaining why this combination wins — what trade-offs did you consider? This is used internally, not shown to the parent.>"
+  "picking_reasoning": "<2-3 sentences explaining why this combination wins — what trade-offs did you consider? Internal use only, not shown to parent.>"
 }`;
 
   let recommendedIndex = 0;
@@ -197,7 +205,7 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     const pickStart = Date.now();
     const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 512,
+      max_tokens: 1024,
       messages: [{ role: 'user', content: pickPrompt }],
     }).withResponse();
     console.log('[getAIRecommendation] pick call ms:', Date.now() - pickStart);
@@ -205,11 +213,10 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     console.log('[getAIRecommendation] pick response cached:', pickRawResponse.headers.get('cf-cache-status'));
 
     const pickText = pickMessage.content[0]?.type === 'text' ? pickMessage.content[0].text : '';
-    // Strip markdown fences and extract JSON object even if model adds preamble
     const cleanPickText = pickText.replace(/```json|```/g, '').trim();
     const pickJsonMatch = cleanPickText.match(/\{[\s\S]*\}/);
     if (!pickJsonMatch) {
-      console.error('[getAIRecommendation] No JSON object found in pick response:', cleanPickText.slice(0, 200));
+      console.error('[getAIRecommendation] No JSON in pick response:', cleanPickText.slice(0, 200));
       return FALLBACK;
     }
     const pickParsed = JSON.parse(pickJsonMatch[0]);
@@ -228,12 +235,12 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     return FALLBACK;
   }
 
-  // ── Call 2 — Generate insights ────────────────────────────────────────────
+  // ── Call 2 — Generate headline + insights ─────────────────────────────────
   const recommended = combinationsForPrompt[recommendedIndex];
 
   const sameDates = combinationsForPrompt.filter(
     c => c.outbound_date === recommended.outbound_date &&
-         c.return_date === recommended.return_date
+         c.return_date === recommended.return_date,
   );
 
   const cheapestInset = combinationsForPrompt
@@ -248,7 +255,7 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     .filter(c => c.requires_absence && c.total_inc_fine < recommended.total_inc_fine)
     .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0] ?? null;
 
-  // ── Same-date summaries (replaces raw sameDates array in prompt) ──────────
+  // Pre-computed same-date summaries
   const depAirportSummary = Array.from(
     sameDates.reduce((map, c) => {
       const existing = map.get(c.origin_iata);
@@ -261,7 +268,7 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
         });
       }
       return map;
-    }, new Map<string, object>()).values()
+    }, new Map<string, object>()).values(),
   ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
 
   const outDestSummary = Array.from(
@@ -275,7 +282,7 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
         });
       }
       return map;
-    }, new Map<string, object>()).values()
+    }, new Map<string, object>()).values(),
   ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
 
   const retDestSummary = Array.from(
@@ -288,7 +295,7 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
         });
       }
       return map;
-    }, new Map<string, object>()).values()
+    }, new Map<string, object>()).values(),
   ).sort((a: any, b: any) => a.total_cost_gbp - b.total_cost_gbp);
 
   const cheapestSplit = sameDates
@@ -314,29 +321,38 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
       : null,
   };
 
-  const insightPrompt = `You are a financial intelligence tool helping a London family save money on their school holiday flight. Generate insights based ONLY on the pre-computed data below. Do not calculate anything yourself — every number is already computed.
+  // Benchmark saving for headline
+  const benchmarkSaving = context.benchmarkCost != null
+    ? Math.round((context.benchmarkCost - recommended.total_inc_fine) * 100) / 100
+    : null;
+
+  const insightPrompt = `You are a financial intelligence tool helping a London family save money on their school holiday flight. Generate a headline, subheadline, prose and insights based ONLY on the pre-computed data below. Do not calculate anything yourself.
 
 RECOMMENDED COMBINATION:
 ${JSON.stringify(recommended, null, 2)}
 
-WHY THIS WAS PICKED (internal reasoning — use this to write the prose):
+WHY THIS WAS PICKED (use this to write headline + prose):
 ${pickingReasoning}
 
-SAME-DATE SUMMARIES (pre-computed — use these numbers directly, do not recalculate):
+BENCHMARK CONTEXT:
+- Typical Saturday booking cost for this family on this route: ${context.benchmarkCost != null ? `£${context.benchmarkCost}` : 'not available'}
+- Saving vs typical Saturday booking: ${benchmarkSaving != null ? `£${benchmarkSaving}` : 'not available'}
 
-DEPARTURE AIRPORTS (cheapest per airport, recommended dates):
+SAME-DATE SUMMARIES (pre-computed — use directly):
+
+DEPARTURE AIRPORTS:
 ${JSON.stringify(depAirportSummary, null, 2)}
 
-OUTBOUND ARRIVAL AIRPORTS (cheapest per airport, recommended dates):
+OUTBOUND ARRIVAL AIRPORTS:
 ${JSON.stringify(outDestSummary, null, 2)}
 
-RETURN ARRIVAL AIRPORTS (cheapest per airport, recommended dates):
+RETURN ARRIVAL AIRPORTS:
 ${JSON.stringify(retDestSummary, null, 2)}
 
-SPLIT CARRIER vs SINGLE CARRIER (recommended dates):
+SPLIT CARRIER vs SINGLE CARRIER:
 ${JSON.stringify(splitCarrierSummary, null, 2)}
 
-CROSS-DATE LEVERS (pre-computed — use these numbers directly):
+CROSS-DATE LEVERS (pre-computed):
 ${JSON.stringify({
   inset_day: {
     cheapest_inset_total_inc_fine: cheapestInset?.total_inc_fine ?? null,
@@ -368,127 +384,102 @@ FAMILY CONTEXT:
 
 INSTRUCTIONS:
 
+HEADLINE:
+One punchy sentence. Must include the recommended cost (£${recommended.total_inc_fine}).
+${benchmarkSaving != null && benchmarkSaving > 0
+  ? `Include the saving vs typical Saturday booking: "£${benchmarkSaving} less than a typical Saturday booking from ${recommended.origin_iata}."`
+  : 'Do not mention a saving vs typical booking — data not available.'}
+Example: "We found Barcelona for £703 — £144 less than a typical Saturday booking from Heathrow."
+
+SUBHEADLINE:
+One sentence explaining HOW we saved the money — the key levers in plain English.
+Do not repeat the cost. Focus on the 2-3 most important optimisations.
+Example: "Flying Thursday on the inset day, mixing BA and Ryanair, and taking the bus to Heathrow."
+
 RECOMMENDATION PROSE:
-Write 2-3 sentences directly to the parent explaining why this combination was chosen.
-- Reference actual times, costs, dates, trip_nights from the recommended combination
-- If it is not the cheapest, explain what extra value it provides (extra night, better arrival time, shorter journey)
-- Use "most families booking this week" instead of "baseline"
-- Warm, direct, specific — like a knowledgeable friend
+2-3 sentences directly to the parent explaining the overall pick.
+- Reference actual times, costs, dates from the recommended combination
+- If not cheapest, explain what extra value it provides
+- Mention arrival quality honestly — if arriving after 18:00, do not call it an "extra day"
+- Mention the inset day benefit if is_inset_day: true AND arrival_quality is 'excellent' or 'good'
+- Warm, direct, specific — knowledgeable friend voice
+- Do not say "baseline" — say "most families booking this week" or "typical Saturday booking"
 - Do not mention seat selection policy, transit accuracy, or generic booking advice
 
 LEVER INSIGHTS:
-Check each lever below. Only include if condition is met.
+Check each lever. Only include if condition is met.
 
-CROSS-DATE LEVERS (use pre-computed values only — do not scan combinations):
+CROSS-DATE LEVERS:
 
 1. INSET DAY
 Use: cross_date_levers.inset_day
-
-Case A — cheapest_inset_is_recommended is TRUE (we picked the inset day):
-ALWAYS surface this lever. Frame as what the family gains:
-"Departing on [cheapest_inset_outbound_date] — [school_name]'s inset day —
-means zero school absence and zero fines.
-[If inset_extra_nights > 0: 'You also get [N] extra night(s) vs the next available date for [£X more/the same price].']"
-saving_gbp: inset_saving_vs_non_inset (if positive) else null
-
-Case B — cheapest_inset_is_recommended is FALSE (we did not pick the inset day):
-Only surface if inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0.
-Frame as an alternative: "Alternatively, flying on [date] — the inset day —
-[saves £X / costs £X more but gives N extra night(s)]."
-If inset is more expensive with no extra nights: DO NOT surface.
+Case A — cheapest_inset_is_recommended TRUE: ALWAYS surface.
+  - arrival_quality 'excellent' or 'good': "Departing on [date] — [school_name]'s inset day — means zero school absence and zero fines. Flying [day] instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts."
+  - arrival_quality 'acceptable': "Departing on [date] — the inset day — means no school absence or fines, though the [arrival_time] arrival means most of the first day is a travel day."
+  - arrival_quality 'poor': Note no absence only. Never say "extra day" for arrivals after 21:00.
+Case B — cheapest_inset_is_recommended FALSE: Only if inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0. Frame as alternative.
+If inset more expensive with no extra nights: DO NOT surface.
 
 2. ABSENCE TRADE-OFF
-Use: cross_date_levers.absence_tradeoff
-Condition: net_saving_vs_recommended > 20
-Framing: neutral, factual
-"Flying on [date] costs £[total] including a £[fine] fine for [N] absence day(s) — still £[net_saving] less than the recommended option."
-If net saving ≤ £20: DO NOT surface this lever
+Condition: net_saving_vs_recommended > 20. Neutral framing with actual numbers.
+If ≤ £20: DO NOT surface.
 
-SAME-DATE LEVERS (use SAME-DATE SUMMARIES above — do not recalculate):
+SAME-DATE LEVERS:
 
 3. DEPARTURE AIRPORT
-Use: dep_airport_summary (sorted cheapest first)
-Condition: more than one entry AND cost difference between first and last entry > £20
-Default insight: "Flying from [cheapest.origin_iata] saves £[diff] vs [most_expensive.origin_iata] on these dates."
-Include transit route for cheapest airport if outbound_transit_route is available.
-If the recommended combination's origin_iata is already the cheapest airport:
-Frame as "we chose the cheapest departure airport":
-"[origin_iata] is the cheapest departure option on these dates — [most_expensive.origin_iata] costs £[diff] more."
-Do not frame this as a saving the parent needs to act on.
+Condition: >1 entry in dep_airport_summary AND cost difference > £20.
+If recommended IS cheapest: "we chose cheapest airport" framing.
+If not: "switching to [cheaper] saves £X" framing.
 
 4. OUTBOUND ARRIVAL AIRPORT
-Use: out_dest_summary (sorted cheapest first)
-Condition: more than one entry AND cost difference > £20
-Insight: compare airports with actual cost difference.
+Condition: >1 entry AND cost difference > £20.
 
 5. RETURN ARRIVAL AIRPORT
-Use: return_arrival_airports pre-computed summary
-Condition: more than one entry in return_arrival_airports AND cost difference between cheapest and most expensive > £20
-Insight: "Returning to [cheapest_ret_dest_iata] saves £[diff] vs returning to [most_expensive_ret_dest_iata] on these dates."
-The saving is the difference between the cheapest and most expensive ret_dest_iata total_cost_gbp — NOT the total trip cost.
-Do not compare against combinations from different dates.
+Condition: >1 entry AND cost difference > £20.
+Compare only within ret_dest_summary — do not use total trip cost.
 
-6. SPLIT CARRIER — POSITIVE USP
-Use: split_carrier_summary
-Condition: saving_gbp > 20 (cheapest split is cheaper than cheapest single by > £20)
-Framing: ALWAYS positive — this is a feature, not a warning
-"We found a cheaper option by combining two airlines — [cheapest_split.outbound_carrier] outbound and [cheapest_split.return_carrier] return saves £[saving_gbp] vs the cheapest single-airline booking."
-If saving_gbp is null or ≤ 20: DO NOT surface this lever
+6. SPLIT CARRIER
+Condition: splitCarrierSummary.saving_gbp > 20. ALWAYS positive framing.
+"We found cheaper by combining [outbound_carrier] outbound and [return_carrier] return — saves £[saving_gbp] vs the cheapest single-airline booking."
+If saving ≤ 20 or null: DO NOT surface.
 
-RECOMMENDED COMBINATION LEVERS (use recommended combination fields only):
+RECOMMENDED COMBINATION LEVERS:
 
 7. TRAVEL LIGHT — CABIN BAGS
-MANDATORY: Always include this lever if cabin_bag_cost_gbp > 0 on the
-recommended combination. Do not skip it.
-Condition: cabin_bag_cost_gbp > 0 (always surface if true)
-Insight: "Your [N] cabin bags add £[cabin_bag_cost_gbp] to this trip. Travelling with personal items only removes this cost entirely."
-saving_gbp: cabin_bag_cost_gbp value
+MANDATORY if cabin_bag_cost_gbp > 0.
+Per-leg framing: note which carrier charges and which includes bags.
+"[Outbound carrier] includes cabin bags. [Return carrier] charges £[return_cabin_bag_cost_gbp] for your [N] bags on the return leg. Travelling with personal items only on the return removes this cost."
+saving_gbp: return_cabin_bag_cost_gbp (only the chargeable leg)
 
 8. CHECKED BAGS
-Condition: checked_bag_cost_gbp > 0 (always surface if true)
-Insight: "Dropping your checked bag saves £[checked_bag_cost_gbp] — worth considering for a [trip_nights]-night city break."
-saving_gbp: checked_bag_cost_gbp value
+Condition: checked_bag_cost_gbp > 0. Always surface if true.
 
 9. TRANSPORT — OUTBOUND
-Use: outbound_transit_cost_gbp vs outbound_uber_cost_gbp from recommended combination
-Condition: both values exist AND (cost difference > £20 OR time difference > 45 mins)
-Insight: state cost difference AND time difference clearly.
-"The [transit_route] costs £[transit] vs £[uber] by Uber — saving £[diff], though [transit] takes [transit_mins] mins vs [uber_mins] mins by Uber."
+Condition: both transit and Uber costs exist AND (cost diff > £20 OR time diff > 45 mins).
+Include route name and specific times.
 
 10. TRANSPORT — RETURN
-Same pattern as outbound using return transit fields.
-For transport_return: if the recommended combination has departure_quality
-'very_early', frame the insight around convenience not just cost saving.
-If transit involves 2+ changes at an early hour, acknowledge that Uber
-may be worth the extra cost despite being more expensive.
-In this case: saving_gbp should be null (we are recommending spending more, not less).
-Headline should reflect the recommendation, not the cheaper option.
-Example: "5:30am return — Uber worth considering" with insight explaining
-transit saves £X but Uber avoids [N] changes at that hour.
+Same pattern. If return_departure_quality 'very_early' and 2+ changes:
+Frame around convenience — Uber may be worth the extra.
+saving_gbp: null when recommending Uber over cheaper transit.
 
 11. TRANSIT CHANGES
-Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2
-BUT: Do NOT surface this lever if transport_outbound or transport_return
-insight is already being generated for the same leg — it would be duplicate
-information. Only surface transit_changes as a standalone insight if the
-transport mode insight for that leg is NOT being shown.
-Insight: "Getting to [origin_iata] involves [N] changes — factor this in when travelling with children and luggage."
-This is informational, not a savings lever — saving_gbp: null
+Only if not already covered by transport insight for that leg.
+Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2.
 
 STRICT RULES:
-- Use ONLY numbers from the data provided — do not calculate, estimate or invent any figure
+- Use ONLY numbers from provided data — never calculate or invent
 - Do not say "baseline"
-- Do not mention seat selection policy, transit accuracy, pre-booking advice, or generic travel tips
-- Maximum 1 caveat, only if baggage_is_estimate: true on recommended combination
-- Caveat text: "Bag fees for [carrier] are estimated — actual price may vary by route."
-- Do not add a caveat about seats — seat costs are already included in the total
+- Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
+- No caveat about seats
 - Every verified_field must be an exact field name from the combinations data
 
-CRITICAL: Return ONLY the JSON object. Do not write any text before or after it.
-Do not explain your reasoning outside the JSON. Start your response with { and end with }.
+CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
 {
-  "recommendation_prose": "<string>",
+  "headline": "<one punchy sentence with cost and saving vs typical booking>",
+  "subheadline": "<one sentence explaining the key optimisations — no cost number>",
+  "recommendation_prose": "<2-3 sentences to the parent>",
   "lever_insights": [
     {
       "lever": "<inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
@@ -504,10 +495,10 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
 }`;
 
   console.log('[getAIRecommendation] insight prompt length (chars):', insightPrompt.length);
+
   try {
     const insightStart = Date.now();
     const insightMessage = await client.messages.create({
-      // Insight call — Haiku is sufficient for structured output from pre-computed data
       model: 'claude-haiku-4-5',
       max_tokens: 1500,
       messages: [{ role: 'user', content: insightPrompt }],
@@ -517,11 +508,14 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     const insightText = insightMessage.content[0]?.type === 'text' ? insightMessage.content[0].text : '';
     const cleanInsightText = insightText.replace(/```json|```/g, '').trim();
     console.log('[getAIRecommendation] raw insight response:', cleanInsightText);
+
     const insightJsonMatch = cleanInsightText.match(/\{[\s\S]*\}/);
     if (!insightJsonMatch) {
-      console.error('[getAIRecommendation] No JSON object found in insight response:', cleanInsightText.slice(0, 200));
+      console.error('[getAIRecommendation] No JSON in insight response:', cleanInsightText.slice(0, 200));
       return {
         recommended_index: recommendedIndex,
+        headline: 'We found the best value option for your dates.',
+        subheadline: '',
         recommendation_prose: 'We found the best value option for your dates.',
         lever_insights: [],
         caveats: [],
@@ -532,10 +526,13 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     const insightParsed = JSON.parse(insightJsonMatch[0]);
 
     console.log('[getAIRecommendation] lever count:', insightParsed.lever_insights?.length);
+    console.log('[getAIRecommendation] headline:', insightParsed.headline);
     console.log('[getAIRecommendation] prose:', insightParsed.recommendation_prose);
 
     return {
       recommended_index: recommendedIndex,
+      headline: insightParsed.headline ?? 'We found the best value option for your dates.',
+      subheadline: insightParsed.subheadline ?? '',
       recommendation_prose: insightParsed.recommendation_prose ?? '',
       lever_insights: insightParsed.lever_insights ?? [],
       caveats: insightParsed.caveats ?? [],
@@ -546,6 +543,8 @@ Do not explain your reasoning outside the JSON. Start your response with { and e
     console.error('[getAIRecommendation] Insight call error:', err);
     return {
       recommended_index: recommendedIndex,
+      headline: 'We found the best value option for your dates.',
+      subheadline: '',
       recommendation_prose: 'We found the best value option for your dates.',
       lever_insights: [],
       caveats: [],
