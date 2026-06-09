@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       cabinBags,
       checkedBags,
       seatsTogether,
-      benchmarkCost: assembled.benchmark,
+      benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
     });
 
     // Return AI result plus the recommended combination index

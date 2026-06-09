@@ -389,6 +389,7 @@ One punchy sentence. Must include the recommended cost (£${recommended.total_in
 ${benchmarkSaving != null && benchmarkSaving > 0
   ? `Include the saving vs typical Saturday booking: "£${benchmarkSaving} less than a typical Saturday booking from ${recommended.origin_iata}."`
   : 'Do not mention a saving vs typical booking — data not available.'}
+Always say "from Heathrow" in the benchmark comparison — never name any other airport. The benchmark is always the LHR Saturday booking regardless of which airport the recommended combination uses.
 Example: "We found Barcelona for £703 — £144 less than a typical Saturday booking from Heathrow."
 
 SUBHEADLINE:

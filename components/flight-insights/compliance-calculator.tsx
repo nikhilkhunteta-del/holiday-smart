@@ -168,7 +168,7 @@ function DataCell({
             letterSpacing: '0.04em', textTransform: 'uppercase' as const,
             whiteSpace: 'nowrap' as const,
           }}>
-            {showOurPick ? '★ Our pick' : 'Viewing'}
+            {showOurPick ? '★ Cheapest' : 'Viewing'}
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_inc_fine)}
@@ -434,7 +434,7 @@ export function ComplianceCalculator({
                                     letterSpacing: '0.04em', textTransform: 'uppercase' as const,
                                     whiteSpace: 'nowrap' as const,
                                   }}>
-                                    ★ Our pick
+                                    ★ Cheapest
                                   </div>
                                   <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#ffffff', display: 'block' }}>
                                     {gbp(baselineTotal)}
