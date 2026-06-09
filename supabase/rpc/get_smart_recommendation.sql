@@ -28,6 +28,12 @@
 -- City vs circuit routing:
 --   City:    outbound dest airport = return origin airport (symmetric).
 --   Circuit: outbound dest and return origin may differ (open-jaw).
+--
+-- v2 additions (per-leg cost breakdown + bag cost ranges):
+--   Per-leg fields: outbound_*/return_* for fare, cabin bag, checked bag, seat, ancillary.
+--   Bag ranges: cabin_bag_cost_min/max_gbp, checked_bag_cost_min/max_gbp.
+--   Uses full_cabin_bag_fee_min/max_gbp and first_checked_bag_min/max_gbp from
+--   airline_baggage_fees (populated for FR and W6; falls back to point estimate for others).
 
 CREATE OR REPLACE FUNCTION get_smart_recommendation(
   p_destination_slug  text,
@@ -187,7 +193,6 @@ BEGIN
   END IF;
 
   -- ── 7. Date ranges ───────────────────────────────────────────────────────────
-  -- Mirrors get_compliance_scenarios exactly.
 
   v_dep_earliest := v_window_start - 4;
   v_dep_latest   := v_window_end;
@@ -202,21 +207,9 @@ BEGIN
     v_max_nights := 4;
   END IF;
 
-  -- ── 8. Combinations across all valid date × carrier pairs ────────────────────
-  --
-  -- out_fares:          direct (stops=0) outbound rows.
-  -- best_out:           cheapest London origin per (dep_date, airline, dest_airport).
-  -- ret_fares:          direct (stops=0) return rows; ret_dest_iata = London arrival airport.
-  -- best_ret:           cheapest return per (ret_date, airline, ret_origin).
-  -- cheapest_ret:       globally cheapest per (ret_date, ret_origin) — split fallback.
-  -- carrier_pairs:      LEAST(same-carrier, cheapest) wins; city symmetric constraint.
-  -- with_costs:         per-leg à la carte ancillary + baggage/risk flags.
-  -- with_ancillary:     LEAST(à la carte, bundle) per leg.
-  -- with_fine:          absence fine + inset day flag.
-  -- with_dest_transfer: destination ground transfer cost (transfer_cost_gbp × 2).
+  -- ── 8. Combinations ──────────────────────────────────────────────────────────
 
   WITH
-    -- All direct outbound fares in the window.
     out_fares AS (
       SELECT
         fs.departure_date,
@@ -237,8 +230,6 @@ BEGIN
         AND fs.infants          = v_infants
         AND fs.stops            = 0
     ),
-    -- Cheapest London origin per (departure_date, airline, destination_airport).
-    -- destination_iata retained for city symmetric-routing constraint.
     best_out AS (
       SELECT DISTINCT ON (departure_date, airline_iata, destination_iata)
         departure_date              AS dep_date,
@@ -252,8 +243,6 @@ BEGIN
       FROM out_fares
       ORDER BY departure_date, airline_iata, destination_iata, fare ASC
     ),
-    -- All direct return fares in the window.
-    -- destination_iata = London arrival airport (TypeScript uses for return transit lookup).
     ret_fares AS (
       SELECT
         fs.departure_date           AS ret_date,
@@ -273,7 +262,6 @@ BEGIN
         AND fs.infants          = v_infants
         AND fs.stops            = 0
     ),
-    -- Cheapest return per (ret_date, airline, ret_origin).
     best_ret AS (
       SELECT DISTINCT ON (ret_date, airline_iata, ret_orig_iata)
         ret_date,
@@ -286,7 +274,6 @@ BEGIN
       FROM ret_fares
       ORDER BY ret_date, airline_iata, ret_orig_iata, fare ASC
     ),
-    -- Globally cheapest return per (ret_date, ret_origin): split-carrier fallback.
     cheapest_ret AS (
       SELECT DISTINCT ON (ret_date, ret_orig_iata)
         ret_date,
@@ -299,8 +286,6 @@ BEGIN
       FROM best_ret
       ORDER BY ret_date, ret_orig_iata, ret_fare ASC
     ),
-    -- Carrier pairs: LEAST of same-carrier vs cheapest-return wins on price.
-    -- City constraint: outbound destination = return origin (symmetric airport).
     carrier_pairs AS (
       SELECT
         bo.dep_date,
@@ -337,53 +322,84 @@ BEGIN
        AND br.airline_iata   = bo.airline_iata
       WHERE cr.ret_fare IS NOT NULL
     ),
-    -- Per-leg à la carte ancillary breakdown.
-    -- Seat cost: child_same_as_adult = false → adults only; default → full party size.
     with_costs AS (
       SELECT
         cp.*,
-        -- Outbound cabin bag (0 when base fare includes cabin bag)
+        -- ── Outbound cabin bag ────────────────────────────────────────────────
         CASE
           WHEN NOT COALESCE(abf_out.cabin_bag_included, true) AND p_cabin_bags > 0
           THEN p_cabin_bags * COALESCE(abf_out.full_cabin_bag_fee_gbp, 0)
           ELSE 0
         END                                                               AS out_cabin_cost,
-        -- Return cabin bag
+        -- Outbound cabin bag range (min)
+        CASE
+          WHEN NOT COALESCE(abf_out.cabin_bag_included, true) AND p_cabin_bags > 0
+          THEN p_cabin_bags * COALESCE(abf_out.full_cabin_bag_fee_min_gbp,
+                                       abf_out.full_cabin_bag_fee_gbp, 0)
+          ELSE 0
+        END                                                               AS out_cabin_cost_min,
+        -- Outbound cabin bag range (max)
+        CASE
+          WHEN NOT COALESCE(abf_out.cabin_bag_included, true) AND p_cabin_bags > 0
+          THEN p_cabin_bags * COALESCE(abf_out.full_cabin_bag_fee_max_gbp,
+                                       abf_out.full_cabin_bag_fee_gbp, 0)
+          ELSE 0
+        END                                                               AS out_cabin_cost_max,
+        -- ── Return cabin bag ──────────────────────────────────────────────────
         CASE
           WHEN NOT COALESCE(abf_ret.cabin_bag_included, true) AND p_cabin_bags > 0
           THEN p_cabin_bags * COALESCE(abf_ret.full_cabin_bag_fee_gbp, 0)
           ELSE 0
         END                                                               AS ret_cabin_cost,
-        -- Checked bags per leg
+        -- Return cabin bag range (min)
+        CASE
+          WHEN NOT COALESCE(abf_ret.cabin_bag_included, true) AND p_cabin_bags > 0
+          THEN p_cabin_bags * COALESCE(abf_ret.full_cabin_bag_fee_min_gbp,
+                                       abf_ret.full_cabin_bag_fee_gbp, 0)
+          ELSE 0
+        END                                                               AS ret_cabin_cost_min,
+        -- Return cabin bag range (max)
+        CASE
+          WHEN NOT COALESCE(abf_ret.cabin_bag_included, true) AND p_cabin_bags > 0
+          THEN p_cabin_bags * COALESCE(abf_ret.full_cabin_bag_fee_max_gbp,
+                                       abf_ret.full_cabin_bag_fee_gbp, 0)
+          ELSE 0
+        END                                                               AS ret_cabin_cost_max,
+        -- ── Checked bags ──────────────────────────────────────────────────────
         p_checked_bags * COALESCE(abf_out.first_checked_bag_gbp, 0)      AS out_checked_cost,
+        p_checked_bags * COALESCE(abf_out.first_checked_bag_min_gbp,
+                                   abf_out.first_checked_bag_gbp, 0)     AS out_checked_cost_min,
+        p_checked_bags * COALESCE(abf_out.first_checked_bag_max_gbp,
+                                   abf_out.first_checked_bag_gbp, 0)     AS out_checked_cost_max,
         p_checked_bags * COALESCE(abf_ret.first_checked_bag_gbp, 0)      AS ret_checked_cost,
-        -- Outbound seat: adults-only when child_same_as_adult = false
+        p_checked_bags * COALESCE(abf_ret.first_checked_bag_min_gbp,
+                                   abf_ret.first_checked_bag_gbp, 0)     AS ret_checked_cost_min,
+        p_checked_bags * COALESCE(abf_ret.first_checked_bag_max_gbp,
+                                   abf_ret.first_checked_bag_gbp, 0)     AS ret_checked_cost_max,
+        -- ── Seats ─────────────────────────────────────────────────────────────
         CASE WHEN p_seats_together THEN
           CASE WHEN COALESCE(abf_out.child_same_as_adult, true) = false
                THEN p_adults     * COALESCE(abf_out.seat_selection_gbp, 0)
                ELSE v_party_size * COALESCE(abf_out.seat_selection_gbp, 0)
           END
         ELSE 0 END                                                        AS out_seat_cost,
-        -- Return seat: adults-only when child_same_as_adult = false
         CASE WHEN p_seats_together THEN
           CASE WHEN COALESCE(abf_ret.child_same_as_adult, true) = false
                THEN p_adults     * COALESCE(abf_ret.seat_selection_gbp, 0)
                ELSE v_party_size * COALESCE(abf_ret.seat_selection_gbp, 0)
           END
         ELSE 0 END                                                        AS ret_seat_cost,
-        -- Bundle fields per leg
+        -- ── Bundle fields ─────────────────────────────────────────────────────
         abf_out.bundle_price_delta_gbp                                    AS out_bundle_delta,
         abf_out.bundle_includes_checked                                   AS out_bundle_inc_checked,
         abf_ret.bundle_price_delta_gbp                                    AS ret_bundle_delta,
         abf_ret.bundle_includes_checked                                   AS ret_bundle_inc_checked,
-        -- baggage_is_estimate — verbatim from get_allin_flight_cost
+        -- ── Flags ─────────────────────────────────────────────────────────────
         NOT (cp.out_carrier IN ('FR','U2','W6','VY','TP','BA')
          AND cp.ret_carrier IN ('FR','U2','W6','VY','TP','BA'))           AS baggage_is_estimate,
-        -- family_split_risk — verbatim from get_allin_flight_cost
         ((cp.out_carrier IN ('FR','U2','W6')
           OR  cp.ret_carrier IN ('FR','U2','W6'))
           AND v_party_size > 2)                                           AS family_split_risk,
-        -- split_risk_carriers — verbatim from get_allin_flight_cost
         ARRAY_REMOVE(ARRAY[
           CASE WHEN cp.out_carrier IN ('FR','U2','W6')
                THEN cp.out_carrier END,
@@ -395,9 +411,6 @@ BEGIN
       LEFT JOIN airline_baggage_fees abf_out ON abf_out.airline_iata = cp.out_carrier
       LEFT JOIN airline_baggage_fees abf_ret ON abf_ret.airline_iata = cp.ret_carrier
     ),
-    -- Bundle optimisation per leg independently.
-    -- Bundle excluded when: delta IS NULL, or bundle_includes_checked = false
-    -- and p_checked_bags > 0 (bundle would not cover checked-bag cost).
     with_ancillary AS (
       SELECT
         wc.*,
@@ -427,8 +440,6 @@ BEGIN
         END                                                               AS ret_ancillary
       FROM with_costs wc
     ),
-    -- Fine, absence, inset day, and fare+ancillary total.
-    -- Fine uses caller's actual p_adults / p_children (not matched composition).
     with_fine AS (
       SELECT
         wa.*,
@@ -437,6 +448,11 @@ BEGIN
         (wa.out_cabin_cost + wa.ret_cabin_cost)                           AS cabin_bag_cost,
         (wa.out_checked_cost + wa.ret_checked_cost)                       AS checked_bag_cost,
         (wa.out_seat_cost + wa.ret_seat_cost)                             AS seat_cost_total,
+        -- Bag cost ranges (combined across both legs)
+        (wa.out_cabin_cost_min + wa.ret_cabin_cost_min)                   AS cabin_bag_cost_min,
+        (wa.out_cabin_cost_max + wa.ret_cabin_cost_max)                   AS cabin_bag_cost_max,
+        (wa.out_checked_cost_min + wa.ret_checked_cost_min)               AS checked_bag_cost_min,
+        (wa.out_checked_cost_max + wa.ret_checked_cost_max)               AS checked_bag_cost_max,
         fine_calc.departure_absence_days
           + fine_calc.return_absence_days                                 AS absence_days,
         fine_calc.fine_gbp,
@@ -469,8 +485,6 @@ BEGIN
           )
       ) fine_calc ON true
     ),
-    -- Destination ground transfer cost (both legs: out + return at destination).
-    -- transfer_cost_gbp × 2 covers airport→hotel and hotel→airport.
     with_dest_transfer AS (
       SELECT
         wf.*,
@@ -485,6 +499,7 @@ BEGIN
   SELECT COALESCE(
     jsonb_agg(
       jsonb_build_object(
+        -- ── Dates & routing ───────────────────────────────────────────────────
         'outbound_date',                 f.dep_date,
         'return_date',                   f.ret_date,
         'origin_iata',                   f.best_airport,
@@ -493,23 +508,45 @@ BEGIN
         'outbound_carrier',              f.out_carrier,
         'return_carrier',                f.ret_carrier,
         'split_carrier',                 f.split_carrier,
+        -- ── Fares ────────────────────────────────────────────────────────────
         'outbound_fare_gbp',             ROUND(f.out_fare::numeric,                              2),
         'return_fare_gbp',               ROUND(f.ret_fare::numeric,                              2),
+        -- ── Bags — combined totals (existing fields, unchanged) ───────────────
         'cabin_bag_cost_gbp',            ROUND(f.cabin_bag_cost::numeric,                        2),
         'checked_bag_cost_gbp',          ROUND(f.checked_bag_cost::numeric,                      2),
+        -- ── Bags — per-leg breakdown (new) ───────────────────────────────────
+        'outbound_cabin_bag_cost_gbp',   ROUND(f.out_cabin_cost::numeric,                        2),
+        'return_cabin_bag_cost_gbp',     ROUND(f.ret_cabin_cost::numeric,                        2),
+        'outbound_checked_bag_cost_gbp', ROUND(f.out_checked_cost::numeric,                      2),
+        'return_checked_bag_cost_gbp',   ROUND(f.ret_checked_cost::numeric,                      2),
+        -- ── Bags — cost ranges (new, null when min = max = point estimate) ───
+        'cabin_bag_cost_min_gbp',        ROUND(f.cabin_bag_cost_min::numeric,                    2),
+        'cabin_bag_cost_max_gbp',        ROUND(f.cabin_bag_cost_max::numeric,                    2),
+        'checked_bag_cost_min_gbp',      ROUND(f.checked_bag_cost_min::numeric,                  2),
+        'checked_bag_cost_max_gbp',      ROUND(f.checked_bag_cost_max::numeric,                  2),
+        -- ── Seats — combined + per-leg (new) ─────────────────────────────────
         'seat_cost_gbp',                 ROUND(f.seat_cost_total::numeric,                       2),
+        'outbound_seat_cost_gbp',        ROUND(f.out_seat_cost::numeric,                         2),
+        'return_seat_cost_gbp',          ROUND(f.ret_seat_cost::numeric,                         2),
+        -- ── Ancillary totals — combined + per-leg (new) ───────────────────────
         'fare_plus_ancillary_gbp',       ROUND(f.fare_plus_ancillary::numeric,                   2),
-        'destination_transfer_cost_gbp', ROUND(f.destination_transfer_cost_gbp::numeric,        2),
+        'outbound_ancillary_gbp',        ROUND(f.out_ancillary::numeric,                         2),
+        'return_ancillary_gbp',          ROUND(f.ret_ancillary::numeric,                         2),
+        -- ── Destination transfer ──────────────────────────────────────────────
+        'destination_transfer_cost_gbp', ROUND(f.destination_transfer_cost_gbp::numeric,         2),
         'destination_transfer_known',    f.destination_transfer_known,
+        -- ── Absence & fine ────────────────────────────────────────────────────
         'requires_absence',              f.requires_absence,
         'absence_days',                  f.absence_days,
         'fine_gbp',                      f.fine_gbp,
+        -- ── Flight times ──────────────────────────────────────────────────────
         'outbound_departure_time',       to_char(f.out_dep_time, 'HH24:MI'),
         'outbound_arrival_time',         to_char(f.out_arr_time, 'HH24:MI'),
         'outbound_duration_mins',        f.out_duration,
         'return_departure_time',         to_char(f.ret_arr_time - (f.ret_duration || ' minutes')::interval, 'HH24:MI'),
         'return_arrival_time',           to_char(f.ret_arr_time, 'HH24:MI'),
         'return_duration_mins',          f.ret_duration,
+        -- ── Flags ────────────────────────────────────────────────────────────
         'is_inset_day',                  f.is_inset_day,
         'baggage_is_estimate',           f.baggage_is_estimate,
         'family_split_risk',             f.family_split_risk,
@@ -523,8 +560,6 @@ BEGIN
   FROM with_dest_transfer f;
 
   -- ── 9. Baseline object ───────────────────────────────────────────────────────
-  -- Saturday BEFORE window_start.
-  -- Prefer LHR; fall back to cheapest row for that Saturday; final fallback date-agnostic.
 
   v_baseline_sat := v_window_start
     - ((EXTRACT(DOW FROM v_window_start)::int - 6 + 7) % 7);
@@ -560,7 +595,7 @@ BEGIN
   ORDER BY bs.party_total_gbp ASC
   LIMIT 1;
 
-  -- Attempt 2: any airport on that Saturday (baseline_is_fallback = true)
+  -- Attempt 2: any airport on that Saturday
   IF v_baseline_fare IS NULL THEN
     v_baseline_fallback := true;
     SELECT
@@ -590,7 +625,7 @@ BEGIN
     LIMIT 1;
   END IF;
 
-  -- Attempt 3: date-agnostic fallback — LHR preferred, then cheapest
+  -- Attempt 3: date-agnostic fallback
   IF v_baseline_fare IS NULL THEN
     v_baseline_fallback := true;
     SELECT
@@ -619,7 +654,7 @@ BEGIN
     LIMIT 1;
   END IF;
 
-  -- Baseline ancillary + destination transfer. Transit removed — TypeScript adds it.
+  -- Baseline ancillary + destination transfer
   IF v_baseline_fare IS NOT NULL THEN
     WITH
       bl_abf AS (
@@ -627,25 +662,20 @@ BEGIN
       ),
       bl_calc AS (
         SELECT
-          -- Cabin bags: 2 legs
           CASE
             WHEN NOT COALESCE(a.cabin_bag_included, true) AND p_cabin_bags > 0
             THEN 2 * p_cabin_bags * COALESCE(a.full_cabin_bag_fee_gbp, 0)
             ELSE 0
           END                                                             AS cabin_bag_cost,
-          -- Checked bags: 2 legs
           2 * p_checked_bags * COALESCE(a.first_checked_bag_gbp, 0)      AS checked_bag_cost,
-          -- Seat: 2 legs; adults-only when child_same_as_adult = false
           CASE WHEN p_seats_together THEN
             CASE WHEN COALESCE(a.child_same_as_adult, true) = false
                  THEN 2 * p_adults     * COALESCE(a.seat_selection_gbp, 0)
                  ELSE 2 * v_party_size * COALESCE(a.seat_selection_gbp, 0)
             END
           ELSE 0 END                                                      AS seat_cost,
-          -- Bundle fields for 2-leg trip
           a.bundle_price_delta_gbp                                        AS bundle_delta,
           a.bundle_includes_checked                                       AS bundle_inc_checked,
-          -- Destination ground transfer: transfer_cost_gbp × 2 (both legs)
           COALESCE(da.transfer_cost_gbp * 2, 0)                          AS dest_transfer_cost,
           da.transfer_cost_gbp IS NOT NULL                               AS dest_transfer_known
         FROM (SELECT 1 AS dummy) d

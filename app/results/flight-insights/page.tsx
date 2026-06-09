@@ -37,18 +37,17 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const adults      = Number(searchParams.adults   ?? 2);
   const children    = Number(searchParams.children ?? 0);
   const infants     = Number(searchParams.infants  ?? 0);
-  const tripStyle   = searchParams.tripStyle; // 'circuit' | 'base'
+  const tripStyle   = searchParams.tripStyle;
   const tripType    = tripStyle === 'circuit' ? 'circuit' : 'city';
 
-  // ── User preference toggles (URL search params) ───────────────────────────
-  const cabinBags        = parseInt(searchParams.cabin_bags  ?? String(adults));
-  const checkedBags      = parseInt(searchParams.checked_bags ?? (tripType === 'circuit' ? String(adults) : '0'));
-  const seatsTogether    = searchParams.seats !== 'false';
+  // ── User preference toggles ───────────────────────────────────────────────
+  const cabinBags         = parseInt(searchParams.cabin_bags   ?? String(adults));
+  const checkedBags       = parseInt(searchParams.checked_bags ?? (tripType === 'circuit' ? String(adults) : '0'));
+  const seatsTogether     = searchParams.seats !== 'false';
   const transitPreference = (searchParams.transit === 'uber' ? 'uber' : 'auto') as 'auto' | 'uber';
 
   // TEMP: hardcoded until leaderboard passes destination slug
   const destinationSlug = 'barcelona';
-
 
   if (!urn || !windowStart || !windowEnd) {
     return (
@@ -61,7 +60,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
-  // ── Wave 1: savings breakdown + smart recommendation ──────────────────────
+  // ── Three parallel calls — no sequential dependencies ────────────────────
+  // get_savings_breakdown: kept for SavingsBreakdown component
+  // get_smart_recommendation: combinations + baseline
+  // all_schools: school context
   const [savingsResult, smartResult, schoolResult] = await Promise.all([
     supabase.rpc('get_savings_breakdown', {
       p_destination_slug: destinationSlug,
@@ -91,7 +93,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       .maybeSingle(),
   ]);
 
-
   if (savingsResult.error || !savingsResult.data) {
     return (
       <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
@@ -103,34 +104,43 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
-  // ── Extract optimal dates from Wave 1 ─────────────────────────────────────
-  const savingsData      = savingsResult.data as any;
-  const bestOutboundDate = savingsData?.best_outbound_date as string | undefined;
-  const bestReturnDate   = savingsData?.best_return_date   as string | undefined;
-
-  if (!bestOutboundDate || !bestReturnDate) {
-    console.error('[FlightInsights] best_outbound_date or best_return_date missing. savingsResult.data shape:', JSON.stringify(savingsResult.data, null, 2));
-    return (
-      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-        <strong>Could not extract optimal dates from savings breakdown.</strong>
-        <pre style={{ marginTop: 12, fontSize: 12 }}>
-          {JSON.stringify(savingsResult.data, null, 2)}
-        </pre>
-      </div>
-    );
-  }
-
-  // ── Assemble smart recommendation (transit-enriched) ──────────────────────
+  // ── School context ────────────────────────────────────────────────────────
   const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
   const schoolName       = (schoolResult.data as any)?.school_name ?? null;
   const borough          = (schoolResult.data as any)?.borough ?? null;
+
+  // ── Assemble combinations (fast — no AI call) ─────────────────────────────
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
   const assembled = smartRaw
-    ? await assembleCombinationsOnly(smartRaw, postcodeDistrict, adults, children, infants, transitPreference)
+    ? await assembleCombinationsOnly(
+        smartRaw,
+        postcodeDistrict,
+        adults,
+        children,
+        infants,
+        transitPreference,
+      )
     : null;
 
+  // ── Smart dates — derived from assembled recommendation ───────────────────
+  // No longer dependent on get_savings_breakdown best_outbound/return_date.
+  const smartOutboundDate = assembled?.baselineIsRecommended
+    ? assembled.baseline.outbound_date
+    : assembled?.recommendation?.outbound_date ?? windowStart;
+
+  const smartReturnDate = assembled?.baselineIsRecommended
+    ? assembled.baseline.return_date
+    : assembled?.recommendation?.return_date ?? windowEnd;
+
+  // ── User-selected dates (from matrix cell click) ──────────────────────────
+  const selectedOutbound = searchParams.selected_outbound ?? smartOutboundDate;
+  const selectedReturn   = searchParams.selected_return   ?? smartReturnDate;
+
+  // ── AI recommendation — non-blocking Promise via Suspense ─────────────────
+  // Passes shortlist (10-15 curated combinations) not all 128.
+  // benchmarkCost from assembleCombinationsOnly for headline narrative.
   const aiPromise: Promise<AIRecommendationOutput | null> = smartRaw && assembled
-    ? getAIRecommendation(assembled.combinations, {
+    ? getAIRecommendation(assembled.shortlist, {
         schoolName,
         borough,
         postcodeDistrict,
@@ -142,42 +152,19 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         cabinBags,
         checkedBags,
         seatsTogether,
+        benchmarkCost: assembled.benchmark,
       })
     : Promise.resolve(null);
-  const recommendation    = assembled?.recommendation  ?? null;
-  const assembledBaseline = assembled?.baseline        ?? null;
-  const savingCategory    = assembled?.savingCategory  ?? 'significant';
 
-  // Override Wave 2 date sources with recommendation dates when available
-  const smartOutboundDate = assembled?.baselineIsRecommended
-    ? assembled?.baseline?.outbound_date
-    : assembled?.recommendation?.outbound_date ?? bestOutboundDate;
-
-  const smartReturnDate = assembled?.baselineIsRecommended
-    ? assembled?.baseline?.return_date
-    : assembled?.recommendation?.return_date ?? bestReturnDate;
-
-  // ── User-selected dates (from matrix cell click) ───────────────────────────
-  const selectedOutbound = searchParams?.selected_outbound ?? smartOutboundDate;
-  const selectedReturn   = searchParams?.selected_return   ?? smartReturnDate;
-
-  // ── Wave 2: all remaining RPC calls in parallel ────────────────────────────
+  // ── Leg options — parallel, for selected dates ────────────────────────────
+  // get_nearby_destination_airports retired — redundant with leg option tables.
+  // get_open_jaw kept but non-fatal — only relevant for circuit destinations.
   const [
     openJawResult,
-    nearbyAirportsResult,
     outboundLegResult,
     returnLegResult,
   ] = await Promise.all([
     supabase.rpc('get_open_jaw', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_outbound_date:    smartOutboundDate,
-      p_return_date:      smartReturnDate,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-    }),
-    supabase.rpc('get_nearby_destination_airports', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
       p_outbound_date:    smartOutboundDate,
@@ -212,17 +199,23 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
   ]);
 
-  // Wave 2 errors are non-fatal — null means that section won't render
-
+  // ── Helpers ───────────────────────────────────────────────────────────────
   function formatDate(iso: string): string {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const d = new Date(iso + 'T00:00:00');
     return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
   }
 
+  const savingsData      = savingsResult.data as any;
+  const recommendation   = assembled?.recommendation  ?? null;
+  const assembledBaseline = assembled?.baseline       ?? null;
+  const savingCategory   = assembled?.savingCategory  ?? 'significant';
+
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+
+        {/* Preferences bar */}
         <PreferencesCard
           cabinBags={cabinBags}
           checkedBags={checkedBags}
@@ -230,6 +223,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           transitPreference={transitPreference}
           postcodeDistrict={postcodeDistrict}
         />
+
+        {/* Savings breakdown — itinerary + calculation table */}
         <SavingsBreakdown
           data={savingsData}
           recommendation={recommendation}
@@ -238,7 +233,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           children={children}
           windowStart={windowStart}
           destinationSlug={destinationSlug}
-          boroughName={(schoolResult.data as any)?.borough ?? null}
+          boroughName={borough}
           outbound_transit={recommendation?.outbound_transit ?? null}
           return_transit={recommendation?.return_transit ?? null}
           postcodeDistrict={postcodeDistrict}
@@ -252,7 +247,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           baselineIsRecommended={assembled?.baselineIsRecommended}
           baselineAsItinerary={assembled?.baselineAsItinerary}
         />
+
+        {/* AI narrative — headline + prose + lever cards (streams in via Suspense) */}
         <AINarrative promise={aiPromise} />
+
+        {/* Date matrix */}
         {assembled && (
           <ComplianceCalculator
             combinations={assembled.combinations}
@@ -269,6 +268,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             selectedReturn={selectedReturn}
           />
         )}
+
+        {/* Outbound leg options */}
         <div id="leg-options">
           <LegOptions
             data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
@@ -280,14 +281,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             postcodeDistrict={postcodeDistrict}
             selectedDate={selectedOutbound}
             smartDate={smartOutboundDate}
-            recommendedOption={assembled?.recommendation ? {
-              airline_iata:     assembled.recommendation.outbound_carrier,
-              origin_iata:      assembled.recommendation.origin_iata,
-              destination_iata: assembled.recommendation.out_dest_iata,
-              departure_time:   assembled.recommendation.outbound_departure_time ?? '',
+            recommendedOption={recommendation ? {
+              airline_iata:     recommendation.outbound_carrier,
+              origin_iata:      recommendation.origin_iata,
+              destination_iata: recommendation.out_dest_iata,
+              departure_time:   recommendation.outbound_departure_time ?? '',
             } : null}
           />
         </div>
+
+        {/* Return leg options */}
         <LegOptions
           data={returnLegResult?.error ? null : returnLegResult?.data as any}
           title={`Return options · ${formatDate(smartReturnDate)}`}
@@ -298,13 +301,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
           postcodeDistrict={postcodeDistrict}
           selectedDate={selectedReturn}
           smartDate={smartReturnDate}
-          recommendedOption={assembled?.recommendation ? {
-            airline_iata:     assembled.recommendation.return_carrier,
-            origin_iata:      assembled.recommendation.out_dest_iata,
-            destination_iata: assembled.recommendation.ret_dest_iata,
-            departure_time:   assembled.recommendation.return_arrival_time ?? '',
+          recommendedOption={recommendation ? {
+            airline_iata:     recommendation.return_carrier,
+            origin_iata:      recommendation.out_dest_iata,
+            destination_iata: recommendation.ret_dest_iata,
+            departure_time:   recommendation.return_arrival_time ?? '',
           } : null}
         />
+
       </div>
     </main>
   );
