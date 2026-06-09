@@ -85,6 +85,23 @@ BEGIN
       dat.transit_offpeak_route_summary AS transit_method,
       dat.transit_offpeak_duration_mins AS transit_duration_mins,
       dat.transit_changes,
+      -- Family transit cost in pence (adults × adult fare + children × half adult fare)
+      -- Simple approximation — children pay half adult fare for National Rail/coach,
+      -- under-11s free on TfL (LHR/LCY), half price elsewhere
+      CASE
+        WHEN dat.transit_offpeak_fare_pence IS NULL THEN NULL
+        ELSE
+          dat.transit_offpeak_fare_pence * v_composition.adults
+          + CASE
+              WHEN (CASE WHEN p_direction = 'outbound' THEN fs.origin_iata
+                         ELSE fs.destination_iata END) IN ('LHR', 'LCY')
+                -- TfL: under-11 children free (treat all children as under-11)
+                THEN 0
+              ELSE
+                -- National Rail / coach: children half price
+                dat.transit_offpeak_fare_pence * v_composition.children / 2
+            END
+      END AS transit_family_pence,
       COALESCE(da.transfer_cost_gbp, 0) * 2 AS destination_transfer_gbp,
       fs.airline_iata IN ('FR', 'W6') AS baggage_is_estimate,
       ab.seat_selection_gbp IS NOT NULL
@@ -121,14 +138,16 @@ BEGIN
     SELECT DISTINCT ON (airline_iata, origin_iata, destination_iata)
       *,
       (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp +
-       seat_cost_gbp + destination_transfer_gbp) AS sort_total
+       seat_cost_gbp + destination_transfer_gbp +
+       COALESCE(transit_family_pence / 100.0, 0)) AS sort_total
     FROM all_options
     ORDER BY
       airline_iata,
       origin_iata,
       destination_iata,
       (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp +
-       seat_cost_gbp + destination_transfer_gbp) ASC
+       seat_cost_gbp + destination_transfer_gbp +
+       COALESCE(transit_family_pence / 100.0, 0)) ASC
   )
 
   SELECT jsonb_agg(
@@ -151,7 +170,7 @@ BEGIN
       'transit_peak_fare_pence',    transit_peak_fare_pence,
       'uber_low_pence',             uber_low_pence,
       'uber_high_pence',            uber_high_pence,
-      'transit_cost_gbp',           NULL,
+      'transit_cost_gbp',           ROUND(transit_family_pence / 100.0, 2),
       'transit_method',             transit_method,
       'transit_duration_mins',      transit_duration_mins,
       'transit_changes',            transit_changes,

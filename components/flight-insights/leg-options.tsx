@@ -139,6 +139,11 @@ function computeTransitCost(
     return uberCost ?? 0;
   }
 
+  // Use pre-computed family transit cost from RPC when available (auto mode only)
+  if (option.transit_cost_gbp != null) {
+    return option.transit_cost_gbp;
+  }
+
   const transitFare = option.transit_offpeak_fare_pence != null
     ? option.transit_offpeak_fare_pence / 100.0
     : null;
