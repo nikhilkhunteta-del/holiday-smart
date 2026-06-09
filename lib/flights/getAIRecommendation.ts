@@ -133,7 +133,7 @@ SHORTLIST (${combinations.length} curated candidates — each represents the bes
 ${JSON.stringify(combinationsForPrompt, null, 2)}
 
 SCORING FRAMEWORK:
-Score each combination out of 100. Show your working for the top 5 before giving your answer.
+Score each combination out of 100 internally. Do NOT write out your scoring — output only the JSON. All reasoning goes inside picking_reasoning only.
 
 COST SCORE (35 points):
 - Cheapest combination = 35 points
@@ -205,7 +205,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     const pickStart = Date.now();
     const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 2048,
       messages: [{ role: 'user', content: pickPrompt }],
     }).withResponse();
     console.log('[getAIRecommendation] pick call ms:', Date.now() - pickStart);
