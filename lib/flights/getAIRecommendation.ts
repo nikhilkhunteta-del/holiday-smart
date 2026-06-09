@@ -182,12 +182,14 @@ FINAL CHECK before confirming your pick:
 2. Does your pick have outbound_departure_quality 'poor' (after 17:00)? If yes, is the cost saving vs the next 'ideal' or 'good' departure worth arriving at night?
 3. Does your pick have return_departure_quality 'very_early' (before 09:00)? If yes, is the cost saving vs the next 'early' or 'good' return worth losing the last day entirely?
 4. Is there a combination within £30 where the family gets meaningfully more usable holiday time?
+5. If your pick costs more than the cheapest combination, state the exact cost difference in picking_reasoning. Example: "costs £33 more than the cheapest option (index 6 at £702.40)."
 
 IMPORTANT:
 - fine_gbp is already included in total_inc_fine
 - Do not penalise split_carrier — mixing airlines is fine and often saves money
 - Never celebrate an inset day departure that arrives after 18:00 as giving an "extra day" — it does not
 - The cheapest option is not always the best — but always justify any pick that costs more
+- When comparing trip_nights between two combinations, always state the DIFFERENCE not the absolute value. Example: "index 1 has 1 more night than index 6" not "index 1 has 4 trip nights". The difference is what matters for the parent.
 
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
@@ -401,6 +403,7 @@ RECOMMENDATION PROSE:
 2-3 sentences directly to the parent explaining the overall pick.
 - Reference actual times, costs, dates from the recommended combination
 - If not cheapest, explain what extra value it provides
+- If the recommended combination is NOT the cheapest option on these dates, the prose MUST acknowledge this explicitly in the first or second sentence: "This costs £[X] more than the cheapest option on these dates — [reason why it's worth it]." Do not bury this. The parent will notice and trust you more for being upfront.
 - Mention arrival quality honestly — if arriving after 18:00, do not call it an "extra day"
 - Mention the inset day benefit if is_inset_day: true AND arrival_quality is 'excellent' or 'good'
 - Warm, direct, specific — knowledgeable friend voice
