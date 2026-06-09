@@ -1,5 +1,6 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
+import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -14,10 +15,25 @@ export type AssembledCombination = {
   split_carrier: boolean;
   outbound_fare_gbp: number;
   return_fare_gbp: number;
+  // Combined bag/seat costs (existing — unchanged)
   cabin_bag_cost_gbp: number;
   checked_bag_cost_gbp: number;
   seat_cost_gbp: number;
   fare_plus_ancillary_gbp: number;
+  // Per-leg bag/seat costs (new — from SQL v2)
+  outbound_cabin_bag_cost_gbp: number;
+  return_cabin_bag_cost_gbp: number;
+  outbound_checked_bag_cost_gbp: number;
+  return_checked_bag_cost_gbp: number;
+  outbound_seat_cost_gbp: number;
+  return_seat_cost_gbp: number;
+  outbound_ancillary_gbp: number;
+  return_ancillary_gbp: number;
+  // Bag cost ranges (new — from SQL v2, null when min === max)
+  cabin_bag_cost_min_gbp: number;
+  cabin_bag_cost_max_gbp: number;
+  checked_bag_cost_min_gbp: number;
+  checked_bag_cost_max_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
   requires_absence: boolean;
@@ -33,7 +49,7 @@ export type AssembledCombination = {
   baggage_is_estimate: boolean;
   family_split_risk: boolean;
   split_risk_carriers: string[] | null;
-  // Transit-enriched fields
+  // Transit-enriched fields (added in TypeScript)
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
   transit_cost_gbp: number;
@@ -76,41 +92,99 @@ function cacheKey(airport: string, dateStr: string, timeStr: string): string {
 
 function parseDepartureDate(dateStr: string, timeStr: string | null | undefined): Date {
   const time = timeStr ?? '09:00';
-  // timeStr may be a full ISO string or just HH:MM
   const timePart = time.includes('T') ? time.split('T')[1].slice(0, 5) : time.slice(0, 5);
   return new Date(`${dateStr}T${timePart}:00`);
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ── Shared combination mapper ─────────────────────────────────────────────────
+// Maps raw SQL combination + transit data into AssembledCombination.
+// Used by both assembleCombinationsOnly and assembleRecommendation.
 
-export type BaselineAsItinerary = {
-  outbound_date: string;
-  return_date: string;
-  origin_iata: string;
-  outbound_carrier: string;
-  return_carrier: string;
-  total_cost_gbp: number;
-  outbound_departure_time: string | null;
-};
+function mapCombination(
+  c: any,
+  outTransit: AirportTransitCost,
+  retTransit: AirportTransitCost,
+): AssembledCombination {
+  const outTransitGbp = outTransit.recommended_cost_pence / 100;
+  const retTransitGbp = retTransit.recommended_cost_pence / 100;
+  const transitCostGbp = outTransitGbp + retTransitGbp;
+  const totalCostGbp =
+    (c.fare_plus_ancillary_gbp ?? 0) + transitCostGbp + (c.destination_transfer_cost_gbp ?? 0);
+  const totalIncFine = totalCostGbp + (c.fine_gbp ?? 0);
 
-export async function assembleCombinationsOnly(
-  rawResult: any,
+  return {
+    outbound_date: c.outbound_date,
+    return_date: c.return_date,
+    origin_iata: c.origin_iata,
+    out_dest_iata: c.out_dest_iata,
+    ret_dest_iata: c.ret_dest_iata,
+    outbound_carrier: c.outbound_carrier,
+    return_carrier: c.return_carrier,
+    split_carrier: c.split_carrier,
+    outbound_fare_gbp: c.outbound_fare_gbp,
+    return_fare_gbp: c.return_fare_gbp,
+    // Combined (existing)
+    cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
+    checked_bag_cost_gbp: c.checked_bag_cost_gbp,
+    seat_cost_gbp: c.seat_cost_gbp,
+    fare_plus_ancillary_gbp: c.fare_plus_ancillary_gbp,
+    // Per-leg (new from SQL v2 — fall back to 0 if old SQL)
+    outbound_cabin_bag_cost_gbp: c.outbound_cabin_bag_cost_gbp ?? 0,
+    return_cabin_bag_cost_gbp: c.return_cabin_bag_cost_gbp ?? 0,
+    outbound_checked_bag_cost_gbp: c.outbound_checked_bag_cost_gbp ?? 0,
+    return_checked_bag_cost_gbp: c.return_checked_bag_cost_gbp ?? 0,
+    outbound_seat_cost_gbp: c.outbound_seat_cost_gbp ?? 0,
+    return_seat_cost_gbp: c.return_seat_cost_gbp ?? 0,
+    outbound_ancillary_gbp: c.outbound_ancillary_gbp ?? 0,
+    return_ancillary_gbp: c.return_ancillary_gbp ?? 0,
+    // Ranges (new from SQL v2 — fall back to point estimate)
+    cabin_bag_cost_min_gbp: c.cabin_bag_cost_min_gbp ?? c.cabin_bag_cost_gbp,
+    cabin_bag_cost_max_gbp: c.cabin_bag_cost_max_gbp ?? c.cabin_bag_cost_gbp,
+    checked_bag_cost_min_gbp: c.checked_bag_cost_min_gbp ?? c.checked_bag_cost_gbp,
+    checked_bag_cost_max_gbp: c.checked_bag_cost_max_gbp ?? c.checked_bag_cost_gbp,
+    destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
+    destination_transfer_known: c.destination_transfer_known,
+    requires_absence: c.requires_absence,
+    absence_days: c.absence_days,
+    fine_gbp: c.fine_gbp,
+    outbound_departure_time: c.outbound_departure_time,
+    outbound_arrival_time: c.outbound_arrival_time,
+    outbound_duration_mins: c.outbound_duration_mins,
+    return_departure_time: c.return_departure_time,
+    return_arrival_time: c.return_arrival_time,
+    return_duration_mins: c.return_duration_mins,
+    is_inset_day: c.is_inset_day,
+    baggage_is_estimate: c.baggage_is_estimate,
+    family_split_risk: c.family_split_risk,
+    split_risk_carriers: c.split_risk_carriers,
+    outbound_transit_cost_gbp: outTransitGbp,
+    return_transit_cost_gbp: retTransitGbp,
+    transit_cost_gbp: transitCostGbp,
+    total_cost_gbp: totalCostGbp,
+    total_inc_fine: totalIncFine,
+    outbound_transit: outTransit,
+    return_transit: retTransit,
+  };
+}
+
+// ── Shared transit enrichment ─────────────────────────────────────────────────
+// Collects all unique transit lookups needed for a combinations array + baseline,
+// fires them in parallel, returns a populated transit cache.
+
+async function buildTransitCache(
+  combinations: any[],
+  baseline: any,
   postcodeDistrict: string,
+  nearestAirport: string,
   adults: number,
   children: number,
   infants: number,
-  transitPreference: 'auto' | 'uber' = 'auto',
+  transitPreference: 'auto' | 'uber',
 ): Promise<{
-  combinations: AssembledCombination[];
-  baseline: AssembledBaseline;
-  recommendation: AssembledCombination;
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
-  baselineIsRecommended: boolean;
-  baselineAsItinerary: BaselineAsItinerary;
+  transitCache: Map<string, AirportTransitCost>;
+  baselineOutKey: string;
+  baselineRetKey: string;
 }> {
-  const combinations: any[] = rawResult?.combinations ?? [];
-  const baseline: any = rawResult?.baseline ?? {};
-
   const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
 
   const transitMap = new Map<
@@ -137,31 +211,22 @@ export async function assembleCombinationsOnly(
     }
   }
 
-  let nearestAirport = 'LHR';
-  try {
-    const { supabaseServer } = await import('../supabase-server');
-    const { data: nearestData } = await supabaseServer
-      .from('district_airport_transit')
-      .select('airport_code')
-      .eq('postcode_district', postcodeDistrict)
-      .in('airport_code', ['LHR', 'LGW', 'STN', 'LTN', 'LCY'])
-      .order('uber_distance_km', { ascending: true })
-      .limit(1);
-    if (nearestData?.[0]?.airport_code) {
-      nearestAirport = nearestData[0].airport_code;
-    }
-  } catch {
-    // fall back to LHR
-  }
-
-  const baselineOutKey = cacheKey(nearestAirport, baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00');
+  const baselineOutKey = cacheKey(
+    nearestAirport,
+    baseline.outbound_date ?? '',
+    baseline.outbound_departure_time ?? '09:00',
+  );
   if (!transitMap.has(baselineOutKey) && baseline.outbound_date) {
     transitMap.set(baselineOutKey, {
       postcode_district: postcodeDistrict,
       airport_iata: nearestAirport,
-      departure_time: parseDepartureDate(baseline.outbound_date, baseline.outbound_departure_time ?? '09:00'),
+      departure_time: parseDepartureDate(
+        baseline.outbound_date,
+        baseline.outbound_departure_time ?? '09:00',
+      ),
     });
   }
+
   const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
   if (!transitMap.has(baselineRetKey) && baseline.return_date) {
     transitMap.set(baselineRetKey, {
@@ -176,6 +241,7 @@ export async function assembleCombinationsOnly(
   const results = await Promise.all(
     inputs.map(input => getTransitCost({ ...input, adults, children: childrenArr, infants })),
   );
+
   const transitCache = new Map<string, AirportTransitCost>();
   for (let i = 0; i < keys.length; i++) {
     transitCache.set(keys[i], results[i]);
@@ -191,73 +257,38 @@ export async function assembleCombinationsOnly(
     }
   }
 
-  const assembled: AssembledCombination[] = combinations.map((c: any) => {
-    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
-    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
-    const outTransit = transitCache.get(outKey)!;
-    const retTransit = transitCache.get(retKey)!;
-    const outTransitGbp = outTransit.recommended_cost_pence / 100;
-    const retTransitGbp = retTransit.recommended_cost_pence / 100;
-    const transitCostGbp = outTransitGbp + retTransitGbp;
-    const totalCostGbp =
-      (c.fare_plus_ancillary_gbp ?? 0) + transitCostGbp + (c.destination_transfer_cost_gbp ?? 0);
-    const totalIncFine = totalCostGbp + (c.fine_gbp ?? 0);
-    return {
-      outbound_date: c.outbound_date,
-      return_date: c.return_date,
-      origin_iata: c.origin_iata,
-      out_dest_iata: c.out_dest_iata,
-      ret_dest_iata: c.ret_dest_iata,
-      outbound_carrier: c.outbound_carrier,
-      return_carrier: c.return_carrier,
-      split_carrier: c.split_carrier,
-      outbound_fare_gbp: c.outbound_fare_gbp,
-      return_fare_gbp: c.return_fare_gbp,
-      cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
-      checked_bag_cost_gbp: c.checked_bag_cost_gbp,
-      seat_cost_gbp: c.seat_cost_gbp,
-      fare_plus_ancillary_gbp: c.fare_plus_ancillary_gbp,
-      destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
-      destination_transfer_known: c.destination_transfer_known,
-      requires_absence: c.requires_absence,
-      absence_days: c.absence_days,
-      fine_gbp: c.fine_gbp,
-      outbound_departure_time: c.outbound_departure_time,
-      outbound_arrival_time: c.outbound_arrival_time,
-      outbound_duration_mins: c.outbound_duration_mins,
-      return_departure_time: c.return_departure_time,
-      return_arrival_time: c.return_arrival_time,
-      return_duration_mins: c.return_duration_mins,
-      is_inset_day: c.is_inset_day,
-      baggage_is_estimate: c.baggage_is_estimate,
-      family_split_risk: c.family_split_risk,
-      split_risk_carriers: c.split_risk_carriers,
-      outbound_transit_cost_gbp: outTransitGbp,
-      return_transit_cost_gbp: retTransitGbp,
-      transit_cost_gbp: transitCostGbp,
-      total_cost_gbp: totalCostGbp,
-      total_inc_fine: totalIncFine,
-      outbound_transit: outTransit,
-      return_transit: retTransit,
-    };
-  });
+  return { transitCache, baselineOutKey, baselineRetKey };
+}
 
-  assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
+// ── Nearest airport lookup ────────────────────────────────────────────────────
 
-  const cheapest = assembled[0];
-  if (cheapest && !cheapest.is_inset_day) {
-    const insetAlternative = assembled.find(c =>
-      c.is_inset_day && !c.requires_absence && c.total_inc_fine - cheapest.total_inc_fine <= 20
-    );
-    if (insetAlternative) {
-      const idx = assembled.indexOf(insetAlternative);
-      assembled.splice(idx, 1);
-      assembled.unshift(insetAlternative);
-    }
+async function resolveNearestAirport(postcodeDistrict: string): Promise<string> {
+  try {
+    const { supabaseServer } = await import('../supabase-server');
+    const { data } = await supabaseServer
+      .from('district_airport_transit')
+      .select('airport_code')
+      .eq('postcode_district', postcodeDistrict)
+      .in('airport_code', ['LHR', 'LGW', 'STN', 'LTN', 'LCY'])
+      .order('uber_distance_km', { ascending: true })
+      .limit(1);
+    return data?.[0]?.airport_code ?? 'LHR';
+  } catch {
+    return 'LHR';
   }
+}
 
-  const blOutTransit = baseline.outbound_date ? transitCache.get(baselineOutKey)! : null;
-  const blRetTransit = baseline.return_date ? transitCache.get(baselineRetKey)! : null;
+// ── Assembled baseline builder ────────────────────────────────────────────────
+
+function buildAssembledBaseline(
+  baseline: any,
+  nearestAirport: string,
+  transitCache: Map<string, AirportTransitCost>,
+  baselineOutKey: string,
+  baselineRetKey: string,
+): AssembledBaseline {
+  const blOutTransit = baseline.outbound_date ? transitCache.get(baselineOutKey) ?? null : null;
+  const blRetTransit = baseline.return_date ? transitCache.get(baselineRetKey) ?? null : null;
   const blOutTransitGbp = (blOutTransit?.recommended_cost_pence ?? 0) / 100;
   const blRetTransitGbp = (blRetTransit?.recommended_cost_pence ?? 0) / 100;
   const blTransitCostGbp = blOutTransitGbp + blRetTransitGbp;
@@ -266,7 +297,7 @@ export async function assembleCombinationsOnly(
     blTransitCostGbp +
     (baseline.destination_transfer_cost_gbp ?? 0);
 
-  const assembledBaseline: AssembledBaseline = {
+  return {
     outbound_date: baseline.outbound_date,
     return_date: baseline.return_date,
     origin_iata: baseline.origin_iata,
@@ -289,14 +320,135 @@ export async function assembleCombinationsOnly(
     outbound_transit: blOutTransit,
     return_transit: blRetTransit,
   };
+}
 
+// ── Saving category ───────────────────────────────────────────────────────────
+
+function computeSavingCategory(
+  baselineTotal: number,
+  recommendationTotal: number,
+): 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' {
+  const saving = baselineTotal - recommendationTotal;
+  if (saving >= 75) return 'significant';
+  if (saving >= 20) return 'modest';
+  if (saving >= 0)  return 'minimal';
+  return 'baseline_cheapest';
+}
+
+// ── Output types ──────────────────────────────────────────────────────────────
+
+export type BaselineAsItinerary = {
+  outbound_date: string;
+  return_date: string;
+  origin_iata: string;
+  outbound_carrier: string;
+  return_carrier: string;
+  total_cost_gbp: number;
+  outbound_departure_time: string | null;
+};
+
+// Return type for assembleCombinationsOnly
+export type CombinationsOnlyResult = {
+  combinations: AssembledCombination[];
+  baseline: AssembledBaseline;
+  recommendation: AssembledCombination;
+  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  baselineIsRecommended: boolean;
+  baselineAsItinerary: BaselineAsItinerary;
+  shortlist: ScoredCombination[];
+  benchmark: number | null;
+  nearestAirport: string;
+};
+
+// Return type for assembleRecommendation
+export type AssembledResult = CombinationsOnlyResult & {
+  aiRecommendation: AIRecommendationOutput;
+};
+
+// ── assembleCombinationsOnly ──────────────────────────────────────────────────
+// Fast path — no AI call. Used for initial page render.
+// Returns combinations, baseline, shortlist, and benchmark.
+
+export async function assembleCombinationsOnly(
+  rawResult: any,
+  postcodeDistrict: string,
+  adults: number,
+  children: number,
+  infants: number,
+  transitPreference: 'auto' | 'uber' = 'auto',
+): Promise<CombinationsOnlyResult> {
+  const combinations: any[] = rawResult?.combinations ?? [];
+  const baseline: any = rawResult?.baseline ?? {};
+
+  const nearestAirport = await resolveNearestAirport(postcodeDistrict);
+
+  const { transitCache, baselineOutKey, baselineRetKey } = await buildTransitCache(
+    combinations,
+    baseline,
+    postcodeDistrict,
+    nearestAirport,
+    adults,
+    children,
+    infants,
+    transitPreference,
+  );
+
+  const assembled: AssembledCombination[] = combinations.map((c: any) => {
+    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
+    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
+    return mapCombination(c, transitCache.get(outKey)!, transitCache.get(retKey)!);
+  });
+
+  assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
+
+  // Inset day promotion
+  const cheapest = assembled[0];
+  if (cheapest && !cheapest.is_inset_day) {
+    const insetAlt = assembled.find(
+      c => c.is_inset_day && !c.requires_absence && c.total_inc_fine - cheapest.total_inc_fine <= 20,
+    );
+    if (insetAlt) {
+      assembled.splice(assembled.indexOf(insetAlt), 1);
+      assembled.unshift(insetAlt);
+    }
+  }
+
+  const assembledBaseline = buildAssembledBaseline(
+    baseline, nearestAirport, transitCache, baselineOutKey, baselineRetKey,
+  );
+
+  // Build shortlist for AI (also returned so assembleRecommendation can reuse)
+  const shortlist = buildCandidateShortlist(assembled);
+
+  // Compute benchmark cost
   const recommendation = assembled[0];
-  const saving = assembledBaseline.total_cost_gbp - recommendation.total_cost_gbp;
-  const savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' =
-    saving >= 75 ? 'significant' :
-    saving >= 20 ? 'modest' :
-    saving >= 0  ? 'minimal' :
-                   'baseline_cheapest';
+  const primaryDestAirport = assembled
+    .filter(c => !c.split_carrier)
+    .reduce((acc, c) => {
+      const count = assembled.filter(x => x.out_dest_iata === c.out_dest_iata).length;
+      return count > (assembled.filter(x => x.out_dest_iata === acc).length) ? c.out_dest_iata : acc;
+    }, assembled[0]?.out_dest_iata ?? 'BCN');
+
+  const benchmark = buildCandidateShortlist.length > 0
+    ? computeBenchmark(
+        shortlist,
+        baseline.outbound_date ?? '',
+        nearestAirport,
+        primaryDestAirport,
+        shortlist[0]
+          ? Math.round(
+              (new Date(shortlist[0].return_date + 'T00:00:00').getTime() -
+               new Date(shortlist[0].outbound_date + 'T00:00:00').getTime()) /
+              (1000 * 60 * 60 * 24),
+            )
+          : 4,
+      )
+    : null;
+
+  const savingCategory = computeSavingCategory(
+    assembledBaseline.total_cost_gbp,
+    recommendation.total_cost_gbp,
+  );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
@@ -308,8 +460,22 @@ export async function assembleCombinationsOnly(
     outbound_departure_time: assembledBaseline.outbound_departure_time,
   };
 
-  return { combinations: assembled, baseline: assembledBaseline, recommendation, savingCategory, baselineIsRecommended, baselineAsItinerary };
+  return {
+    combinations: assembled,
+    baseline: assembledBaseline,
+    recommendation,
+    savingCategory,
+    baselineIsRecommended,
+    baselineAsItinerary,
+    shortlist,
+    benchmark,
+    nearestAirport,
+  };
 }
+
+// ── assembleRecommendation ────────────────────────────────────────────────────
+// Full path — calls assembleCombinationsOnly then fires AI recommendation.
+// The AI receives the shortlist (10-15 curated combinations) not all 128.
 
 export async function assembleRecommendation(
   rawResult: any,
@@ -325,232 +491,19 @@ export async function assembleRecommendation(
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
-): Promise<{
-  combinations: AssembledCombination[];
-  baseline: AssembledBaseline;
-  recommendation: AssembledCombination;
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
-  baselineIsRecommended: boolean;
-  baselineAsItinerary: BaselineAsItinerary;
-  aiRecommendation: AIRecommendationOutput;
-}> {
-  const combinations: any[] = rawResult?.combinations ?? [];
-  const baseline: any = rawResult?.baseline ?? {};
-
-  // Fabricate children array — use age 10 (school-age, child fare for all carriers)
-  const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
-
-  // ── Collect all unique transit calls ──────────────────────────────────────────
-  const transitMap = new Map<
-    string,
-    { postcode_district: string; airport_iata: string; departure_time: Date }
-  >();
-
-  for (const c of combinations) {
-    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
-    if (!transitMap.has(outKey)) {
-      transitMap.set(outKey, {
-        postcode_district: postcodeDistrict,
-        airport_iata: c.origin_iata,
-        departure_time: parseDepartureDate(c.outbound_date, c.outbound_departure_time),
-      });
-    }
-
-    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
-    if (!transitMap.has(retKey)) {
-      transitMap.set(retKey, {
-        postcode_district: postcodeDistrict,
-        airport_iata: c.ret_dest_iata,
-        departure_time: parseDepartureDate(c.return_date, c.return_arrival_time),
-      });
-    }
-  }
-
-  // Resolve nearest London airport for this postcode district
-  let nearestAirport = 'LHR';
-  try {
-    const { supabaseServer } = await import('../supabase-server');
-    const { data: nearestData } = await supabaseServer
-      .from('district_airport_transit')
-      .select('airport_code')
-      .eq('postcode_district', postcodeDistrict)
-      .in('airport_code', ['LHR', 'LGW', 'STN', 'LTN', 'LCY'])
-      .order('uber_distance_km', { ascending: true })
-      .limit(1);
-    if (nearestData?.[0]?.airport_code) {
-      nearestAirport = nearestData[0].airport_code;
-    }
-  } catch {
-    // fall back to LHR
-  }
-
-  // Baseline: nearest airport to postcode district, always 09:00
-  const baselineOutKey = cacheKey(nearestAirport, baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00');
-  if (!transitMap.has(baselineOutKey) && baseline.outbound_date) {
-    transitMap.set(baselineOutKey, {
-      postcode_district: postcodeDistrict,
-      airport_iata: nearestAirport,
-      departure_time: parseDepartureDate(baseline.outbound_date, baseline.outbound_departure_time ?? '09:00'),
-    });
-  }
-
-  const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
-  if (!transitMap.has(baselineRetKey) && baseline.return_date) {
-    transitMap.set(baselineRetKey, {
-      postcode_district: postcodeDistrict,
-      airport_iata: nearestAirport,
-      departure_time: parseDepartureDate(baseline.return_date, '09:00'),
-    });
-  }
-
-  // ── Issue all unique transit calls in parallel ─────────────────────────────
-  const keys = [...transitMap.keys()];
-  const inputs = keys.map(k => transitMap.get(k)!);
-
-  const results = await Promise.all(
-    inputs.map(input =>
-      getTransitCost({ ...input, adults, children: childrenArr, infants }),
-    ),
+): Promise<AssembledResult> {
+  // Reuse assembleCombinationsOnly — no duplication
+  const base = await assembleCombinationsOnly(
+    rawResult,
+    postcodeDistrict,
+    adults,
+    children,
+    infants,
+    transitPreference,
   );
 
-  const transitCache = new Map<string, AirportTransitCost>();
-  for (let i = 0; i < keys.length; i++) {
-    transitCache.set(keys[i], results[i]);
-  }
-
-  // ── Apply transit preference override ─────────────────────────────────────
-  // When 'uber': skip the 4-rule logic — use uber mean (already XL-adjusted) for all legs.
-  if (transitPreference === 'uber') {
-    for (const [key, t] of transitCache) {
-      transitCache.set(key, {
-        ...t,
-        recommended_mode: 'uber',
-        recommended_cost_pence: t.uber.mean_pence,
-      });
-    }
-  }
-
-  // ── Enrich combinations ────────────────────────────────────────────────────
-  const assembled: AssembledCombination[] = combinations.map((c: any) => {
-    const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
-    const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
-
-    const outTransit = transitCache.get(outKey)!;
-    const retTransit = transitCache.get(retKey)!;
-
-    const outTransitGbp = outTransit.recommended_cost_pence / 100;
-    const retTransitGbp = retTransit.recommended_cost_pence / 100;
-    const transitCostGbp = outTransitGbp + retTransitGbp;
-
-    const totalCostGbp =
-      (c.fare_plus_ancillary_gbp ?? 0) +
-      transitCostGbp +
-      (c.destination_transfer_cost_gbp ?? 0);
-
-    const totalIncFine = totalCostGbp + (c.fine_gbp ?? 0);
-
-    return {
-      outbound_date: c.outbound_date,
-      return_date: c.return_date,
-      origin_iata: c.origin_iata,
-      out_dest_iata: c.out_dest_iata,
-      ret_dest_iata: c.ret_dest_iata,
-      outbound_carrier: c.outbound_carrier,
-      return_carrier: c.return_carrier,
-      split_carrier: c.split_carrier,
-      outbound_fare_gbp: c.outbound_fare_gbp,
-      return_fare_gbp: c.return_fare_gbp,
-      cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
-      checked_bag_cost_gbp: c.checked_bag_cost_gbp,
-      seat_cost_gbp: c.seat_cost_gbp,
-      fare_plus_ancillary_gbp: c.fare_plus_ancillary_gbp,
-      destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
-      destination_transfer_known: c.destination_transfer_known,
-      requires_absence: c.requires_absence,
-      absence_days: c.absence_days,
-      fine_gbp: c.fine_gbp,
-      outbound_departure_time: c.outbound_departure_time,
-      outbound_arrival_time: c.outbound_arrival_time,
-      outbound_duration_mins: c.outbound_duration_mins,
-      return_departure_time: c.return_departure_time,
-      return_arrival_time: c.return_arrival_time,
-      return_duration_mins: c.return_duration_mins,
-      is_inset_day: c.is_inset_day,
-      baggage_is_estimate: c.baggage_is_estimate,
-      family_split_risk: c.family_split_risk,
-      split_risk_carriers: c.split_risk_carriers,
-      outbound_transit_cost_gbp: outTransitGbp,
-      return_transit_cost_gbp: retTransitGbp,
-      transit_cost_gbp: transitCostGbp,
-      total_cost_gbp: totalCostGbp,
-      total_inc_fine: totalIncFine,
-      outbound_transit: outTransit,
-      return_transit: retTransit,
-    };
-  });
-
-  // Sort by total_inc_fine ASC
-  assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
-
-  // Inset day promotion — if cheapest is not an inset day departure, check whether
-  // an inset day combination within £20 exists that requires no absence. If found,
-  // promote it to position 0 so it becomes the recommendation.
-  const cheapest = assembled[0];
-  if (cheapest && !cheapest.is_inset_day) {
-    const insetAlternative = assembled.find(c =>
-      c.is_inset_day &&
-      !c.requires_absence &&
-      c.total_inc_fine - cheapest.total_inc_fine <= 20
-    );
-    if (insetAlternative) {
-      const idx = assembled.indexOf(insetAlternative);
-      assembled.splice(idx, 1);
-      assembled.unshift(insetAlternative);
-    }
-  }
-
-  // ── Enrich baseline ────────────────────────────────────────────────────────
-  const blOutTransit = baseline.outbound_date
-    ? transitCache.get(baselineOutKey)!
-    : null;
-  const blRetTransit = baseline.return_date
-    ? transitCache.get(baselineRetKey)!
-    : null;
-
-  const blOutTransitGbp = (blOutTransit?.recommended_cost_pence ?? 0) / 100;
-  const blRetTransitGbp = (blRetTransit?.recommended_cost_pence ?? 0) / 100;
-  const blTransitCostGbp = blOutTransitGbp + blRetTransitGbp;
-  const blTotalCostGbp =
-    (baseline.fare_plus_ancillary_gbp ?? 0) +
-    blTransitCostGbp +
-    (baseline.destination_transfer_cost_gbp ?? 0);
-
-  const assembledBaseline: AssembledBaseline = {
-    outbound_date: baseline.outbound_date,
-    return_date: baseline.return_date,
-    origin_iata: baseline.origin_iata,
-    destination_iata: baseline.destination_iata,
-    carrier: baseline.carrier,
-    baseline_fare_gbp: baseline.baseline_fare_gbp,
-    cabin_bag_cost_gbp: baseline.cabin_bag_cost_gbp,
-    checked_bag_cost_gbp: baseline.checked_bag_cost_gbp,
-    seat_cost_gbp: baseline.seat_cost_gbp,
-    fare_plus_ancillary_gbp: baseline.fare_plus_ancillary_gbp,
-    destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
-    destination_transfer_known: baseline.destination_transfer_known,
-    outbound_departure_time: baseline.outbound_departure_time ?? null,
-    baseline_is_fallback: baseline.baseline_is_fallback,
-    baseline_airport: nearestAirport,
-    outbound_transit_cost_gbp: blOutTransitGbp,
-    return_transit_cost_gbp: blRetTransitGbp,
-    transit_cost_gbp: blTransitCostGbp,
-    total_cost_gbp: blTotalCostGbp,
-    outbound_transit: blOutTransit,
-    return_transit: blRetTransit,
-  };
-
-  // ── AI recommendation ──────────────────────────────────────────────────────
-  const aiRecommendation = await getAIRecommendation(assembled, {
+  // AI receives shortlist — not all 128 combinations
+  const aiRecommendation = await getAIRecommendation(base.shortlist, {
     schoolName,
     borough,
     postcodeDistrict,
@@ -562,33 +515,30 @@ export async function assembleRecommendation(
     cabinBags,
     checkedBags,
     seatsTogether,
+    benchmarkCost: base.benchmark,
   });
 
-  const recommendation = assembled[aiRecommendation.recommended_index] ?? assembled[0];
+  // Override recommendation with AI pick
+  const recommendation =
+    base.combinations[aiRecommendation.recommended_index] ?? base.combinations[0];
 
-  // ── Saving category ────────────────────────────────────────────────────────
-  const saving = assembledBaseline.total_cost_gbp - recommendation.total_cost_gbp;
-  const savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' =
-    saving >= 75 ? 'significant' :
-    saving >= 20 ? 'modest' :
-    saving >= 0  ? 'minimal' :
-                   'baseline_cheapest';
-
+  const savingCategory = computeSavingCategory(
+    base.baseline.total_cost_gbp,
+    recommendation.total_cost_gbp,
+  );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
-
   const baselineAsItinerary: BaselineAsItinerary = {
-    outbound_date: assembledBaseline.outbound_date,
-    return_date: assembledBaseline.return_date,
-    origin_iata: assembledBaseline.origin_iata,
-    outbound_carrier: assembledBaseline.carrier,
-    return_carrier: assembledBaseline.carrier,
-    total_cost_gbp: assembledBaseline.total_cost_gbp,
-    outbound_departure_time: assembledBaseline.outbound_departure_time,
+    outbound_date: base.baseline.outbound_date,
+    return_date: base.baseline.return_date,
+    origin_iata: base.baseline.origin_iata,
+    outbound_carrier: base.baseline.carrier,
+    return_carrier: base.baseline.carrier,
+    total_cost_gbp: base.baseline.total_cost_gbp,
+    outbound_departure_time: base.baseline.outbound_departure_time,
   };
 
   return {
-    combinations: assembled,
-    baseline: assembledBaseline,
+    ...base,
     recommendation,
     savingCategory,
     baselineIsRecommended,
