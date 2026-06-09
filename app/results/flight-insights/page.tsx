@@ -5,6 +5,7 @@ import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
+import { CTABlock } from '@/components/flight-insights/cta-block';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
@@ -228,6 +229,15 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
           {/* AI narrative — fetched client-side, updates context for matrix + legs */}
           <AIRecommendationClient fetchParams={aiFetchParams} />
+
+          <CTABlock
+            adults={adults}
+            children={children}
+            fallbackOutboundDate={smartOutboundDate}
+            fallbackReturnDate={smartReturnDate}
+            fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
+            fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
+          />
 
           {assembled && (
             <ComplianceCalculator
