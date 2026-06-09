@@ -171,6 +171,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const recommendation    = assembled?.recommendation  ?? null;
   const assembledBaseline = assembled?.baseline        ?? null;
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
+  const hasInsetDay       = assembled?.combinations?.some(c => c.is_inset_day) ?? false;
 
   // ── Params passed to client for AI fetch + preference re-runs ────────────
   const aiFetchParams = {
@@ -196,6 +197,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       <main className="min-h-screen bg-background">
         <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
 
+          {/* 1. PreferencesCard */}
           <PreferencesCard
             cabinBags={cabinBags}
             checkedBags={checkedBags}
@@ -204,6 +206,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             postcodeDistrict={postcodeDistrict}
           />
 
+          {/* 2. AIRecommendationClient — fetched client-side, updates context */}
+          <AIRecommendationClient
+            fetchParams={aiFetchParams}
+            schoolName={schoolName}
+            hasInsetDay={hasInsetDay}
+          />
+
+          {/* 3. SavingsBreakdown */}
           <SavingsBreakdown
             data={savingsData}
             recommendation={recommendation}
@@ -227,18 +237,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             baselineAsItinerary={assembled?.baselineAsItinerary}
           />
 
-          {/* AI narrative — fetched client-side, updates context for matrix + legs */}
-          <AIRecommendationClient fetchParams={aiFetchParams} />
-
-          <CTABlock
-            adults={adults}
-            children={children}
-            fallbackOutboundDate={smartOutboundDate}
-            fallbackReturnDate={smartReturnDate}
-            fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
-            fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
-          />
-
+          {/* 4. ComplianceCalculator */}
           {assembled && (
             <ComplianceCalculator
               combinations={assembled.combinations}
@@ -256,6 +255,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             />
           )}
 
+          {/* 5. LegOptions outbound */}
           <div id="leg-options">
             <LegOptions
               data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
@@ -276,6 +276,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             />
           </div>
 
+          {/* 6. LegOptions return */}
           <LegOptions
             data={returnLegResult?.error ? null : returnLegResult?.data as any}
             title={`Return options · ${formatDate(smartReturnDate)}`}
@@ -292,6 +293,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               destination_iata: recommendation.ret_dest_iata,
               departure_time:   recommendation.return_arrival_time ?? '',
             } : null}
+          />
+
+          {/* 7. CTABlock */}
+          <CTABlock
+            adults={adults}
+            children={children}
+            fallbackOutboundDate={smartOutboundDate}
+            fallbackReturnDate={smartReturnDate}
+            fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
+            fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
           />
 
         </div>

@@ -23,52 +23,81 @@ interface FetchParams {
 
 interface AIRecommendationClientProps {
   fetchParams: FetchParams;
+  schoolName: string | null;
+  hasInsetDay?: boolean;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
-function NarrativeSkeleton() {
+function NarrativeSkeleton({ schoolName, hasInsetDay }: {
+  schoolName: string | null;
+  hasInsetDay?: boolean;
+}) {
+  const lines = [
+    'Analysing 128 flight combinations for your half-term.',
+    'Checked 5 London airports × 3 destination airports × 7 airlines.',
+    'Calculated fares, bags, seats and transport for each combination.',
+    `Applied ${schoolName ?? 'your school'}'s exact term calendar and inset days.`,
+    hasInsetDay
+      ? 'Inset day detected — calculating the advantage...'
+      : 'Finding your best option...',
+  ];
+
   return (
     <div style={{
       background: '#ffffff',
       borderRadius: 16,
       boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
-      padding: 24,
+      padding: '32px 24px',
+      fontFamily: 'Inter, sans-serif',
     }}>
       <style>{`
-        @keyframes shimmer {
-          0% { opacity: 1; }
-          50% { opacity: 0.4; }
-          100% { opacity: 1; }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
-        .skeleton-line {
-          background: #e1e3e3;
-          border-radius: 4px;
-          animation: shimmer 1.5s ease-in-out infinite;
+        .loading-line {
+          opacity: 0;
+          animation: fadeInUp 0.4s ease forwards;
         }
       `}</style>
-      {/* Prose skeleton */}
-      <div style={{ marginBottom: 20 }}>
-        {[100, 90, 65].map((w, i) => (
-          <div
-            key={i}
-            className="skeleton-line"
-            style={{ height: 14, width: `${w}%`, marginBottom: 8 }}
-          />
-        ))}
-      </div>
-      {/* Card skeletons */}
+
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-        gap: 12,
+        fontSize: 11,
+        fontWeight: 700,
+        color: '#004349',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        marginBottom: 20,
       }}>
-        {[1, 2, 3].map(i => (
+        Analysing your options
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {lines.map((line, i) => (
           <div
             key={i}
-            className="skeleton-line"
-            style={{ height: 80, borderRadius: 12 }}
-          />
+            className="loading-line"
+            style={{
+              animationDelay: `${i * 0.7}s`,
+              fontSize: 15,
+              color: i === lines.length - 1 ? '#bfc8c9' : '#191c1d',
+              lineHeight: 1.5,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+            }}
+          >
+            <span style={{
+              fontSize: 13,
+              color: i === lines.length - 1 ? '#bfc8c9' : '#004349',
+              flexShrink: 0,
+              marginTop: 1,
+            }}>
+              {i === lines.length - 1 ? '⟳' : '✓'}
+            </span>
+            <span>{line}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -144,7 +173,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -192,7 +221,9 @@ export function AIRecommendationClient({ fetchParams }: AIRecommendationClientPr
     fetchParams.windowEnd,
   ]);
 
-  if (aiLoading && !aiResult) return <NarrativeSkeleton />;
+  if (aiLoading && !aiResult) return (
+    <NarrativeSkeleton schoolName={schoolName} hasInsetDay={hasInsetDay} />
+  );
   if (!aiResult || aiResult.fallback) return null;
 
   return (
@@ -203,40 +234,29 @@ export function AIRecommendationClient({ fetchParams }: AIRecommendationClientPr
       padding: 24,
       fontFamily: 'Inter, sans-serif',
     }}>
-      {/* Headline + subheadline */}
+      {/* Headline */}
       {aiResult.headline && (
         <p style={{
           fontFamily: 'Newsreader, serif',
-          fontSize: 22,
+          fontSize: 28,
           fontWeight: 600,
           color: '#191c1d',
-          lineHeight: 1.4,
+          lineHeight: 1.3,
           margin: '0 0 8px',
         }}>
           {aiResult.headline}
         </p>
       )}
+      {/* Subheadline */}
       {aiResult.subheadline && (
         <p style={{
           fontFamily: 'Inter, sans-serif',
           fontSize: 14,
           color: '#6f797a',
           lineHeight: 1.5,
-          margin: '0 0 16px',
+          margin: '0 0 20px',
         }}>
           {aiResult.subheadline}
-        </p>
-      )}
-      {/* Prose */}
-      {aiResult.recommendation_prose && (
-        <p style={{
-          fontFamily: 'Newsreader, serif',
-          fontSize: 18,
-          color: '#191c1d',
-          lineHeight: 1.7,
-          margin: '0 0 24px',
-        }}>
-          {aiResult.recommendation_prose}
         </p>
       )}
       {/* Lever cards */}
