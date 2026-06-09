@@ -111,6 +111,15 @@ export async function assembleCombinationsOnly(
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
 
+  const uniqueDatePairs = new Set(combinations.map((c: any) => `${c.outbound_date}_${c.return_date}`));
+  const uniqueOrigins = new Set(combinations.map((c: any) => c.origin_iata));
+  const uniqueOutDest = new Set(combinations.map((c: any) => c.out_dest_iata));
+  const uniqueCarriers = new Set(combinations.map((c: any) => c.outbound_carrier));
+  console.log('[combinations] unique date pairs:', uniqueDatePairs.size);
+  console.log('[combinations] unique origins:', uniqueOrigins.size, [...uniqueOrigins]);
+  console.log('[combinations] unique out_dest:', uniqueOutDest.size, [...uniqueOutDest]);
+  console.log('[combinations] unique carriers:', uniqueCarriers.size, [...uniqueCarriers]);
+
   const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
 
   const transitMap = new Map<
