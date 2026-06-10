@@ -48,14 +48,23 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
   const [visible, setVisible] = useState<boolean>(true);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let intervalId: ReturnType<typeof setInterval>;
+    intervalId = setInterval(() => {
       setVisible(false);
-      setTimeout(() => {
-        setVisibleIndex((i: number) => Math.min(i + 1, lines.length - 1));
+      timeoutId = setTimeout(() => {
+        setVisibleIndex((prev: number) => {
+          const next = Math.min(prev + 1, lines.length - 1);
+          if (next >= lines.length - 1) clearInterval(intervalId);
+          return next;
+        });
         setVisible(true);
       }, 200);
     }, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(intervalId);
+      clearTimeout(timeoutId);
+    };
   }, [lines.length]);
 
   const isLast = visibleIndex === lines.length - 1;
@@ -79,10 +88,17 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         Analysing your options
       </div>
 
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
       <div
-        className="transition-opacity duration-500"
         style={{
           opacity: visible ? 1 : 0,
+          transition: 'opacity 0.2s ease',
           fontSize: 15,
           color: isLast ? '#bfc8c9' : '#191c1d',
           lineHeight: 1.5,
