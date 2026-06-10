@@ -207,7 +207,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     const pickStart = Date.now();
     const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
       model: 'claude-fable-5',
-      max_tokens: 2048,
+      max_tokens: 8192,
       messages: [{ role: 'user', content: pickPrompt }],
     }).withResponse();
     console.log('[getAIRecommendation] pick call ms:', Date.now() - pickStart);
@@ -218,7 +218,9 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     const cleanPickText = pickText.replace(/```json|```/g, '').trim();
     const pickJsonMatch = cleanPickText.match(/\{[\s\S]*\}/);
     if (!pickJsonMatch) {
-      console.error('[getAIRecommendation] No JSON in pick response:', cleanPickText.slice(0, 200));
+      console.error('[getAIRecommendation] No JSON in pick response. Full response length:', cleanPickText.length);
+      console.error('[getAIRecommendation] Response start:', cleanPickText.slice(0, 500));
+      console.error('[getAIRecommendation] Response end:', cleanPickText.slice(-500));
       return FALLBACK;
     }
     const pickParsed = JSON.parse(pickJsonMatch[0]);
