@@ -276,6 +276,11 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
   return (
     <>
+      {children && (
+        <div style={{ animation: 'fadeIn 0.4s ease' }}>
+          {children}
+        </div>
+      )}
       {aiResult && !aiResult.fallback && (
         <div style={{
           background: '#ffffff',
@@ -338,11 +343,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               ))}
             </div>
           )}
-        </div>
-      )}
-      {children && (
-        <div style={{ animation: 'fadeIn 0.4s ease' }}>
-          {children}
         </div>
       )}
     </>
