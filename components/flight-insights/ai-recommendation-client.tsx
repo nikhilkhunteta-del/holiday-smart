@@ -67,7 +67,21 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
     };
   }, [lines.length]);
 
-  const isLast = visibleIndex === lines.length - 1;
+  const lineStyle = {
+    fontSize: 15,
+    color: '#191c1d',
+    lineHeight: 1.5,
+    display: 'flex',
+    alignItems: 'flex-start' as const,
+    gap: 10,
+  };
+
+  const iconStyle = {
+    fontSize: 13,
+    color: '#004349',
+    flexShrink: 0,
+    marginTop: 1,
+  };
 
   return (
     <div style={{
@@ -95,27 +109,23 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         }
       `}</style>
 
-      <div
-        style={{
-          opacity: visible ? 1 : 0,
-          transition: 'opacity 0.2s ease',
-          fontSize: 15,
-          color: isLast ? '#bfc8c9' : '#191c1d',
-          lineHeight: 1.5,
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 10,
-        }}
-      >
-        <span style={{
-          fontSize: 13,
-          color: isLast ? '#bfc8c9' : '#004349',
-          flexShrink: 0,
-          marginTop: 1,
-        }}>
-          {isLast ? '⟳' : '✓'}
-        </span>
-        <span>{lines[visibleIndex]}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {lines.slice(0, visibleIndex).map((line, i) => (
+          <div key={i} style={{ ...lineStyle, opacity: 1 }}>
+            <span style={iconStyle}>✓</span>
+            <span>{line}</span>
+          </div>
+        ))}
+        <div
+          style={{
+            ...lineStyle,
+            opacity: visible ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+          }}
+        >
+          <span style={iconStyle}>✓</span>
+          <span>{lines[visibleIndex]}</span>
+        </div>
       </div>
     </div>
   );
