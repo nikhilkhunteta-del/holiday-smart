@@ -226,6 +226,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             fetchParams={aiFetchParams}
             schoolName={schoolName}
             hasInsetDay={hasInsetDay}
+            recommendation={recommendation}
           >
 
             {/* 3. SavingsBreakdown */}

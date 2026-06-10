@@ -26,6 +26,33 @@ interface AIRecommendationClientProps {
   schoolName: string | null;
   hasInsetDay?: boolean;
   children?: React.ReactNode;
+  recommendation?: {
+    outbound_date: string;
+    outbound_carrier: string;
+    origin_iata: string;
+    out_dest_iata: string;
+    outbound_departure_time: string | null;
+    return_date: string;
+    return_carrier: string;
+    ret_dest_iata: string;
+    return_arrival_time: string | null;
+  } | null;
+}
+
+function fmtShortDate(iso: string): string {
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(iso + 'T00:00:00');
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function carrierName(iata: string): string {
+  const map: Record<string, string> = {
+    BA: 'British Airways', U2: 'easyJet', FR: 'Ryanair',
+    VY: 'Vueling', W6: 'Wizz Air', TP: 'TAP',
+  };
+  return map[iata] ?? iata;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -220,7 +247,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -325,6 +352,72 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             }}>
               {aiResult.subheadline}
             </p>
+          )}
+          {/* Itinerary strip */}
+          {recommendation && (
+            <div style={{
+              borderLeft: '2px solid #004349',
+              paddingLeft: 16,
+              margin: '16px 0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}>
+              <div style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#004349',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                marginBottom: 4,
+              }}>
+                Our pick
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: 8,
+                fontSize: 13,
+                color: '#191c1d',
+                alignItems: 'center',
+              }}>
+                <span style={{ color: '#6f797a', minWidth: 56 }}>Outbound</span>
+                <span style={{ fontWeight: 600 }}>
+                  {fmtShortDate(recommendation.outbound_date)}
+                </span>
+                <span>·</span>
+                <span>{carrierName(recommendation.outbound_carrier)}</span>
+                <span>·</span>
+                <span>{recommendation.origin_iata} → {recommendation.out_dest_iata}</span>
+                {recommendation.outbound_departure_time && (
+                  <>
+                    <span>·</span>
+                    <span>departs {recommendation.outbound_departure_time.slice(0,5)}</span>
+                  </>
+                )}
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: 8,
+                fontSize: 13,
+                color: '#191c1d',
+                alignItems: 'center',
+              }}>
+                <span style={{ color: '#6f797a', minWidth: 56 }}>Return</span>
+                <span style={{ fontWeight: 600 }}>
+                  {fmtShortDate(recommendation.return_date)}
+                </span>
+                <span>·</span>
+                <span>{carrierName(recommendation.return_carrier)}</span>
+                <span>·</span>
+                <span>{recommendation.ret_dest_iata} → {recommendation.origin_iata}</span>
+                {recommendation.return_arrival_time && (
+                  <>
+                    <span>·</span>
+                    <span>arrives {recommendation.return_arrival_time.slice(0,5)}</span>
+                  </>
+                )}
+              </div>
+            </div>
           )}
           {/* Lever cards */}
           {aiResult.lever_insights.length > 0 && (
