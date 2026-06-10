@@ -173,6 +173,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
   const hasInsetDay       = assembled?.combinations?.some(c => c.is_inset_day) ?? false;
 
+  const combinationRange = assembled?.combinations
+    ? Math.max(...assembled.combinations.map((c: any) => c.total_inc_fine ?? 0)) -
+      Math.min(...assembled.combinations
+        .filter((c: any) => !c.requires_absence)
+        .map((c: any) => c.total_inc_fine ?? 0))
+    : null;
+
   // ── Params passed to client for AI fetch + preference re-runs ────────────
   const aiFetchParams = {
     destinationSlug,
@@ -252,6 +259,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
                 baselineIsRecommended={assembled.baselineIsRecommended}
                 selectedOutbound={selectedOutbound}
                 selectedReturn={selectedReturn}
+                combinationRange={combinationRange}
               />
             )}
 

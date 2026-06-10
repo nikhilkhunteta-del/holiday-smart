@@ -91,6 +91,7 @@ interface ComplianceCalculatorProps {
   baselineIsRecommended?: boolean;
   selectedOutbound?: string;
   selectedReturn?: string;
+  combinationRange?: number | null;
 }
 
 // ── Baseline cell ──────────────────────────────────────────────────────────────
@@ -261,6 +262,7 @@ export function ComplianceCalculator({
   baselineIsRecommended,
   selectedOutbound,
   selectedReturn,
+  combinationRange,
 }: ComplianceCalculatorProps) {
   const router        = useRouter();
   const currentParams = useSearchParams();
@@ -312,7 +314,14 @@ export function ComplianceCalculator({
         When you fly changes everything.
       </h2>
       <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
-        Every viable departure and return combination for your half-term, fully priced — flights, bags, seats and transfers included.
+        <>
+          Every viable departure and return combination for your half-term, fully priced — flights, bags, seats and transfers included.
+          {combinationRange != null && combinationRange > 0 && (
+            <>
+              {' '}The difference between cheapest and most expensive this half-term: £{Math.round(combinationRange)}. Fines shown where school absence applies.
+            </>
+          )}
+        </>
       </p>
 
       {combinations.length === 0 ? (
