@@ -282,32 +282,6 @@ export function SavingsBreakdown({
   return (
     <section className="flex flex-col gap-xl">
 
-      {/* ── Section A: Headline ─────────────────────────────────────────────── */}
-      <div>
-        {baselineIsRecommended ? (
-          <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 16 }}>
-            The cheapest all-in option we found for {schoolName ?? borough} families this half-term is {fmt(baseline.total_cost_gbp)}.
-          </p>
-        ) : (
-          <>
-            <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: 12 }}>
-              {line1}
-            </p>
-            <p className="font-newsreader" style={{ fontSize: 36, lineHeight: 1.2, color: '#191c1d', marginBottom: amberNote ? 8 : 16 }}>
-              {line2}
-            </p>
-            {amberNote && (
-              <p className="font-inter" style={{ fontSize: 12, color: '#805600', marginBottom: 16 }}>
-                {amberNote}
-              </p>
-            )}
-            <p className="font-inter" style={{ fontSize: 15, color: '#3f484a', fontWeight: 400 }}>
-              We rebuilt the same week from scratch — different airport pairing, smarter seat and bag choices, optimised transfers.
-            </p>
-          </>
-        )}
-      </div>
-
       {/* ── Section B: Recommended itinerary ───────────────────────────────── */}
       <div
         className="bg-white rounded-lg"

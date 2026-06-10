@@ -3,6 +3,7 @@ import type { ScoredCombination } from './buildCandidates';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
+  problem_statement: string;
   headline: string;
   subheadline: string;
   recommendation_prose: string;
@@ -13,6 +14,8 @@ export interface AIRecommendationOutput {
     verified_field: string;
     verified_value: string | number | boolean;
     saving_gbp?: number | null;
+    obvious?: string;
+    optimal?: string;
   }>;
   caveats: string[];
   confidence: 'high' | 'medium' | 'low';
@@ -41,6 +44,7 @@ export async function getAIRecommendation(
 
   const FALLBACK: AIRecommendationOutput = {
     recommended_index: 0,
+    problem_statement: '',
     headline: 'We found the best value option for your dates.',
     subheadline: '',
     recommendation_prose: 'We found the best value option for your dates.',
@@ -413,6 +417,21 @@ RECOMMENDATION PROSE:
 LEVER INSIGHTS:
 Check each lever. Only include if condition is met.
 
+MANDATORY CHECK — ALL-IN COST TRAP
+
+Look at all outbound flight options on the recommended outbound date.
+Find the option with the lowest outbound fare (lowest fare_gbp or party_fare_gbp).
+
+If that lowest-fare option has a higher all-in total cost (fare + bags + seats + transport) than the recommended option, AND the difference in all-in total is £30 or more:
+
+Surface a lever with:
+  "lever": "allin_trap",
+  "headline": "The cheapest fare isn't the cheapest trip",
+  "insight": "The cheapest fare on these dates is £[lowest_fare] ([carrier] from [airport]). All-in with bags, seats and transport to the airport: £[lowest_allin]. The [recommended_carrier] fare of £[rec_fare] costs £[fare_diff] more as a fare — but £[allin_saving] less all-in once everything is included.",
+  "saving_gbp": [allin_saving]
+
+If the cheapest fare IS also the cheapest all-in, or the difference is less than £30: do NOT surface this lever.
+
 CROSS-DATE LEVERS:
 
 1. INSET DAY
@@ -487,17 +506,20 @@ STRICT RULES:
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
 {
+  "problem_statement": "<Exactly 2 sentences. What the typical uninformed parent from this school and borough does and pays. First sentence states what they do and the price — use baseline_total_gbp from the data exactly as a number, do not round or approximate it. Second sentence is: 'That\\'s the obvious route — but not the optimal one.' Example: 'Most Harrow families with children at Vaughan Primary School search Heathrow on a Saturday and pay around £[baseline_total_gbp] for Barcelona this half-term. That\\'s the obvious route — but not the optimal one.'",
   "headline": "<one punchy sentence with cost and saving vs typical booking>",
   "subheadline": "<one sentence explaining the key optimisations — no cost number>",
   "recommendation_prose": "<2-3 sentences to the parent>",
   "lever_insights": [
     {
-      "lever": "<inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
+      "lever": "<allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
       "headline": "<5 words max>",
       "insight": "<one sentence, specific, with actual numbers>",
       "saving_gbp": <number|null>,
       "verified_field": "<exact field name>",
-      "verified_value": <actual value>
+      "verified_value": <actual value>,
+      "obvious": "<optional — what most families do, one short phrase. Populate for levers: departure_airport, outbound_arrival_airport, return_arrival_airport, travel_light, checked_bags, transport_outbound, transport_return, split_carrier. Leave absent for inset_day and absence_tradeoff.>",
+      "optimal": "<optional — what we found instead, one short phrase. Same levers as obvious.>"
     }
   ],
   "caveats": ["<string>"],
@@ -524,6 +546,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
       console.error('[getAIRecommendation] No JSON in insight response:', cleanInsightText.slice(0, 200));
       return {
         recommended_index: recommendedIndex,
+        problem_statement: '',
         headline: 'We found the best value option for your dates.',
         subheadline: '',
         recommendation_prose: 'We found the best value option for your dates.',
@@ -541,6 +564,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
     return {
       recommended_index: recommendedIndex,
+      problem_statement: insightParsed.problem_statement ?? '',
       headline: insightParsed.headline ?? 'We found the best value option for your dates.',
       subheadline: insightParsed.subheadline ?? '',
       recommendation_prose: insightParsed.recommendation_prose ?? '',
@@ -553,6 +577,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     console.error('[getAIRecommendation] Insight call error:', err);
     return {
       recommended_index: recommendedIndex,
+      problem_statement: '',
       headline: 'We found the best value option for your dates.',
       subheadline: '',
       recommendation_prose: 'We found the best value option for your dates.',

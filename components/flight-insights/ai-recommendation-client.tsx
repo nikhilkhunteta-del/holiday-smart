@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 
 interface FetchParams {
@@ -35,14 +35,53 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
   hasInsetDay?: boolean;
 }) {
   const lines = [
-    'Analysing 128 flight combinations for your half-term.',
-    'Checked 5 London airports × 3 destination airports × 7 airlines.',
-    'Calculated fares, bags, seats and transport for each combination.',
-    `Applied ${schoolName ?? 'your school'}'s exact term calendar and inset days.`,
+    "We're doing the maths most families never bother with.",
+    'Checking every flight combination for your half-term.',
+    'Comparing bags, seats and transport — not just fares.',
+    `Applying ${schoolName ?? 'your school'}'s exact school calendar.`,
     hasInsetDay
-      ? 'Inset day detected — calculating the advantage...'
+      ? 'Looking for the inset day advantage...'
       : 'Finding your best option...',
   ];
+
+  const [visibleIndex, setVisibleIndex] = useState<number>(0);
+  const [visible, setVisible] = useState<boolean>(true);
+
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let intervalId: ReturnType<typeof setInterval>;
+    intervalId = setInterval(() => {
+      setVisible(false);
+      timeoutId = setTimeout(() => {
+        setVisibleIndex((prev: number) => {
+          const next = Math.min(prev + 1, lines.length - 1);
+          if (next >= lines.length - 1) clearInterval(intervalId);
+          return next;
+        });
+        setVisible(true);
+      }, 200);
+    }, 2000);
+    return () => {
+      clearInterval(intervalId);
+      clearTimeout(timeoutId);
+    };
+  }, [lines.length]);
+
+  const lineStyle = {
+    fontSize: 15,
+    color: '#191c1d',
+    lineHeight: 1.5,
+    display: 'flex',
+    alignItems: 'flex-start' as const,
+    gap: 10,
+  };
+
+  const iconStyle = {
+    fontSize: 13,
+    color: '#004349',
+    flexShrink: 0,
+    marginTop: 1,
+  };
 
   return (
     <div style={{
@@ -52,17 +91,6 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
       padding: '32px 24px',
       fontFamily: 'Inter, sans-serif',
     }}>
-      <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .loading-line {
-          opacity: 0;
-          animation: fadeInUp 0.4s ease forwards;
-        }
-      `}</style>
-
       <div style={{
         fontSize: 11,
         fontWeight: 700,
@@ -70,36 +98,52 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         letterSpacing: '0.06em',
         textTransform: 'uppercase',
         marginBottom: 20,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
       }}>
+        <span className="spinner" />
         Analysing your options
       </div>
 
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .spinner {
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid #bfc8c9;
+          border-top-color: #004349;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          flex-shrink: 0;
+        }
+      `}</style>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {lines.map((line, i) => (
-          <div
-            key={i}
-            className="loading-line"
-            style={{
-              animationDelay: `${i * 0.7}s`,
-              fontSize: 15,
-              color: i === lines.length - 1 ? '#bfc8c9' : '#191c1d',
-              lineHeight: 1.5,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-            }}
-          >
-            <span style={{
-              fontSize: 13,
-              color: i === lines.length - 1 ? '#bfc8c9' : '#004349',
-              flexShrink: 0,
-              marginTop: 1,
-            }}>
-              {i === lines.length - 1 ? '⟳' : '✓'}
-            </span>
+        {lines.slice(0, visibleIndex).map((line, i) => (
+          <div key={i} style={{ ...lineStyle, opacity: 1 }}>
+            <span style={iconStyle}>✓</span>
             <span>{line}</span>
           </div>
         ))}
+        <div
+          style={{
+            ...lineStyle,
+            opacity: visible ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+          }}
+        >
+          <span style={iconStyle}>✓</span>
+          <span>{lines[visibleIndex]}</span>
+        </div>
       </div>
     </div>
   );
@@ -121,6 +165,7 @@ const LEVER_COLOURS: Record<string, string> = {
   family_split_risk:       '#ba1a1a',
   bags_estimate:           '#6f797a',
   transit_changes:         '#3f484a',
+  allin_trap:              '#805600',
 };
 
 function LeverCard({ insight }: {
@@ -242,6 +287,19 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           animation: 'fadeIn 0.4s ease',
         }}>
           <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+          {/* Problem statement */}
+          {aiResult.problem_statement && (
+            <p style={{
+              fontFamily: 'Newsreader, serif',
+              fontSize: 22,
+              fontWeight: 400,
+              color: '#3f484a',
+              lineHeight: 1.5,
+              margin: '0 0 16px',
+            }}>
+              {aiResult.problem_statement}
+            </p>
+          )}
           {/* Headline */}
           {aiResult.headline && (
             <p style={{

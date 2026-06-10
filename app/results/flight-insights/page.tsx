@@ -6,6 +6,7 @@ import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { CTABlock } from '@/components/flight-insights/cta-block';
+import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
@@ -173,6 +174,20 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
   const hasInsetDay       = assembled?.combinations?.some(c => c.is_inset_day) ?? false;
 
+  const hsSaving = assembled
+    ? (assembled.baseline?.total_cost_gbp ?? 0) -
+      (assembled.recommendation?.total_cost_gbp ?? assembled.baseline?.total_cost_gbp ?? 0)
+    : 0;
+
+  const combinationCount = assembled?.combinations?.length ?? 0;
+
+  const combinationRange = assembled?.combinations
+    ? Math.max(...assembled.combinations.map((c: any) => c.total_inc_fine ?? 0)) -
+      Math.min(...assembled.combinations
+        .filter((c: any) => !c.requires_absence)
+        .map((c: any) => c.total_inc_fine ?? 0))
+    : null;
+
   // ── Params passed to client for AI fetch + preference re-runs ────────────
   const aiFetchParams = {
     destinationSlug,
@@ -252,6 +267,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
                 baselineIsRecommended={assembled.baselineIsRecommended}
                 selectedOutbound={selectedOutbound}
                 selectedReturn={selectedReturn}
+                combinationRange={combinationRange}
               />
             )}
 
@@ -295,7 +311,17 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               } : null}
             />
 
-            {/* 7. CTABlock */}
+            {/* 7. HSValueSummary */}
+            <HSValueSummary
+              saving={hsSaving}
+              hasInsetDay={hasInsetDay}
+              schoolName={schoolName}
+              outboundCarrier={recommendation?.outbound_carrier ?? ''}
+              returnCarrier={recommendation?.return_carrier ?? ''}
+              combinationCount={combinationCount}
+            />
+
+            {/* 8. CTABlock */}
             <CTABlock
               adults={adults}
               children={children}
