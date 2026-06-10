@@ -165,6 +165,7 @@ const LEVER_COLOURS: Record<string, string> = {
   family_split_risk:       '#ba1a1a',
   bags_estimate:           '#6f797a',
   transit_changes:         '#3f484a',
+  allin_trap:              '#805600',
 };
 
 function LeverCard({ insight }: {

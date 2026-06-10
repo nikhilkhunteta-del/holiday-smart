@@ -417,6 +417,21 @@ RECOMMENDATION PROSE:
 LEVER INSIGHTS:
 Check each lever. Only include if condition is met.
 
+MANDATORY CHECK — ALL-IN COST TRAP
+
+Look at all outbound flight options on the recommended outbound date.
+Find the option with the lowest outbound fare (lowest fare_gbp or party_fare_gbp).
+
+If that lowest-fare option has a higher all-in total cost (fare + bags + seats + transport) than the recommended option, AND the difference in all-in total is £30 or more:
+
+Surface a lever with:
+  "lever": "allin_trap",
+  "headline": "The cheapest fare isn't the cheapest trip",
+  "insight": "The cheapest fare on these dates is £[lowest_fare] ([carrier] from [airport]). All-in with bags, seats and transport to the airport: £[lowest_allin]. The [recommended_carrier] fare of £[rec_fare] costs £[fare_diff] more as a fare — but £[allin_saving] less all-in once everything is included.",
+  "saving_gbp": [allin_saving]
+
+If the cheapest fare IS also the cheapest all-in, or the difference is less than £30: do NOT surface this lever.
+
 CROSS-DATE LEVERS:
 
 1. INSET DAY
@@ -497,7 +512,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
   "recommendation_prose": "<2-3 sentences to the parent>",
   "lever_insights": [
     {
-      "lever": "<inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
+      "lever": "<allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
       "headline": "<5 words max>",
       "insight": "<one sentence, specific, with actual numbers>",
       "saving_gbp": <number|null>,
