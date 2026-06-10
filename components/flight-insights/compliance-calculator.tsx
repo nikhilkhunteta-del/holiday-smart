@@ -324,7 +324,7 @@ export function ComplianceCalculator({
           {/* Baseline reference line — hidden when baseline is the recommendation */}
           {!baselineIsRecommended && (
             <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#3f484a', marginBottom: 16 }}>
-              Baseline: {blCarrier} · {blOrigin} · {blOut}{blRet ? ` → ${blRet}` : ''} · {gbp(baselineTotal)} · no optimisation
+              Typical Saturday booking: {blCarrier} · {blOrigin} · {blOut}{blRet ? ` → ${blRet}` : ''} · {gbp(baselineTotal)} · no optimisation
             </p>
           )}
 
