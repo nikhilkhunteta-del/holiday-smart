@@ -286,6 +286,19 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           animation: 'fadeIn 0.4s ease',
         }}>
           <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+          {/* Problem statement */}
+          {aiResult.problem_statement && (
+            <p style={{
+              fontFamily: 'Newsreader, serif',
+              fontSize: 22,
+              fontWeight: 400,
+              color: '#3f484a',
+              lineHeight: 1.5,
+              margin: '0 0 16px',
+            }}>
+              {aiResult.problem_statement}
+            </p>
+          )}
           {/* Headline */}
           {aiResult.headline && (
             <p style={{

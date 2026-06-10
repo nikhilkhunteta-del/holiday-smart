@@ -3,6 +3,7 @@ import type { ScoredCombination } from './buildCandidates';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
+  problem_statement: string;
   headline: string;
   subheadline: string;
   recommendation_prose: string;
@@ -41,6 +42,7 @@ export async function getAIRecommendation(
 
   const FALLBACK: AIRecommendationOutput = {
     recommended_index: 0,
+    problem_statement: '',
     headline: 'We found the best value option for your dates.',
     subheadline: '',
     recommendation_prose: 'We found the best value option for your dates.',
@@ -487,6 +489,7 @@ STRICT RULES:
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
 {
+  "problem_statement": "<Exactly 2 sentences. What the typical uninformed parent from this school and borough does and pays. First sentence states what they do and the price — use baseline_total_gbp from the data exactly as a number, do not round or approximate it. Second sentence is: 'That\\'s the obvious route — but not the optimal one.' Example: 'Most Harrow families with children at Vaughan Primary School search Heathrow on a Saturday and pay around £[baseline_total_gbp] for Barcelona this half-term. That\\'s the obvious route — but not the optimal one.'",
   "headline": "<one punchy sentence with cost and saving vs typical booking>",
   "subheadline": "<one sentence explaining the key optimisations — no cost number>",
   "recommendation_prose": "<2-3 sentences to the parent>",
@@ -524,6 +527,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
       console.error('[getAIRecommendation] No JSON in insight response:', cleanInsightText.slice(0, 200));
       return {
         recommended_index: recommendedIndex,
+        problem_statement: '',
         headline: 'We found the best value option for your dates.',
         subheadline: '',
         recommendation_prose: 'We found the best value option for your dates.',
@@ -541,6 +545,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
     return {
       recommended_index: recommendedIndex,
+      problem_statement: insightParsed.problem_statement ?? '',
       headline: insightParsed.headline ?? 'We found the best value option for your dates.',
       subheadline: insightParsed.subheadline ?? '',
       recommendation_prose: insightParsed.recommendation_prose ?? '',
@@ -553,6 +558,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     console.error('[getAIRecommendation] Insight call error:', err);
     return {
       recommended_index: recommendedIndex,
+      problem_statement: '',
       headline: 'We found the best value option for your dates.',
       subheadline: '',
       recommendation_prose: 'We found the best value option for your dates.',
