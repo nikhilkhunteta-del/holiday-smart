@@ -230,6 +230,19 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
     pickingReasoning = pickParsed.picking_reasoning ?? '';
     confidence = pickParsed.confidence ?? 'low';
 
+    console.log('[getAIRecommendation] pick prompt combinations count:', combinationsForPrompt.length);
+    console.log('[getAIRecommendation] combinations for scoring:', JSON.stringify(
+      combinationsForPrompt.map(c => ({
+        index: c.index,
+        total_inc_fine: c.total_inc_fine,
+        arrival_quality: c.arrival_quality,
+        outbound_departure_quality: c.outbound_departure_quality,
+        return_departure_quality: c.return_departure_quality,
+        is_inset_day: c.is_inset_day,
+        destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
+        pre_score: c.pre_score,
+      }))
+    ));
     console.log('[getAIRecommendation] recommended_index:', recommendedIndex);
     console.log('[getAIRecommendation] picking_reasoning:', pickingReasoning);
   } catch (err) {
