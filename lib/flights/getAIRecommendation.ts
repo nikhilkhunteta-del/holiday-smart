@@ -518,14 +518,28 @@ saving_gbp: return_cabin_bag_cost_gbp (only the chargeable leg)
 Condition: checked_bag_cost_gbp > 0. Always surface if true.
 
 9. TRANSPORT — OUTBOUND
-Condition: both transit and Uber costs exist AND (cost diff > £20 OR time diff > 45 mins).
-Include route name and specific times.
+Bus almost always costs less than Uber — do NOT surface a card just to confirm this. Only surface this lever in one of two cases:
+
+Case A — Transit is inconvenient: outbound_transit_changes >= 2 AND outbound_early_warning is true (very early flight).
+Frame: acknowledge transit is cheaper but flag the inconvenience. Recommend Uber if the premium vs transit is under £40.
+saving_gbp: null (recommending convenience, not cost saving).
+
+Case B — Transit is genuinely competitive on time: outbound_transit_duration_mins < outbound_uber_duration_mins AND outbound transit changes <= 1 AND transit saves >= £40 vs Uber low.
+Frame: "Transit to [airport] beats Uber on both cost and time — [route_summary] takes around [X] minutes and costs £[fare]."
+saving_gbp: outbound_transit_cost_gbp subtracted from outbound_uber_low_gbp.
+
+If neither case applies: DO NOT surface.
 
 10. TRANSPORT — RETURN
-IMPORTANT: The return leg means the family is ARRIVING at a London airport and travelling HOME. Return transit = getting from the arrival airport to home, not getting to an airport. Never describe this as "getting to the airport" or mention check-in, departures, or airport terminals for the return leg. Frame around: "Getting home from [airport] costs £[X] by transit / £[Y]–£[Z] by Uber."
-Same pattern. If return_departure_quality 'very_early' and 2+ changes:
-Frame around convenience — Uber may be worth the extra.
-saving_gbp: null when recommending Uber over cheaper transit.
+IMPORTANT: Return leg = family arriving at London airport, travelling HOME.
+Never describe this as getting to the airport.
+
+Only surface in one case:
+Return departure is very_early (before 09:00) AND return_transit_changes >= 2.
+Frame: "Getting home from [airport] by public transport involves [N] changes and takes around [X] minutes — Uber costs £[low]–£[high] and gets you home directly."
+saving_gbp: null.
+
+All other return transport combinations: DO NOT surface.
 
 11. TRANSIT CHANGES
 Only if not already covered by transport insight for that leg.
