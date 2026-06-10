@@ -25,6 +25,7 @@ interface AIRecommendationClientProps {
   fetchParams: FetchParams;
   schoolName: string | null;
   hasInsetDay?: boolean;
+  children?: React.ReactNode;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -222,70 +223,84 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay }:
   ]);
 
   if (aiLoading && !aiResult) return (
-    <NarrativeSkeleton schoolName={schoolName} hasInsetDay={hasInsetDay} />
+    <main className="min-h-screen bg-background">
+      <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <NarrativeSkeleton schoolName={schoolName} hasInsetDay={hasInsetDay} />
+      </div>
+    </main>
   );
-  if (!aiResult || aiResult.fallback) return null;
 
   return (
-    <div style={{
-      background: '#ffffff',
-      borderRadius: 16,
-      boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
-      padding: 24,
-      fontFamily: 'Inter, sans-serif',
-    }}>
-      {/* Headline */}
-      {aiResult.headline && (
-        <p style={{
-          fontFamily: 'Newsreader, serif',
-          fontSize: 28,
-          fontWeight: 600,
-          color: '#191c1d',
-          lineHeight: 1.3,
-          margin: '0 0 8px',
-        }}>
-          {aiResult.headline}
-        </p>
-      )}
-      {/* Subheadline */}
-      {aiResult.subheadline && (
-        <p style={{
-          fontFamily: 'Inter, sans-serif',
-          fontSize: 14,
-          color: '#6f797a',
-          lineHeight: 1.5,
-          margin: '0 0 20px',
-        }}>
-          {aiResult.subheadline}
-        </p>
-      )}
-      {/* Lever cards */}
-      {aiResult.lever_insights.length > 0 && (
+    <>
+      {aiResult && !aiResult.fallback && (
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-          gap: 12,
+          background: '#ffffff',
+          borderRadius: 16,
+          boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
+          padding: 24,
+          fontFamily: 'Inter, sans-serif',
+          animation: 'fadeIn 0.4s ease',
         }}>
-          {aiResult.lever_insights.map((insight, i) => (
-            <LeverCard key={i} insight={insight} />
-          ))}
-        </div>
-      )}
-      {/* Caveats */}
-      {aiResult.caveats.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          {aiResult.caveats.map((c, i) => (
-            <p key={i} style={{
-              fontSize: 12,
-              color: '#6f797a',
-              margin: '2px 0',
-              lineHeight: 1.5,
+          <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+          {/* Headline */}
+          {aiResult.headline && (
+            <p style={{
+              fontFamily: 'Newsreader, serif',
+              fontSize: 28,
+              fontWeight: 600,
+              color: '#191c1d',
+              lineHeight: 1.3,
+              margin: '0 0 8px',
             }}>
-              * {c}
+              {aiResult.headline}
             </p>
-          ))}
+          )}
+          {/* Subheadline */}
+          {aiResult.subheadline && (
+            <p style={{
+              fontFamily: 'Inter, sans-serif',
+              fontSize: 14,
+              color: '#6f797a',
+              lineHeight: 1.5,
+              margin: '0 0 20px',
+            }}>
+              {aiResult.subheadline}
+            </p>
+          )}
+          {/* Lever cards */}
+          {aiResult.lever_insights.length > 0 && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: 12,
+            }}>
+              {aiResult.lever_insights.map((insight, i) => (
+                <LeverCard key={i} insight={insight} />
+              ))}
+            </div>
+          )}
+          {/* Caveats */}
+          {aiResult.caveats.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              {aiResult.caveats.map((c, i) => (
+                <p key={i} style={{
+                  fontSize: 12,
+                  color: '#6f797a',
+                  margin: '2px 0',
+                  lineHeight: 1.5,
+                }}>
+                  * {c}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </div>
+      {children && (
+        <div style={{ animation: 'fadeIn 0.4s ease' }}>
+          {children}
+        </div>
+      )}
+    </>
   );
 }

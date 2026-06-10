@@ -197,7 +197,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       <main className="min-h-screen bg-background">
         <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
 
-          {/* 1. PreferencesCard */}
+          {/* 1. PreferencesCard — renders immediately, outside the AI gate */}
           <PreferencesCard
             cabinBags={cabinBags}
             checkedBags={checkedBags}
@@ -206,104 +206,106 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             postcodeDistrict={postcodeDistrict}
           />
 
-          {/* 2. AIRecommendationClient — fetched client-side, updates context */}
+          {/* 2. AIRecommendationClient gates all remaining content until AI resolves */}
           <AIRecommendationClient
             fetchParams={aiFetchParams}
             schoolName={schoolName}
             hasInsetDay={hasInsetDay}
-          />
+          >
 
-          {/* 3. SavingsBreakdown */}
-          <SavingsBreakdown
-            data={savingsData}
-            recommendation={recommendation}
-            baseline={assembledBaseline}
-            adults={adults}
-            children={children}
-            windowStart={windowStart}
-            destinationSlug={destinationSlug}
-            boroughName={borough}
-            outbound_transit={recommendation?.outbound_transit ?? null}
-            return_transit={recommendation?.return_transit ?? null}
-            postcodeDistrict={postcodeDistrict}
-            cabinBags={cabinBags}
-            checkedBags={checkedBags}
-            seatsTogether={seatsTogether}
-            party_size={adults + children}
-            combinations={assembled?.combinations}
-            savingCategory={savingCategory}
-            schoolName={schoolName}
-            baselineIsRecommended={assembled?.baselineIsRecommended}
-            baselineAsItinerary={assembled?.baselineAsItinerary}
-          />
-
-          {/* 4. ComplianceCalculator */}
-          {assembled && (
-            <ComplianceCalculator
-              combinations={assembled.combinations}
-              baseline={assembled.baseline}
-              recommendation={assembled.recommendation}
+            {/* 3. SavingsBreakdown */}
+            <SavingsBreakdown
+              data={savingsData}
+              recommendation={recommendation}
+              baseline={assembledBaseline}
+              adults={adults}
+              children={children}
               windowStart={windowStart}
-              windowEnd={windowEnd}
-              partySize={adults + children}
-              pCabinBags={cabinBags}
-              pCheckedBags={checkedBags}
+              destinationSlug={destinationSlug}
+              boroughName={borough}
+              outbound_transit={recommendation?.outbound_transit ?? null}
+              return_transit={recommendation?.return_transit ?? null}
+              postcodeDistrict={postcodeDistrict}
+              cabinBags={cabinBags}
+              checkedBags={checkedBags}
               seatsTogether={seatsTogether}
-              baselineIsRecommended={assembled.baselineIsRecommended}
-              selectedOutbound={selectedOutbound}
-              selectedReturn={selectedReturn}
+              party_size={adults + children}
+              combinations={assembled?.combinations}
+              savingCategory={savingCategory}
+              schoolName={schoolName}
+              baselineIsRecommended={assembled?.baselineIsRecommended}
+              baselineAsItinerary={assembled?.baselineAsItinerary}
             />
-          )}
 
-          {/* 5. LegOptions outbound */}
-          <div id="leg-options">
+            {/* 4. ComplianceCalculator */}
+            {assembled && (
+              <ComplianceCalculator
+                combinations={assembled.combinations}
+                baseline={assembled.baseline}
+                recommendation={assembled.recommendation}
+                windowStart={windowStart}
+                windowEnd={windowEnd}
+                partySize={adults + children}
+                pCabinBags={cabinBags}
+                pCheckedBags={checkedBags}
+                seatsTogether={seatsTogether}
+                baselineIsRecommended={assembled.baselineIsRecommended}
+                selectedOutbound={selectedOutbound}
+                selectedReturn={selectedReturn}
+              />
+            )}
+
+            {/* 5. LegOptions outbound */}
+            <div id="leg-options">
+              <LegOptions
+                data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
+                title={`Outbound options · ${formatDate(smartOutboundDate)}`}
+                adults={adults}
+                children={children}
+                infants={infants}
+                transitPreference={transitPreference}
+                postcodeDistrict={postcodeDistrict}
+                selectedDate={selectedOutbound}
+                smartDate={smartOutboundDate}
+                recommendedOption={recommendation ? {
+                  airline_iata:     recommendation.outbound_carrier,
+                  origin_iata:      recommendation.origin_iata,
+                  destination_iata: recommendation.out_dest_iata,
+                  departure_time:   recommendation.outbound_departure_time ?? '',
+                } : null}
+              />
+            </div>
+
+            {/* 6. LegOptions return */}
             <LegOptions
-              data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
-              title={`Outbound options · ${formatDate(smartOutboundDate)}`}
+              data={returnLegResult?.error ? null : returnLegResult?.data as any}
+              title={`Return options · ${formatDate(smartReturnDate)}`}
               adults={adults}
               children={children}
               infants={infants}
               transitPreference={transitPreference}
               postcodeDistrict={postcodeDistrict}
-              selectedDate={selectedOutbound}
-              smartDate={smartOutboundDate}
+              selectedDate={selectedReturn}
+              smartDate={smartReturnDate}
               recommendedOption={recommendation ? {
-                airline_iata:     recommendation.outbound_carrier,
-                origin_iata:      recommendation.origin_iata,
-                destination_iata: recommendation.out_dest_iata,
-                departure_time:   recommendation.outbound_departure_time ?? '',
+                airline_iata:     recommendation.return_carrier,
+                origin_iata:      recommendation.out_dest_iata,
+                destination_iata: recommendation.ret_dest_iata,
+                departure_time:   recommendation.return_arrival_time ?? '',
               } : null}
             />
-          </div>
 
-          {/* 6. LegOptions return */}
-          <LegOptions
-            data={returnLegResult?.error ? null : returnLegResult?.data as any}
-            title={`Return options · ${formatDate(smartReturnDate)}`}
-            adults={adults}
-            children={children}
-            infants={infants}
-            transitPreference={transitPreference}
-            postcodeDistrict={postcodeDistrict}
-            selectedDate={selectedReturn}
-            smartDate={smartReturnDate}
-            recommendedOption={recommendation ? {
-              airline_iata:     recommendation.return_carrier,
-              origin_iata:      recommendation.out_dest_iata,
-              destination_iata: recommendation.ret_dest_iata,
-              departure_time:   recommendation.return_arrival_time ?? '',
-            } : null}
-          />
+            {/* 7. CTABlock */}
+            <CTABlock
+              adults={adults}
+              children={children}
+              fallbackOutboundDate={smartOutboundDate}
+              fallbackReturnDate={smartReturnDate}
+              fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
+              fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
+            />
 
-          {/* 7. CTABlock */}
-          <CTABlock
-            adults={adults}
-            children={children}
-            fallbackOutboundDate={smartOutboundDate}
-            fallbackReturnDate={smartReturnDate}
-            fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
-            fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
-          />
+          </AIRecommendationClient>
 
         </div>
       </main>
