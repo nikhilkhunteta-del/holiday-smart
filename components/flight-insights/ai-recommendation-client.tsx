@@ -34,12 +34,12 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
   hasInsetDay?: boolean;
 }) {
   const lines = [
-    'Analysing 128 flight combinations for your half-term.',
-    'Checked 5 London airports × 3 destination airports × 7 airlines.',
-    'Calculated fares, bags, seats and transport for each combination.',
-    `Applied ${schoolName ?? 'your school'}'s exact term calendar and inset days.`,
+    'We\'re doing the maths most families never bother with.',
+    'Checking every flight combination for your half-term.',
+    'Comparing bags, seats and transport — not just fares.',
+    `Applying ${schoolName ?? 'your school'}\'s exact school calendar.`,
     hasInsetDay
-      ? 'Inset day detected — calculating the advantage...'
+      ? 'Looking for the inset day advantage...'
       : 'Finding your best option...',
   ];
 
@@ -48,55 +48,34 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
       background: '#ffffff',
       borderRadius: 16,
       boxShadow: '0 2px 12px rgba(13,92,99,0.08)',
-      padding: '32px 24px',
-      fontFamily: 'Inter, sans-serif',
+      padding: '40px 32px',
+      fontFamily: 'Newsreader, serif',
+      minHeight: 200,
     }}>
       <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(8px); }
+        @keyframes fadeInLine {
+          from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .loading-line {
+        .narrative-line {
           opacity: 0;
-          animation: fadeInUp 0.4s ease forwards;
+          animation: fadeInLine 0.6s ease forwards;
         }
       `}</style>
-
-      <div style={{
-        fontSize: 11,
-        fontWeight: 700,
-        color: '#004349',
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        marginBottom: 20,
-      }}>
-        Analysing your options
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {lines.map((line, i) => (
           <div
             key={i}
-            className="loading-line"
+            className="narrative-line"
             style={{
-              animationDelay: `${i * 0.7}s`,
-              fontSize: 15,
+              animationDelay: `${i * 2}s`,
+              fontSize: i === 0 ? 22 : 18,
+              fontWeight: i === 0 ? 600 : 400,
               color: i === lines.length - 1 ? '#bfc8c9' : '#191c1d',
-              lineHeight: 1.5,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
+              lineHeight: 1.4,
             }}
           >
-            <span style={{
-              fontSize: 13,
-              color: i === lines.length - 1 ? '#bfc8c9' : '#004349',
-              flexShrink: 0,
-              marginTop: 1,
-            }}>
-              {i === lines.length - 1 ? '⟳' : '✓'}
-            </span>
-            <span>{line}</span>
+            {line}
           </div>
         ))}
       </div>

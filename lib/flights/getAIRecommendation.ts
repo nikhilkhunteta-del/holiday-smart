@@ -206,7 +206,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
   try {
     const pickStart = Date.now();
     const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-fable-5',
       max_tokens: 2048,
       messages: [{ role: 'user', content: pickPrompt }],
     }).withResponse();
