@@ -535,6 +535,7 @@ STRICT RULES:
 - Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
 - Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
 - Minimum threshold for financial lever cards: only surface a lever with saving_gbp if the saving is ≥ £40 OR ≥ 5% of recommended total_cost_gbp, whichever is lower. Levers below this threshold should be omitted entirely — do not surface them with a reduced saving_gbp. Exception: the value_tradeoff and allin_trap levers are always surfaced regardless of saving amount.
+- Every lever insight must be one sentence only — two at most if the second sentence is a direct consequence of the first (e.g. a cost and a time trade-off). Never write a paragraph. If you find yourself writing more than 30 words for an insight, cut it. The headline carries the label; the insight carries one specific number-backed fact.
 - Use ONLY numbers from provided data — never calculate or invent
 - Do not say "baseline"
 - Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
