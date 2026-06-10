@@ -98,7 +98,11 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         letterSpacing: '0.06em',
         textTransform: 'uppercase',
         marginBottom: 20,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
       }}>
+        <span className="spinner" />
         Analysing your options
       </div>
 
@@ -106,6 +110,20 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .spinner {
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid #bfc8c9;
+          border-top-color: #004349;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          flex-shrink: 0;
         }
       `}</style>
 
