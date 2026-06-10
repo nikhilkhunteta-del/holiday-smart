@@ -14,6 +14,8 @@ export interface AIRecommendationOutput {
     verified_field: string;
     verified_value: string | number | boolean;
     saving_gbp?: number | null;
+    obvious?: string;
+    optimal?: string;
   }>;
   caveats: string[];
   confidence: 'high' | 'medium' | 'low';
@@ -500,7 +502,9 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
       "insight": "<one sentence, specific, with actual numbers>",
       "saving_gbp": <number|null>,
       "verified_field": "<exact field name>",
-      "verified_value": <actual value>
+      "verified_value": <actual value>,
+      "obvious": "<optional — what most families do, one short phrase. Populate for levers: departure_airport, outbound_arrival_airport, return_arrival_airport, travel_light, checked_bags, transport_outbound, transport_return, split_carrier. Leave absent for inset_day and absence_tradeoff.>",
+      "optimal": "<optional — what we found instead, one short phrase. Same levers as obvious.>"
     }
   ],
   "caveats": ["<string>"],
