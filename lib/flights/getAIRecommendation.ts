@@ -510,9 +510,21 @@ RECOMMENDED COMBINATION LEVERS:
 
 7. TRAVEL LIGHT — CABIN BAGS
 MANDATORY if cabin_bag_cost_gbp > 0.
-Per-leg framing: note which carrier charges and which includes bags.
-"[Outbound carrier] includes cabin bags. [Return carrier] charges £[return_cabin_bag_cost_gbp] for your [N] bags on the return leg. Travelling with personal items only on the return removes this cost."
-saving_gbp: return_cabin_bag_cost_gbp (only the chargeable leg)
+Use ONLY the fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp from the data. Do NOT state what any carrier includes or excludes from general knowledge — you do not know carrier policy, only what the cost fields show.
+
+If outbound_cabin_bag_cost_gbp > 0 AND return_cabin_bag_cost_gbp > 0:
+"Cabin bags cost £[outbound] outbound and £[return] return — travelling with personal items only on both legs removes £[total] from the total."
+saving_gbp: cabin_bag_cost_gbp (the full total)
+
+If outbound_cabin_bag_cost_gbp == 0 AND return_cabin_bag_cost_gbp > 0:
+"The outbound leg has no cabin bag charge; the return charges £[return] for [N] bags — travelling with personal items only on the return removes this cost."
+saving_gbp: return_cabin_bag_cost_gbp
+
+If outbound_cabin_bag_cost_gbp > 0 AND return_cabin_bag_cost_gbp == 0:
+"The outbound leg charges £[outbound] for [N] cabin bags; the return has no cabin bag charge — travelling with personal items only outbound removes this cost."
+saving_gbp: outbound_cabin_bag_cost_gbp
+
+Never say "[carrier] includes cabin bags" or "[carrier] charges for cabin bags" — you are not authorised to state carrier policy. Only state what the cost fields show.
 
 8. CHECKED BAGS
 Condition: checked_bag_cost_gbp > 0. Always surface if true.
@@ -555,6 +567,7 @@ STRICT RULES:
 - Do not say "baseline"
 - Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
 - No caveat about seats
+- Never state carrier baggage policy from general knowledge. Only report what outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp contain. If a cost is 0, say "no charge on this leg" — not "[carrier] includes bags."
 - Every verified_field must be an exact field name from the combinations data
 
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
