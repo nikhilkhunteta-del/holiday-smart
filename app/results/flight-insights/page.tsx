@@ -197,21 +197,21 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       <main className="min-h-screen bg-background">
         <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
 
-          {/* 1. PreferencesCard — renders immediately, outside the AI gate */}
-          <PreferencesCard
-            cabinBags={cabinBags}
-            checkedBags={checkedBags}
-            seatsTogether={seatsTogether}
-            transitPreference={transitPreference}
-            postcodeDistrict={postcodeDistrict}
-          />
-
           {/* 2. AIRecommendationClient gates all remaining content until AI resolves */}
           <AIRecommendationClient
             fetchParams={aiFetchParams}
             schoolName={schoolName}
             hasInsetDay={hasInsetDay}
           >
+
+            {/* 1. PreferencesCard */}
+            <PreferencesCard
+              cabinBags={cabinBags}
+              checkedBags={checkedBags}
+              seatsTogether={seatsTogether}
+              transitPreference={transitPreference}
+              postcodeDistrict={postcodeDistrict}
+            />
 
             {/* 3. SavingsBreakdown */}
             <SavingsBreakdown
