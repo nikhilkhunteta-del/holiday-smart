@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 
 interface FetchParams {
@@ -44,6 +44,22 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
       : 'Finding your best option...',
   ];
 
+  const [visibleIndex, setVisibleIndex] = useState<number>(0);
+  const [visible, setVisible] = useState<boolean>(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setVisibleIndex((i: number) => Math.min(i + 1, lines.length - 1));
+        setVisible(true);
+      }, 200);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [lines.length]);
+
+  const isLast = visibleIndex === lines.length - 1;
+
   return (
     <div style={{
       background: '#ffffff',
@@ -52,17 +68,6 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
       padding: '32px 24px',
       fontFamily: 'Inter, sans-serif',
     }}>
-      <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .loading-line {
-          opacity: 0;
-          animation: fadeInUp 0.4s ease forwards;
-        }
-      `}</style>
-
       <div style={{
         fontSize: 11,
         fontWeight: 700,
@@ -74,32 +79,27 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         Analysing your options
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {lines.map((line, i) => (
-          <div
-            key={i}
-            className="loading-line"
-            style={{
-              animationDelay: `${i * 0.7}s`,
-              fontSize: 15,
-              color: i === lines.length - 1 ? '#bfc8c9' : '#191c1d',
-              lineHeight: 1.5,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-            }}
-          >
-            <span style={{
-              fontSize: 13,
-              color: i === lines.length - 1 ? '#bfc8c9' : '#004349',
-              flexShrink: 0,
-              marginTop: 1,
-            }}>
-              {i === lines.length - 1 ? '⟳' : '✓'}
-            </span>
-            <span>{line}</span>
-          </div>
-        ))}
+      <div
+        className="transition-opacity duration-500"
+        style={{
+          opacity: visible ? 1 : 0,
+          fontSize: 15,
+          color: isLast ? '#bfc8c9' : '#191c1d',
+          lineHeight: 1.5,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+        }}
+      >
+        <span style={{
+          fontSize: 13,
+          color: isLast ? '#bfc8c9' : '#004349',
+          flexShrink: 0,
+          marginTop: 1,
+        }}>
+          {isLast ? '⟳' : '✓'}
+        </span>
+        <span>{lines[visibleIndex]}</span>
       </div>
     </div>
   );
