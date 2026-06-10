@@ -293,10 +293,10 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             <p style={{
               fontFamily: 'Newsreader, serif',
               fontSize: 22,
-              fontWeight: 400,
-              color: '#3f484a',
-              lineHeight: 1.5,
-              margin: '0 0 16px',
+              fontWeight: 600,
+              color: '#191c1d',
+              lineHeight: 1.4,
+              margin: '0 0 12px',
             }}>
               {aiResult.problem_statement}
             </p>
