@@ -425,6 +425,32 @@ RECOMMENDATION PROSE:
 LEVER INSIGHTS:
 Check each lever. Only include if condition is met.
 
+MANDATORY — VALUE TRADE-OFF CARD
+
+Find the combination with the lowest total_inc_fine across all combinations.
+
+Case A — recommended IS the cheapest:
+  Do NOT surface this lever.
+
+Case B — recommended is NOT the cheapest:
+  ALWAYS surface this lever first, before any other lever card.
+
+  If recommended has more trip_nights than cheapest:
+    "lever": "value_tradeoff",
+    "headline": "We didn't pick the cheapest — here's why",
+    "insight": "The cheapest option is £[cheapest_total] — £[diff] less. But it departs [cheapest_date] ([cheapest_day]), giving [N] fewer night[s] in [destination]. At £[cost_per_extra_night] per extra night, we judged that better value.",
+    "saving_gbp": null,
+    "verified_field": "total_inc_fine",
+    "verified_value": [recommended total_inc_fine]
+
+  If recommended has same trip_nights but better arrival/departure quality:
+    "lever": "value_tradeoff",
+    "headline": "We didn't pick the cheapest — here's why",
+    "insight": "The cheapest option is £[cheapest_total] — £[diff] less, but [reason: arrives at night / very early return / poor departure time]. We picked the option that gives you a usable day.",
+    "saving_gbp": null,
+    "verified_field": "total_inc_fine",
+    "verified_value": [recommended total_inc_fine]
+
 MANDATORY CHECK — ALL-IN COST TRAP
 
 Look at all outbound flight options on the recommended outbound date.
@@ -496,6 +522,7 @@ Condition: both transit and Uber costs exist AND (cost diff > £20 OR time diff 
 Include route name and specific times.
 
 10. TRANSPORT — RETURN
+IMPORTANT: The return leg means the family is ARRIVING at a London airport and travelling HOME. Return transit = getting from the arrival airport to home, not getting to an airport. Never describe this as "getting to the airport" or mention check-in, departures, or airport terminals for the return leg. Frame around: "Getting home from [airport] costs £[X] by transit / £[Y]–£[Z] by Uber."
 Same pattern. If return_departure_quality 'very_early' and 2+ changes:
 Frame around convenience — Uber may be worth the extra.
 saving_gbp: null when recommending Uber over cheaper transit.
@@ -507,6 +534,7 @@ Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2.
 STRICT RULES:
 - Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
 - Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
+- Minimum threshold for financial lever cards: only surface a lever with saving_gbp if the saving is ≥ £40 OR ≥ 5% of recommended total_cost_gbp, whichever is lower. Levers below this threshold should be omitted entirely — do not surface them with a reduced saving_gbp. Exception: the value_tradeoff and allin_trap levers are always surfaced regardless of saving amount.
 - Use ONLY numbers from provided data — never calculate or invent
 - Do not say "baseline"
 - Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
@@ -522,7 +550,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
   "recommendation_prose": "<2-3 sentences to the parent>",
   "lever_insights": [
     {
-      "lever": "<allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
+      "lever": "<value_tradeoff|allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
       "headline": "<5 words max>",
       "insight": "<one sentence, specific, with actual numbers>",
       "saving_gbp": <number|null>,

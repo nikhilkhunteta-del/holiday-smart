@@ -166,6 +166,7 @@ const LEVER_COLOURS: Record<string, string> = {
   bags_estimate:           '#6f797a',
   transit_changes:         '#3f484a',
   allin_trap:              '#805600',
+  value_tradeoff:          '#004349',
 };
 
 function LeverCard({ insight }: {
