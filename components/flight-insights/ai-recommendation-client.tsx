@@ -35,12 +35,12 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
   hasInsetDay?: boolean;
 }) {
   const lines = [
-    'Analysing 128 flight combinations for your half-term.',
-    'Checked 5 London airports × 3 destination airports × 7 airlines.',
-    'Calculated fares, bags, seats and transport for each combination.',
-    `Applied ${schoolName ?? 'your school'}'s exact term calendar and inset days.`,
+    "We're doing the maths most families never bother with.",
+    'Checking every flight combination for your half-term.',
+    'Comparing bags, seats and transport — not just fares.',
+    `Applying ${schoolName ?? 'your school'}'s exact school calendar.`,
     hasInsetDay
-      ? 'Inset day detected — calculating the advantage...'
+      ? 'Looking for the inset day advantage...'
       : 'Finding your best option...',
   ];
 
