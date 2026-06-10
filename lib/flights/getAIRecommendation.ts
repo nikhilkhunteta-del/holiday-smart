@@ -337,7 +337,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
   // Benchmark saving for headline
   const benchmarkSaving = context.benchmarkCost != null
-    ? Math.round((context.benchmarkCost - recommended.total_inc_fine) * 100) / 100
+    ? Math.round(context.benchmarkCost - recommended.total_inc_fine)
     : null;
 
   const insightPrompt = `You are a financial intelligence tool helping a London family save money on their school holiday flight. Generate a headline, subheadline, prose and insights based ONLY on the pre-computed data below. Do not calculate anything yourself.
@@ -532,6 +532,7 @@ Only if not already covered by transport insight for that leg.
 Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2.
 
 STRICT RULES:
+- All GBP amounts must be whole numbers — no decimal places, ever. Round every pound figure to the nearest pound. This applies to the headline, subheadline, problem_statement, insight text, and saving_gbp. If the data contains decimals (e.g. £702.40), write £702. If saving_gbp is a decimal, round it.
 - Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
 - Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
 - Minimum threshold for financial lever cards: only surface a lever with saving_gbp if the saving is ≥ £40 OR ≥ 5% of recommended total_cost_gbp, whichever is lower. Levers below this threshold should be omitted entirely — do not surface them with a reduced saving_gbp. Exception: the value_tradeoff and allin_trap levers are always surfaced regardless of saving amount.
