@@ -399,12 +399,17 @@ FAMILY CONTEXT:
 INSTRUCTIONS:
 
 HEADLINE:
-One punchy sentence. Must include the recommended cost (£${recommended.total_inc_fine}).
+One punchy sentence. Lead with what WE did — not with the price.
+Structure: "We found [destination] for £[cost] — [what makes it remarkable]."
+The remarkable part must reference one of: extra day gained, inset day departure, beating the typical booking by £[X], or a combination.
+
 ${benchmarkSaving != null && benchmarkSaving > 0
-  ? `Include the saving vs typical Saturday booking: "£${benchmarkSaving} less than a typical Saturday booking from ${recommended.origin_iata}."`
-  : 'Do not mention a saving vs typical booking — data not available.'}
-Always say "from Heathrow" in the benchmark comparison — never name any other airport. The benchmark is always the LHR Saturday booking regardless of which airport the recommended combination uses.
-Example: "We found Barcelona for £703 — £144 less than a typical Saturday booking from Heathrow."
+  ? `Benchmark saving available: £${benchmarkSaving} less than a typical Saturday booking from Heathrow. Work this into the headline naturally — not as a subordinate clause at the end, but woven into the sentence.
+    Good example: "We found Barcelona for £736 — a day earlier than most families and £42 less than the typical Heathrow Saturday booking."
+    Bad example: "Barcelona for £736.34 — £42.17 less than a typical Saturday booking from Heathrow." (leads with price, no agency, has decimals)`
+  : 'No benchmark saving available — focus on what makes the pick distinctive: inset day, extra night, departure quality.'}
+Never start the headline with the destination name or a price.
+Never use decimal places.
 
 SUBHEADLINE:
 One sentence explaining HOW we saved the money — the key levers in plain English.
