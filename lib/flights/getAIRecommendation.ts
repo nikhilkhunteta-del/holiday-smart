@@ -103,6 +103,10 @@ export async function getAIRecommendation(
     outbound_transit_changes: c.outbound_transit?.transit?.changes ?? null,
     outbound_uber_cost_gbp: c.outbound_transit?.uber?.mean_pence
       ? Math.round(c.outbound_transit.uber.mean_pence / 100) : null,
+    outbound_uber_low_gbp: c.outbound_transit?.uber?.low_pence
+      ? Math.round(c.outbound_transit.uber.low_pence / 100) : null,
+    outbound_uber_high_gbp: c.outbound_transit?.uber?.high_pence
+      ? Math.round(c.outbound_transit.uber.high_pence / 100) : null,
     outbound_uber_duration_mins: c.outbound_transit?.uber?.duration_mins ?? null,
     outbound_early_warning: c.outbound_transit?.transit?.early_flight_warning ?? false,
     return_transit_cost_gbp: c.return_transit_cost_gbp,
@@ -110,6 +114,10 @@ export async function getAIRecommendation(
     return_transit_changes: c.return_transit?.transit?.changes ?? null,
     return_uber_cost_gbp: c.return_transit?.uber?.mean_pence
       ? Math.round(c.return_transit.uber.mean_pence / 100) : null,
+    return_uber_low_gbp: c.return_transit?.uber?.low_pence
+      ? Math.round(c.return_transit.uber.low_pence / 100) : null,
+    return_uber_high_gbp: c.return_transit?.uber?.high_pence
+      ? Math.round(c.return_transit.uber.high_pence / 100) : null,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
@@ -497,6 +505,8 @@ Only if not already covered by transport insight for that leg.
 Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2.
 
 STRICT RULES:
+- Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
+- Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
 - Use ONLY numbers from provided data — never calculate or invent
 - Do not say "baseline"
 - Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
