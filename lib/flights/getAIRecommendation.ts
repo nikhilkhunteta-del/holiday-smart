@@ -500,17 +500,29 @@ export async function getAIRecommendation(
 
   // Early return heads-up
   if (recommended.return_departure_quality === 'very_early') {
-    const retDep = recommended.return_departure_time ?? '05:00';
-    const retChanges = recommended.return_transit_changes ?? 0;
+    const retDep      = recommended.return_departure_time ?? '05:00';
+    const tChangesRet = recommended.return_transit_changes ?? 0;
+    const uLowRet     = recommended.return_uber_low_gbp;
+    const uHighRet    = recommended.return_uber_high_gbp;
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Heads-up, not a criticism: the return departs at ${retDep} — that means leaving the accommodation around 03:00–03:30. Worth knowing before booking. ${retChanges >= 2 ? `Getting to the airport involves ${retChanges} changes — an Uber direct may be worth considering.` : 'A direct taxi or Uber to the airport makes sense at this hour.'} Warm, practical, one sentence. Do not use the word "unfortunately".`,
+      voice: `Two separate facts to cover in ONE sentence each — but write as ONE combined sentence only:
+
+Fact 1 (departure time): The return departs at ${retDep} meaning the family leaves accommodation around 03:00–03:30.
+
+Fact 2 (getting home from airport): Getting home FROM ${recommended.ret_dest_iata ?? recommended.origin_iata} — NOT to the airport, FROM it — by public transport involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'}. Uber FROM ${recommended.ret_dest_iata ?? recommended.origin_iata} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} and goes direct.
+
+You MUST include the Uber price range in the sentence — it is in facts as uber_low and uber_high.
+Never say "Uber to [airport]" — always "Uber from [airport]" or "getting home from [airport]".
+Warm, practical. One sentence maximum 30 words.`,
       facts: {
         return_departure_time: retDep,
         airport:               recommended.ret_dest_iata ?? 'the airport',
-        transit_changes:       retChanges,
+        transit_changes:       tChangesRet,
         leave_accommodation:   '03:00–03:30',
+        uber_low:  uLowRet ? round(uLowRet) : null,
+        uber_high: uHighRet ? round(uHighRet) : null,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -559,7 +571,10 @@ export async function getAIRecommendation(
     const f = spec.facts;
     let insight = '';
     if (spec.lever === 'early_return_warning') {
-      insight = `Return departs at ${f.return_departure_time} — leave the hotel around ${f.leave_accommodation}. ${(f.transit_changes as number) >= 2 ? 'A direct Uber to the airport makes sense at this hour.' : 'Worth knowing before you book.'}`;
+      const uberRange = f.uber_low != null
+        ? ` Uber home costs £${f.uber_low}${f.uber_high != null ? `–£${f.uber_high}` : ''} direct.`
+        : '';
+      insight = `Return departs at ${f.return_departure_time} — leave the hotel around ${f.leave_accommodation}.${uberRange}`;
     } else if (spec.lever === 'transit_changes') {
       insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
     }
