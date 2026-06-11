@@ -205,6 +205,22 @@ export async function getAIRecommendation(
     EI: 'Aer Lingus',
   };
   const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
+  const simplifyRoute = (route: string | null): string => {
+    if (!route) return 'public transport';
+    const operators = route
+      .split('→')
+      .map(s => s.trim())
+      .filter(s =>
+        s.match(/Line|Express|Rail|Bus|Coach|National/i) &&
+        !s.match(/\d+min/)
+      )
+      .map(s => s.replace(/\s*\(.*?\)/g, '').trim())
+      .filter((s, i, arr) => arr.indexOf(s) === i);
+    if (!operators.length) return 'public transport';
+    if (operators.length === 1) return operators[0];
+    return operators.slice(0, -1).join(', ') + ' and ' + operators[operators.length - 1];
+  };
+
   const fmtD = (iso: string): string => {
     const d = new Date(iso + 'T00:00:00');
     const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -255,15 +271,20 @@ export async function getAIRecommendation(
         ? `An extra night for £${diff} more`
         : `Better timing for £${diff} more`}"
 
-Use cheapest_description and winner_description from facts VERBATIM — copy them exactly, do not reformat.
+Copy cheapest_description and winner_description from facts VERBATIM.
 
-Write: "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard school day. For £[extra_cost] more, [winner_description] adds [what_it_buys]."
+Write exactly two sentences:
+1. "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard school day."
+2. "For £[extra_cost] more, [winner_description] [what_it_buys]."
 
-Two sentences max. Copy the descriptions exactly.`,
+Copy descriptions exactly. No airlines. No airports.`,
       facts: {
-        cheapest_description: `${cn(cheapestOverall.outbound_carrier)}, ${cheapestOverall.origin_iata}→${cheapestOverall.out_dest_iata}, ${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)}, £${round(cheapestOverall.total_inc_fine)}`,
+        locked_headline:      nightsGained > 0
+          ? `An extra night for £${diff} more`
+          : `Better timing for £${diff} more`,
+        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_inc_fine)}`,
         cheapest_nights:      cheapestOverall.trip_nights,
-        winner_description:   `${cn(recommended.outbound_carrier)}, ${recommended.origin_iata}→${recommended.out_dest_iata}, ${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)}, £${round(recommended.total_inc_fine)}`,
+        winner_description:   `${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)} at £${round(recommended.total_inc_fine)}`,
         winner_nights:        recommended.trip_nights,
         extra_cost:           diff,
         what_it_buys:         gains.join(' and ') || 'better timing',
@@ -314,6 +335,7 @@ One sentence. 25 words max.`,
                           'Jul','Aug','Sep','Oct','Nov','Dec'];
           return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
         })(),
+        locked_headline:  'Inset day, no absence',
         school:           context.schoolName ?? 'your school',
         adds_extra_night: insetAddsNight,
         arrival_time:     recommended.outbound_arrival_time,
@@ -342,6 +364,7 @@ One sentence. 25 words max.`,
           ? `Frame as a hack. The outbound is free but the return charges £${round(retCost)} for cabin bags — packing to personal items only on the return saves £${round(retCost)}. Lead with the action and saving. One sentence.`
           : `Frame as a hack. The outbound charges £${round(outCost)} for cabin bags but the return is free — packing to personal items only outbound saves £${round(outCost)}. Lead with the action and saving. One sentence.`,
       facts: {
+        locked_headline:   'The personal item hack',
         outbound_bag_cost: round(outCost),
         return_bag_cost:   round(retCost),
         total_bag_cost:    total,
@@ -395,7 +418,8 @@ One sentence. 25 words max.`,
     const sameDates = combinationsForPrompt.filter(
       c => c.outbound_date === recommended.outbound_date &&
            c.return_date   === recommended.return_date &&
-           c.origin_iata   !== recommended.origin_iata
+           c.origin_iata   !== recommended.origin_iata &&
+           c.out_dest_iata === recommended.out_dest_iata
     );
     if (!sameDates.length) return null;
 
@@ -413,10 +437,10 @@ One sentence. 25 words max.`,
     if (allinDiff < 20) return null;
 
     return {
-      cheap_description: `${cn(cheapestFarCombo.outbound_carrier)} ${cheapestFarCombo.origin_iata}→${cheapestFarCombo.out_dest_iata} on ${fmtD(cheapestFarCombo.outbound_date)}`,
+      cheap_description: `${cn(cheapestFarCombo.outbound_carrier)} from ${cheapestFarCombo.origin_iata} on ${fmtD(cheapestFarCombo.outbound_date)}, returning ${fmtD(cheapestFarCombo.return_date)}`,
       cheap_fare:        round(cheapestFare ?? 0),
       cheap_allin:       cheapestFareAllin,
-      rec_description:   `${cn(recommended.outbound_carrier)} ${recommended.origin_iata}→${recommended.out_dest_iata}`,
+      rec_description:   `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
       rec_allin:         recAllin,
       allin_saving:      allinDiff,
     };
@@ -428,15 +452,14 @@ One sentence. 25 words max.`,
     moneyCards.push({
       lever: 'allin_trap',
       headline_hint: 'Google Flights shows fares — we show costs',
-      voice: `Use cheap_description and rec_description VERBATIM — copy them exactly.
+      voice: `Copy cheap_description and rec_description from facts VERBATIM.
 
 Write exactly three sentences:
-1. "The [cheap_description] fare costs £[cheap_fare] — but all-in (fare + bags + seats + transport to the airport) it totals £[cheap_allin]."
-2. "[rec_description] all-in costs £[rec_allin] — £[allin_saving] less despite the higher base fare."
-3. "That's what Google Flights won't show you."
-
-Copy all descriptions and numbers from facts exactly.`,
+1. "[cheap_description]: fare £[cheap_fare], but all-in (fare + bags + seats + transport to airport) totals £[cheap_allin]."
+2. "[rec_description] all-in: £[rec_allin] — £[allin_saving] less despite the higher fare."
+3. "That's what Google Flights won't show you."`,
       facts: {
+        locked_headline:   'Google Flights shows fares — we show costs',
         cheap_description: allInTrap.cheap_description,
         cheap_fare:        allInTrap.cheap_fare,
         cheap_allin:       allInTrap.cheap_allin,
@@ -573,17 +596,18 @@ Copy all descriptions and numbers from facts exactly.`,
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Copy each fact statement VERBATIM from facts. Assemble into exactly two sentences:
+      voice: `Copy each statement from facts VERBATIM.
+Write exactly two sentences — no more:
 
 Sentence 1: "[bcn_departure]."
 Sentence 2: "[arrival_statement]; [transit_statement]. [uber_statement] — worth considering with tired kids after a night flight."
 
-Copy every statement exactly as given. Do not rephrase, summarise, or omit any part. The statements are pre-written — your job is assembly only.`,
+Do not add, remove, or rephrase anything. Assembly only.`,
       facts: {
         bcn_departure:     `Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30`,
-        arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'Stansted'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
-        transit_statement: `${recommended.return_transit_route ?? 'transit home'} (£${round(tCostRet)}) is already included in your cost`,
-        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'Stansted'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct`,
+        arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'STN'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
+        transit_statement: `${simplifyRoute(recommended.return_transit_route)} (£${round(tCostRet)}) is already included in your cost`,
+        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'STN'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct`,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -708,7 +732,7 @@ The CARDS array below has already been chosen. Do not add, drop, or reorder card
 
 For EACH card write only:
   "i":       the card's index (0-based)
-  "headline": 5 words max, plain English, no numbers, no em-dash
+  "headline": "Copy locked_headline from facts EXACTLY — do not rephrase, do not shorten, do not add words. If locked_headline is not in facts, write 5 words max."
   "insight":  ONE sentence, 25 words max, ONE fact, guided by the card's "voice" instruction
 
 Rules:
