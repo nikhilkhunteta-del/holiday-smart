@@ -539,7 +539,14 @@ export async function getAIRecommendation(
   cards.push(...moneyCards.slice(0, 3));
   cards.push(...qualitativeCards);
 
-  const finalCards = cards.slice(0, 5);
+  // Inset day always leads if present — experience before
+  // financial justification
+  const insetCard = cards.find(c => c.lever === 'inset_day');
+  const otherCards = cards.filter(c => c.lever !== 'inset_day');
+  const orderedCards = insetCard
+    ? [insetCard, ...otherCards]
+    : cards;
+  const finalCards = orderedCards.slice(0, 5);
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
