@@ -72,7 +72,7 @@ function buildGoogleFlightsUrl(params: {
   adults: number;
   children: number;
 }): string {
-  return `https://www.google.com/travel/flights?q=Flights+from+${params.origin}+to+${params.destination}+on+${params.date}&adults=${params.adults}&children=${params.children}`;
+  return `https://www.google.com/travel/flights?q=One+way+flights+from+${params.origin}+to+${params.destination}+on+${params.date}&adults=${params.adults}&children=${params.children}&trip_type=one_way`;
 }
 
 const LEVER_ICONS: Record<string, string> = {
