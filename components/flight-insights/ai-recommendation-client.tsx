@@ -523,7 +523,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                     }}>
-                      Optional saving: £{Math.round(card.saving_gbp)}
+                      Optional extra saving: £{Math.round(card.saving_gbp)}
                     </div>
                   )}
                 </div>

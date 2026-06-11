@@ -323,12 +323,12 @@ export async function getAIRecommendation(
     const total   = round(recommended.cabin_bag_cost_gbp ?? 0);
     moneyCards.push({
       lever: 'travel_light',
-      headline_hint: `Cabin bags cost £${total}`,
+      headline_hint: 'The personal item hack',
       voice: outCost > 0 && retCost > 0
-        ? `Frame as an opportunity, not a cost: travelling with personal items only on both legs saves £${total}. The outbound charges £${round(outCost)} and return charges £${round(retCost)}. Start with "Travel light and save £${total}" or similar. One sentence.`
+        ? `Frame as a hack, not a cost. "Pack personal items only and save £${total} — outbound cabin bag costs £${round(outCost)}, return costs £${round(retCost)}." Lead with the saving and the action. Punchy, one sentence.`
         : outCost === 0
-          ? `Frame as an opportunity: the outbound has no bag charge but the return charges £${round(retCost)} — packing to personal items only on the return saves £${round(retCost)}. Start with the saving. One sentence.`
-          : `Frame as an opportunity: the outbound charges £${round(outCost)} for cabin bags, return has no charge — packing to personal items only outbound saves £${round(outCost)}. Start with the saving. One sentence.`,
+          ? `Frame as a hack. The outbound is free but the return charges £${round(retCost)} for cabin bags — packing to personal items only on the return saves £${round(retCost)}. Lead with the action and saving. One sentence.`
+          : `Frame as a hack. The outbound charges £${round(outCost)} for cabin bags but the return is free — packing to personal items only outbound saves £${round(outCost)}. Lead with the action and saving. One sentence.`,
       facts: {
         outbound_bag_cost: round(outCost),
         return_bag_cost:   round(retCost),
