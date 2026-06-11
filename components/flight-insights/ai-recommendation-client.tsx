@@ -122,7 +122,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         });
         setVisible(true);
       }, 200);
-    }, 2000);
+    }, 1200);
     return () => {
       clearInterval(intervalId);
       clearTimeout(timeoutId);

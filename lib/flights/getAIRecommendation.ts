@@ -418,8 +418,7 @@ One sentence. 25 words max.`,
     const sameDates = combinationsForPrompt.filter(
       c => c.outbound_date === recommended.outbound_date &&
            c.return_date   === recommended.return_date &&
-           c.origin_iata   !== recommended.origin_iata &&
-           c.out_dest_iata === recommended.out_dest_iata
+           c.origin_iata !== recommended.origin_iata
     );
     if (!sameDates.length) return null;
 
