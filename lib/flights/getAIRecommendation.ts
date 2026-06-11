@@ -476,7 +476,10 @@ CROSS-DATE LEVERS:
 1. INSET DAY
 Use: cross_date_levers.inset_day
 Case A — cheapest_inset_is_recommended TRUE: ALWAYS surface.
-  - arrival_quality 'excellent' or 'good': "Departing on [date] — [school_name]'s inset day — means zero school absence and zero fines. Flying [day] instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts."
+  - arrival_quality 'excellent' or 'good': One sentence only. No em-dashes chaining multiple clauses. State one fact.
+    Bad: "Departing on 23 October — Vaughan Primary's inset day — means zero school absence and zero fines, and flying Friday instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts." (three clauses, two em-dashes, reads as a paragraph)
+    Good: "Flying on the inset day means a full extra day in Barcelona with no school absence and no fine." (one sentence, one fact, under 20 words)
+    Pick the single most valuable fact — extra day, or no absence — and state only that. Do not chain benefits together.
   - arrival_quality 'acceptable': "Departing on [date] — the inset day — means no school absence or fines, though the [arrival_time] arrival means most of the first day is a travel day."
   - arrival_quality 'poor': Note no absence only. Never say "extra day" for arrivals after 21:00.
 Case B — cheapest_inset_is_recommended FALSE: Only if inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0. Frame as alternative.
@@ -542,6 +545,7 @@ Frame: acknowledge transit is cheaper but flag the inconvenience. Recommend Uber
 saving_gbp: null (recommending convenience, not cost saving).
 
 Case B — Transit is genuinely competitive on time: outbound_transit_duration_mins < outbound_uber_duration_mins AND outbound transit changes <= 1 AND transit saves >= £40 vs Uber low.
+Only surface if transit saves ≥ £40 vs outbound_uber_low_gbp. If the saving is under £40, do NOT surface even if transit is faster. The parent already knows buses are cheaper than Uber. Only surface this card when the gap is large enough to be genuinely decision-relevant.
 Frame: "Transit to [airport] beats Uber on both cost and time — [route_summary] takes around [X] minutes and costs £[fare]."
 saving_gbp: outbound_transit_cost_gbp subtracted from outbound_uber_low_gbp.
 
@@ -566,6 +570,7 @@ STRICT RULES:
 - All GBP amounts must be whole numbers — no decimal places, ever. Round every pound figure to the nearest pound. This applies to the headline, subheadline, problem_statement, insight text, and saving_gbp. If the data contains decimals (e.g. £702.40), write £702. If saving_gbp is a decimal, round it.
 - Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
 - Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
+- Transport cards (transport_outbound, transport_return) must never show saving_gbp below £40. If the Uber vs transit gap is under £40, omit the card entirely — do not surface it with a reduced saving_gbp or a null saving_gbp. Bus beating Uber by £11 is not an insight.
 - Minimum threshold for financial lever cards: only surface a lever with saving_gbp if the saving is ≥ £40 OR ≥ 5% of recommended total_cost_gbp, whichever is lower. Levers below this threshold should be omitted entirely — do not surface them with a reduced saving_gbp. Exception: value_tradeoff and allin_trap are always surfaced regardless of saving amount. All other levers — including travel_light, checked_bags, departure_airport, split_carrier — must meet the threshold or be omitted. If a lever meets the threshold but saving_gbp is below £40, set saving_gbp to null rather than displaying a small saving amount.
 - Every lever insight is 25 words maximum. Count the words before outputting. If over 25 words, cut — do not summarise by adding semicolons or dashes to chain clauses together. One fact, one number, one sentence.
   Too long: "The cheapest option on these dates is £702 — £34 less — but it departs on a non-inset day with only 3 nights abroad; at £34 per extra night, we judged the inset day benefit and extra night better value." (41 words)
