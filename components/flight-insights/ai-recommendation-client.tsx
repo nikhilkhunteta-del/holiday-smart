@@ -420,7 +420,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
       <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
 
       {/* ── Full-width header ─────────────────────────────── */}
-      <div className="mb-xl">
+      <div className="mb-lg">
         {aiResult?.problem_statement && (
           <p style={{
             fontFamily: 'Newsreader, serif',
