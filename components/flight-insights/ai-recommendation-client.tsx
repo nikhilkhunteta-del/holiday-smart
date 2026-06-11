@@ -194,6 +194,7 @@ const LEVER_COLOURS: Record<string, string> = {
   family_split_risk:       '#ba1a1a',
   bags_estimate:           '#6f797a',
   transit_changes:         '#3f484a',
+  early_return_warning:    '#805600',
   allin_trap:              '#805600',
   value_tradeoff:          '#004349',
 };

@@ -242,7 +242,7 @@ export async function getAIRecommendation(
     .filter(c =>
       c.index !== recommendedIndex &&
       c.trip_nights === recommended.trip_nights &&
-      c.total_inc_fine <= recommended.total_inc_fine + 15 &&
+      c.total_inc_fine < recommended.total_inc_fine &&
       (
         arrivalProblem(c.arrival_quality, c.outbound_arrival_time) !== null ||
         depProblem(c.outbound_departure_quality, c.outbound_departure_time) !== null
@@ -260,11 +260,14 @@ export async function getAIRecommendation(
       depProblem(nearMiss.outbound_departure_quality, nearMiss.outbound_departure_time),
     ].filter(Boolean).join(' and ');
     const sharesInset = nearMiss.is_inset_day && recommended.is_inset_day;
+    const nearMissIsChepeast = nearMiss &&
+      nearMiss.outbound_date === cheapestOverall?.outbound_date &&
+      nearMiss.return_date   === cheapestOverall?.return_date;
 
     cards.push({
       lever: 'near_miss',
-      headline_hint: 'The one we skipped',
-      voice: `A parent will spot this £${round(nearMiss.total_inc_fine)} option and ask why we skipped it.${sharesInset ? ' It is also an inset-day flight.' : ''} It ${reasons}. Say we chose the option they can actually use. One sentence. Do not use the word "unfortunately".`,
+      headline_hint: nearMissIsChepeast ? 'Why not the cheapest' : 'The one we skipped',
+      voice: `Tell the parent what the cheaper option actually gives them: ${nearMiss.trip_nights} nights departing on a ${nearMiss.is_inset_day ? 'inset day' : 'standard school day'}, but ${reasons}. Then say what this trip gives instead. Do not say "we passed" or "we chose" — frame around what the parent gets, not what we decided. One sentence.`,
       facts: {
         alt_total:   round(nearMiss.total_inc_fine),
         also_inset:  sharesInset,
@@ -295,8 +298,8 @@ export async function getAIRecommendation(
       lever: 'inset_day',
       headline_hint: 'Inset day, no absence',
       voice: insetAddsNight
-        ? `Lead with the full extra night in ${destinationName} gained by departing on the inset day, with zero absence and zero fine. Do NOT mention airports or rush. One sentence.`
-        : `Do NOT claim an extra day — it does not add one here. Say: departing on the inset day means zero absence, zero fine, and quieter airports before the half-term rush, landing ${recommended.outbound_arrival_time ?? 'in the afternoon'} with the evening free. One sentence.`,
+        ? `Lead with the experience: a Friday afternoon in ${destinationName} instead of Saturday morning, airports significantly quieter before the half-term rush starts. Then: full extra night, zero absence, zero fine. Do NOT start with "zero absence" — that is the compliance benefit, not the experience. One sentence.`
+        : `Lead with the experience: departing before the half-term rush, airports quieter, arriving ${recommended.outbound_arrival_time ?? 'in the afternoon'} with the evening free to settle in. Then: zero absence, zero fine. Do NOT start with "Departing on" or "Flying on". Do NOT claim an extra night — it does not add one here. One sentence.`,
       facts: {
         inset_date:       recommended.outbound_date,
         school:           context.schoolName ?? 'your school',
@@ -322,10 +325,10 @@ export async function getAIRecommendation(
       lever: 'travel_light',
       headline_hint: `Cabin bags cost £${total}`,
       voice: outCost > 0 && retCost > 0
-        ? `No carrier policy assertions. The outbound charges £${round(outCost)} and the return charges £${round(retCost)} for cabin bags — travelling with personal items only on both legs removes £${total}. One sentence.`
+        ? `Frame as an opportunity, not a cost: travelling with personal items only on both legs saves £${total}. The outbound charges £${round(outCost)} and return charges £${round(retCost)}. Start with "Travel light and save £${total}" or similar. One sentence.`
         : outCost === 0
-          ? `No carrier policy assertions. The outbound has no cabin bag charge. The return charges £${round(retCost)} — personal items only on the return removes this cost. One sentence.`
-          : `No carrier policy assertions. The outbound charges £${round(outCost)} for cabin bags. The return has no cabin bag charge. Personal items only outbound removes this cost. One sentence.`,
+          ? `Frame as an opportunity: the outbound has no bag charge but the return charges £${round(retCost)} — packing to personal items only on the return saves £${round(retCost)}. Start with the saving. One sentence.`
+          : `Frame as an opportunity: the outbound charges £${round(outCost)} for cabin bags, return has no charge — packing to personal items only outbound saves £${round(outCost)}. Start with the saving. One sentence.`,
       facts: {
         outbound_bag_cost: round(outCost),
         return_bag_cost:   round(retCost),
@@ -485,10 +488,57 @@ export async function getAIRecommendation(
 
   if (transportCard) moneyCards.push(transportCard);
 
-  // Push money cards — cap at 3
-  cards.push(...moneyCards.slice(0, 3));
+  // ── QUALITATIVE CARDS ─────────────────────────────────────────────────
+  const qualitativeCards: CardSpec[] = [];
 
-  // Final cap — 5 cards total
+  // Early return heads-up
+  if (recommended.return_departure_quality === 'very_early') {
+    const retDep = recommended.return_departure_time ?? '05:00';
+    const retChanges = recommended.return_transit_changes ?? 0;
+    qualitativeCards.push({
+      lever: 'early_return_warning',
+      headline_hint: 'Early return — plan ahead',
+      voice: `Heads-up, not a criticism: the return departs at ${retDep} — that means leaving the accommodation around 03:00–03:30. Worth knowing before booking. ${retChanges >= 2 ? `Getting to the airport involves ${retChanges} changes — an Uber direct may be worth considering.` : 'A direct taxi or Uber to the airport makes sense at this hour.'} Warm, practical, one sentence. Do not use the word "unfortunately".`,
+      facts: {
+        return_departure_time: retDep,
+        airport:               recommended.ret_dest_iata ?? 'the airport',
+        transit_changes:       retChanges,
+        leave_accommodation:   '03:00–03:30',
+      },
+      verified_field: 'return_departure_quality',
+      verified_value:  'very_early',
+      saving_gbp: null,
+    });
+  }
+
+  // Transit changes heads-up
+  if (
+    outMode === 'transit' &&
+    (recommended.outbound_transit_changes ?? 0) >= 2
+  ) {
+    const changes = recommended.outbound_transit_changes ?? 2;
+    const route   = recommended.outbound_transit_route ?? 'to the airport';
+    qualitativeCards.push({
+      lever: 'transit_changes',
+      headline_hint: 'Multi-change journey outbound',
+      voice: `Practical heads-up for a family with kids and luggage: getting to ${recommended.origin_iata} involves ${changes} changes (${route}). Not a dealbreaker but worth knowing — allow extra time and consider whether an Uber is worth the premium on the day. One sentence. Warm, not alarming.`,
+      facts: {
+        airport:   recommended.origin_iata,
+        changes:   changes,
+        route:     route,
+        uber_low:  recommended.outbound_uber_low_gbp ? round(recommended.outbound_uber_low_gbp) : null,
+        uber_high: recommended.outbound_uber_high_gbp ? round(recommended.outbound_uber_high_gbp) : null,
+      },
+      verified_field: 'outbound_transit_changes',
+      verified_value:  changes,
+      saving_gbp: null,
+    });
+  }
+
+  // Push money cards (cap 3) then qualitative cards, final cap 5
+  cards.push(...moneyCards.slice(0, 3));
+  cards.push(...qualitativeCards);
+
   const finalCards = cards.slice(0, 5);
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
