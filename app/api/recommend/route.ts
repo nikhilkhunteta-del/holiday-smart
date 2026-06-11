@@ -124,7 +124,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ...aiResult,
-      recommended_index: aiResult.recommended_index,
+      recommended_index:       aiResult.recommended_index,
+      winner_outbound_date:    selectionContext.winner.outbound_date,
+      winner_return_date:      selectionContext.winner.return_date,
+      winner_outbound_carrier: selectionContext.winner.outbound_carrier,
       recommendedCombination: assembled.shortlist[aiResult.recommended_index] ?? null,
     });
 

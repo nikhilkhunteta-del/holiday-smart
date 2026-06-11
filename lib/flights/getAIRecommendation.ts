@@ -21,6 +21,9 @@ export interface AIRecommendationOutput {
   caveats: string[];
   confidence: 'high' | 'medium' | 'low';
   fallback: boolean;
+  winner_outbound_date?:    string;
+  winner_return_date?:      string;
+  winner_outbound_carrier?: string;
 }
 
 export interface FamilyContext {
@@ -561,6 +564,9 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
         caveats: [],
         confidence,
         fallback: false,
+        winner_outbound_date:    ctx.winner.outbound_date,
+        winner_return_date:      ctx.winner.return_date,
+        winner_outbound_carrier: ctx.winner.outbound_carrier,
       };
     }
     const insightParsed = JSON.parse(insightJsonMatch[0]);
@@ -579,6 +585,9 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
       caveats: insightParsed.caveats ?? [],
       confidence: insightParsed.confidence ?? confidence,
       fallback: false,
+      winner_outbound_date:    ctx.winner.outbound_date,
+      winner_return_date:      ctx.winner.return_date,
+      winner_outbound_carrier: ctx.winner.outbound_carrier,
     };
   } catch (err) {
     console.error('[getAIRecommendation] Insight call error:', err);
@@ -592,6 +601,9 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
       caveats: [],
       confidence,
       fallback: false,
+      winner_outbound_date:    ctx.winner.outbound_date,
+      winner_return_date:      ctx.winner.return_date,
+      winner_outbound_carrier: ctx.winner.outbound_carrier,
     };
   }
 }

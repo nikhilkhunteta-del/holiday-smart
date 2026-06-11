@@ -277,9 +277,19 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         return r.json();
       })
       .then(data => {
-          const idx = data.recommended_index ?? 0;
-          const resolvedCombination = combinations?.[idx] ?? null;
-          console.log('[client] recommended_index from API:', idx);
+          // Match by date fields — more robust than index which may differ
+          // between server combinations order and client combinations order
+          const winnerOutbound = data.winner_outbound_date;
+          const winnerReturn   = data.winner_return_date;
+          const winnerCarrier  = data.winner_outbound_carrier;
+
+          const resolvedCombination = combinations?.find(c =>
+            c.outbound_date    === winnerOutbound &&
+            c.return_date      === winnerReturn &&
+            c.outbound_carrier === winnerCarrier
+          ) ?? combinations?.[data.recommended_index ?? 0] ?? null;
+
+          console.log('[client] recommended_index from API:', data.recommended_index ?? 0);
           console.log('[client] combinations array length:', combinations?.length);
           console.log('[client] resolved combination:',
             JSON.stringify({
