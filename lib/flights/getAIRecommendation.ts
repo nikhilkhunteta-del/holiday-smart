@@ -195,6 +195,17 @@ export async function getAIRecommendation(
     return null;
   };
 
+  const CARRIER_NAMES: Record<string, string> = {
+    BA: 'British Airways',
+    U2: 'easyJet',
+    FR: 'Ryanair',
+    W6: 'Wizz Air',
+    VY: 'Vueling',
+    TP: 'TAP Air Portugal',
+    EI: 'Aer Lingus',
+  };
+  const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
+
   const cards: CardSpec[] = [];
 
   // ── Find reference combinations ───────────────────────────────────────
@@ -239,7 +250,7 @@ export async function getAIRecommendation(
 
 The parent has not seen any other options yet — they do not know a cheaper option exists. Introduce it, then explain the trade-off.
 
-The cheapest option is: ${cheapestOverall.outbound_carrier} ${cheapestOverall.origin_iata}→${cheapestOverall.out_dest_iata}, ${(() => {
+The cheapest option is: ${cn(cheapestOverall.outbound_carrier)} ${cheapestOverall.origin_iata}→${cheapestOverall.out_dest_iata}, ${(() => {
         const d = new Date(cheapestOverall.outbound_date + 'T00:00:00');
         const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
         const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -265,7 +276,7 @@ Two sentences maximum. 35 words max total.`,
         what_it_buys:           gains.join(' and ') || 'better timing',
         cheapest_nights:        cheapestOverall.trip_nights,
         winner_nights:          recommended.trip_nights,
-        cheapest_carrier:       cheapestOverall.outbound_carrier,
+        cheapest_carrier:       cn(cheapestOverall.outbound_carrier),
         cheapest_origin:        cheapestOverall.origin_iata,
         cheapest_destination:   cheapestOverall.out_dest_iata,
         cheapest_outbound_date: (() => {
@@ -442,20 +453,21 @@ One sentence. 25 words max.`,
   if (allInTrap) {
     moneyCards.push({
       lever: 'allin_trap',
-      headline_hint: 'Google Flights shows the fare. We show the cost.',
-      voice: `HEADLINE MUST BE EXACTLY: "Google Flights shows the fare. We show the cost."
+      headline_hint: 'Google Flights shows fares — we show costs',
+      voice: `HEADLINE MUST BE EXACTLY: "Google Flights shows fares — we show costs"
+(Use an em-dash, not a period. Do not split into two sentences for the headline.)
 
 The parent may not know what "all-in" means. Explain it in the insight.
 
 All-in = fare + bags + seat selection + transport to the airport. Google Flights only shows the fare.
 
-Format: "The £${allInTrap.cheap_fare} ${allInTrap.cheap_carrier} fare from ${allInTrap.cheap_airport} looks cheaper — but all-in (fare + bags + seats + transport to the airport) it costs £${allInTrap.cheap_allin} versus £${allInTrap.rec_allin} from ${allInTrap.rec_airport}. That's the difference Google Flights won't show you."
+Format: "The £${allInTrap.cheap_fare} ${cn(allInTrap.cheap_carrier)} fare from ${allInTrap.cheap_airport} looks cheaper — but all-in (fare + bags + seats + transport to the airport) it costs £${allInTrap.cheap_allin} versus £${allInTrap.rec_allin} from ${allInTrap.rec_airport}. That's the difference Google Flights won't show you."
 
 Three sentences maximum. Include both all-in totals.
 End with the "Google Flights won't show you" line or similar — it is the product's key differentiator.`,
       facts: {
         cheap_airport: allInTrap.cheap_airport,
-        cheap_carrier: allInTrap.cheap_carrier,
+        cheap_carrier: cn(allInTrap.cheap_carrier),
         cheap_fare:    allInTrap.cheap_fare,
         cheap_allin:   allInTrap.cheap_allin,
         rec_airport:   allInTrap.rec_airport,
@@ -592,21 +604,23 @@ End with the "Google Flights won't show you" line or similar — it is the produ
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Two sentences. Cover both sides of this journey.
+      voice: `Two sentences. No more.
 
-Sentence 1 — Barcelona departure:
-Flight leaves Barcelona at ${retDep}. That means leaving the hotel around 03:00–03:30. An early night or no sleep.
+Sentence 1 — Barcelona side:
+"Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30."
 
 Sentence 2 — Getting home from ${recommended.ret_dest_iata ?? 'Stansted'}:
-The transit route home (${recommended.return_transit_route ?? 'public transport'} at £${round(tCostRet)}) is already included in the price shown. However at this hour with tired kids after a night flight, Uber from ${recommended.ret_dest_iata ?? 'Stansted'} direct to home (£${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'}) avoids the changes and may be worth the upgrade.
+Name the specific transit route from facts (transit_route field). The transit cost (£${round(tCostRet)}) is already included in the price. Uber from ${recommended.ret_dest_iata ?? 'Stansted'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct — worth it with tired kids to avoid the changes.
 
-EXAMPLE:
-"Flight leaves Barcelona at 05:20 — plan to leave the hotel around 03:30, so an early night or no sleep. Lands at Stansted 07:45; the £80 Stansted Express home is included, but Uber direct (£118–£166) avoids the changes with tired kids — worth considering."
+EXACT EXAMPLE of what to write:
+"Flight leaves Barcelona at 05:20 — plan to leave the hotel around 03:30 for an early start or no sleep. The Stansted Express home (£80) is included in your cost; Uber from Stansted direct (£118–£166) avoids the changes with tired kids — worth considering."
 
-Always name the transit route from transit_route in facts.
-Always include both Uber prices.
-Never say "Uber to Stansted". Always "Uber from Stansted" or "Uber home".
-Two sentences max. 50 words max total for both sentences.`,
+RULES:
+- Always name the transit route (e.g. "Stansted Express") from transit_route in facts — never say just "transit"
+- Always include both Uber prices from facts
+- Never say "Uber to Stansted" — always "from Stansted"
+- "included in your cost" or "already included" — make clear the transit is pre-costed
+- 50 words max total`,
       facts: {
         bcn_departure_time: retDep,
         leave_hotel:        '03:00–03:30',
