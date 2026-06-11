@@ -57,6 +57,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
 
+    const combinations = assembled.shortlist;
+    console.log('[validate] top combinations:',
+      JSON.stringify(
+        combinations
+          .filter(c => !c.requires_absence)
+          .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)
+          .slice(0, 10)
+          .map(c => ({
+            out: c.outbound_date,
+            ret: c.return_date,
+            nights: c.trip_nights,
+            inset: c.is_inset_day,
+            cost: Math.round(c.total_cost_gbp),
+            arr_q: c.arrival_quality,
+            out_dep_q: c.outbound_departure_quality,
+            ret_dep_q: c.return_departure_quality,
+            transit_changes: c.outbound_transit_changes,
+            eff_cost: Math.round(
+              c.total_cost_gbp
+              - (80 * c.trip_nights)
+              - (c.is_inset_day ? 30 : 0)
+              + ({excellent:0,good:15,acceptable:40}[c.arrival_quality] ?? 40)
+              + ({ideal:0,good:10,very_early:35}[c.outbound_departure_quality] ?? 35)
+              + ({excellent:0,good:10,early:25,very_early:35}[c.return_departure_quality] ?? 35)
+              + (10 * Math.max(0, (c.outbound_transit_changes ?? 0) - 1))
+            ),
+          })),
+        null, 2
+      )
+    );
+
+    console.log('[validate] winner:',
+      JSON.stringify({
+        out: selectionContext.winner.outbound_date,
+        ret: selectionContext.winner.return_date,
+        nights: selectionContext.winner.trip_nights,
+        cost: Math.round(selectionContext.winner.total_cost_gbp),
+        eff_cost: Math.round(selectionContext.winnerEffCost),
+      })
+    );
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
