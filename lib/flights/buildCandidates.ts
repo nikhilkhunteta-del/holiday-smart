@@ -123,8 +123,11 @@ export function preScore(
     changes === 0 ? 4 :
     changes === 1 ? 3 : 1;
 
+  // Nights efficiency (4 points per night)
+  const nightsScore = quality.trip_nights * 4;
+
   return costScore + insetBonus + arrivalScore +
-         outboundDepartureScore + returnDepartureScore + journeyScore;
+         outboundDepartureScore + returnDepartureScore + journeyScore + nightsScore;
 }
 
 // ── Scored combination type ───────────────────────────────────────────────────
@@ -247,6 +250,17 @@ export function buildCandidateShortlist(
     }
   }
   retDestMap.forEach(c => add(c, `ret_dest_${c.ret_dest_iata}`));
+
+  // Always include cheapest inset day combination
+  const cheapestInset = [...scored]
+    .filter(c => c.is_inset_day)
+    .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
+  if (cheapestInset) add(cheapestInset, 'cheapest_inset_guarantee');
+
+  // Always include cheapest overall combination
+  const cheapestOverall = [...scored]
+    .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
+  if (cheapestOverall) add(cheapestOverall, 'cheapest_overall_guarantee');
 
   // Return as array sorted by pre_score descending
   return Array.from(selected.values())
