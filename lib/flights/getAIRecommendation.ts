@@ -377,6 +377,48 @@ export async function getAIRecommendation(
     });
   }
 
+  // Departure airport arbitrage
+  // Only surfaces when recommended airport is NOT Heathrow AND
+  // there's a meaningful cost difference vs LHR option
+  const airportSaving = (() => {
+    const sameDates = combinationsForPrompt.filter(
+      c => c.outbound_date === recommended.outbound_date &&
+           c.return_date   === recommended.return_date
+    );
+    const lhrOption = sameDates
+      .filter(c => c.origin_iata === 'LHR')
+      .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0];
+    if (!lhrOption) return null;
+    if (recommended.origin_iata === 'LHR') return null;
+    const saving = round(lhrOption.total_cost_gbp -
+                         recommended.total_cost_gbp);
+    return saving >= 30 ? {
+      saving,
+      recAirport: recommended.origin_iata,
+      lhrCost: round(lhrOption.total_cost_gbp),
+      recCost: round(recommended.total_cost_gbp),
+      recCarrier: recommended.outbound_carrier,
+    } : null;
+  })();
+
+  if (airportSaving) {
+    moneyCards.push({
+      lever: 'departure_airport',
+      headline_hint: 'Secondary hub saves money',
+      voice: `Heathrow prices ${destinationName} at £${airportSaving.lhrCost} on these dates. Flying from ${airportSaving.recAirport} instead with ${airportSaving.recCarrier} brings the all-in down to £${airportSaving.recCost} — a £${airportSaving.saving} saving including transport. One sentence.`,
+      facts: {
+        lhr_cost:    airportSaving.lhrCost,
+        rec_airport: airportSaving.recAirport,
+        rec_cost:    airportSaving.recCost,
+        saving:      airportSaving.saving,
+        carrier:     airportSaving.recCarrier,
+      },
+      verified_field: 'origin_iata',
+      verified_value:  airportSaving.recAirport,
+      saving_gbp: airportSaving.saving,
+    });
+  }
+
   // Transport — outbound
   const outMode: 'uber' | 'transit' =
     context.transitPreference === 'uber' ? 'uber' : 'transit';
