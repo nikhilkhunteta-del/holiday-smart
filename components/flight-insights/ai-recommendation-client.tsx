@@ -573,8 +573,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   maxWidth: '42ch',
                 }}>
                   {benchmarkCost != null
-                    ? `Compared to the typical Saturday booking of £${Math.round(benchmarkCost)}, this trip saves your family £${Math.round(aiSaving)}.`
-                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to the typical booking.`
+                    ? `Compared to the typical Saturday booking from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
+                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to a typical Saturday Heathrow booking.`
                   }
                 </p>
                 <div style={{
