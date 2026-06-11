@@ -103,6 +103,10 @@ export async function getAIRecommendation(
     outbound_transit_changes: c.outbound_transit?.transit?.changes ?? null,
     outbound_uber_cost_gbp: c.outbound_transit?.uber?.mean_pence
       ? Math.round(c.outbound_transit.uber.mean_pence / 100) : null,
+    outbound_uber_low_gbp: c.outbound_transit?.uber?.low_pence
+      ? Math.round(c.outbound_transit.uber.low_pence / 100) : null,
+    outbound_uber_high_gbp: c.outbound_transit?.uber?.high_pence
+      ? Math.round(c.outbound_transit.uber.high_pence / 100) : null,
     outbound_uber_duration_mins: c.outbound_transit?.uber?.duration_mins ?? null,
     outbound_early_warning: c.outbound_transit?.transit?.early_flight_warning ?? false,
     return_transit_cost_gbp: c.return_transit_cost_gbp,
@@ -110,6 +114,10 @@ export async function getAIRecommendation(
     return_transit_changes: c.return_transit?.transit?.changes ?? null,
     return_uber_cost_gbp: c.return_transit?.uber?.mean_pence
       ? Math.round(c.return_transit.uber.mean_pence / 100) : null,
+    return_uber_low_gbp: c.return_transit?.uber?.low_pence
+      ? Math.round(c.return_transit.uber.low_pence / 100) : null,
+    return_uber_high_gbp: c.return_transit?.uber?.high_pence
+      ? Math.round(c.return_transit.uber.high_pence / 100) : null,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
@@ -329,7 +337,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 
   // Benchmark saving for headline
   const benchmarkSaving = context.benchmarkCost != null
-    ? Math.round((context.benchmarkCost - recommended.total_inc_fine) * 100) / 100
+    ? Math.round(context.benchmarkCost - recommended.total_inc_fine)
     : null;
 
   const insightPrompt = `You are a financial intelligence tool helping a London family save money on their school holiday flight. Generate a headline, subheadline, prose and insights based ONLY on the pre-computed data below. Do not calculate anything yourself.
@@ -391,12 +399,17 @@ FAMILY CONTEXT:
 INSTRUCTIONS:
 
 HEADLINE:
-One punchy sentence. Must include the recommended cost (£${recommended.total_inc_fine}).
+One punchy sentence. Lead with what WE did — not with the price.
+Structure: "We found [destination] for £[cost] — [what makes it remarkable]."
+The remarkable part must reference one of: extra day gained, inset day departure, beating the typical booking by £[X], or a combination.
+
 ${benchmarkSaving != null && benchmarkSaving > 0
-  ? `Include the saving vs typical Saturday booking: "£${benchmarkSaving} less than a typical Saturday booking from ${recommended.origin_iata}."`
-  : 'Do not mention a saving vs typical booking — data not available.'}
-Always say "from Heathrow" in the benchmark comparison — never name any other airport. The benchmark is always the LHR Saturday booking regardless of which airport the recommended combination uses.
-Example: "We found Barcelona for £703 — £144 less than a typical Saturday booking from Heathrow."
+  ? `Benchmark saving available: £${benchmarkSaving} less than a typical Saturday booking from Heathrow. Work this into the headline naturally — not as a subordinate clause at the end, but woven into the sentence.
+    Good example: "We found Barcelona for £736 — a day earlier than most families and £42 less than the typical Heathrow Saturday booking."
+    Bad example: "Barcelona for £736.34 — £42.17 less than a typical Saturday booking from Heathrow." (leads with price, no agency, has decimals)`
+  : 'No benchmark saving available — focus on what makes the pick distinctive: inset day, extra night, departure quality.'}
+Never start the headline with the destination name or a price.
+Never use decimal places.
 
 SUBHEADLINE:
 One sentence explaining HOW we saved the money — the key levers in plain English.
@@ -416,6 +429,32 @@ RECOMMENDATION PROSE:
 
 LEVER INSIGHTS:
 Check each lever. Only include if condition is met.
+
+MANDATORY — VALUE TRADE-OFF CARD
+
+Find the combination with the lowest total_inc_fine across all combinations.
+
+Case A — recommended IS the cheapest:
+  Do NOT surface this lever.
+
+Case B — recommended is NOT the cheapest:
+  ALWAYS surface this lever first, before any other lever card.
+
+  If recommended has more trip_nights than cheapest:
+    "lever": "value_tradeoff",
+    "headline": "We didn't pick the cheapest — here's why",
+    "insight": "The cheapest option is £[cheapest_total] — £[diff] less. But it departs [cheapest_date] ([cheapest_day]), giving [N] fewer night[s] in [destination]. At £[cost_per_extra_night] per extra night, we judged that better value.",
+    "saving_gbp": null,
+    "verified_field": "total_inc_fine",
+    "verified_value": [recommended total_inc_fine]
+
+  If recommended has same trip_nights but better arrival/departure quality:
+    "lever": "value_tradeoff",
+    "headline": "We didn't pick the cheapest — here's why",
+    "insight": "The cheapest option is £[cheapest_total] — £[diff] less, but [reason: arrives at night / very early return / poor departure time]. We picked the option that gives you a usable day.",
+    "saving_gbp": null,
+    "verified_field": "total_inc_fine",
+    "verified_value": [recommended total_inc_fine]
 
 MANDATORY CHECK — ALL-IN COST TRAP
 
@@ -437,7 +476,10 @@ CROSS-DATE LEVERS:
 1. INSET DAY
 Use: cross_date_levers.inset_day
 Case A — cheapest_inset_is_recommended TRUE: ALWAYS surface.
-  - arrival_quality 'excellent' or 'good': "Departing on [date] — [school_name]'s inset day — means zero school absence and zero fines. Flying [day] instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts."
+  - arrival_quality 'excellent' or 'good': One sentence only. No em-dashes chaining multiple clauses. State one fact.
+    Bad: "Departing on 23 October — Vaughan Primary's inset day — means zero school absence and zero fines, and flying Friday instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts." (three clauses, two em-dashes, reads as a paragraph)
+    Good: "Flying on the inset day means a full extra day in Barcelona with no school absence and no fine." (one sentence, one fact, under 20 words)
+    Pick the single most valuable fact — extra day, or no absence — and state only that. Do not chain benefits together.
   - arrival_quality 'acceptable': "Departing on [date] — the inset day — means no school absence or fines, though the [arrival_time] arrival means most of the first day is a travel day."
   - arrival_quality 'poor': Note no absence only. Never say "extra day" for arrivals after 21:00.
 Case B — cheapest_inset_is_recommended FALSE: Only if inset_saving_vs_non_inset > 0 OR inset_extra_nights > 0. Frame as alternative.
@@ -476,31 +518,69 @@ RECOMMENDED COMBINATION LEVERS:
 
 7. TRAVEL LIGHT — CABIN BAGS
 MANDATORY if cabin_bag_cost_gbp > 0.
-Per-leg framing: note which carrier charges and which includes bags.
-"[Outbound carrier] includes cabin bags. [Return carrier] charges £[return_cabin_bag_cost_gbp] for your [N] bags on the return leg. Travelling with personal items only on the return removes this cost."
-saving_gbp: return_cabin_bag_cost_gbp (only the chargeable leg)
+Use ONLY the fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp from the data. Do NOT state what any carrier includes or excludes from general knowledge — you do not know carrier policy, only what the cost fields show.
+
+If outbound_cabin_bag_cost_gbp > 0 AND return_cabin_bag_cost_gbp > 0:
+"Cabin bags cost £[outbound] outbound and £[return] return — travelling with personal items only on both legs removes £[total] from the total."
+saving_gbp: cabin_bag_cost_gbp (the full total)
+
+If outbound_cabin_bag_cost_gbp == 0 AND return_cabin_bag_cost_gbp > 0:
+"The outbound leg has no cabin bag charge; the return charges £[return] for [N] bags — travelling with personal items only on the return removes this cost."
+saving_gbp: return_cabin_bag_cost_gbp
+
+If outbound_cabin_bag_cost_gbp > 0 AND return_cabin_bag_cost_gbp == 0:
+"The outbound leg charges £[outbound] for [N] cabin bags; the return has no cabin bag charge — travelling with personal items only outbound removes this cost."
+saving_gbp: outbound_cabin_bag_cost_gbp
+
+Never say "[carrier] includes cabin bags" or "[carrier] charges for cabin bags" — you are not authorised to state carrier policy. Only state what the cost fields show.
 
 8. CHECKED BAGS
 Condition: checked_bag_cost_gbp > 0. Always surface if true.
 
 9. TRANSPORT — OUTBOUND
-Condition: both transit and Uber costs exist AND (cost diff > £20 OR time diff > 45 mins).
-Include route name and specific times.
+Bus almost always costs less than Uber — do NOT surface a card just to confirm this. Only surface this lever in one of two cases:
+
+Case A — Transit is inconvenient: outbound_transit_changes >= 2 AND outbound_early_warning is true (very early flight).
+Frame: acknowledge transit is cheaper but flag the inconvenience. Recommend Uber if the premium vs transit is under £40.
+saving_gbp: null (recommending convenience, not cost saving).
+
+Case B — Transit is genuinely competitive on time: outbound_transit_duration_mins < outbound_uber_duration_mins AND outbound transit changes <= 1 AND transit saves >= £40 vs Uber low.
+Only surface if transit saves ≥ £40 vs outbound_uber_low_gbp. If the saving is under £40, do NOT surface even if transit is faster. The parent already knows buses are cheaper than Uber. Only surface this card when the gap is large enough to be genuinely decision-relevant.
+Frame: "Transit to [airport] beats Uber on both cost and time — [route_summary] takes around [X] minutes and costs £[fare]."
+saving_gbp: outbound_transit_cost_gbp subtracted from outbound_uber_low_gbp.
+
+If neither case applies: DO NOT surface.
 
 10. TRANSPORT — RETURN
-Same pattern. If return_departure_quality 'very_early' and 2+ changes:
-Frame around convenience — Uber may be worth the extra.
-saving_gbp: null when recommending Uber over cheaper transit.
+IMPORTANT: Return leg = family arriving at London airport, travelling HOME.
+Never describe this as getting to the airport.
+
+Only surface in one case:
+Return departure is very_early (before 09:00) AND return_transit_changes >= 2.
+Frame: "Getting home from [airport] by public transport involves [N] changes and takes around [X] minutes — Uber costs £[low]–£[high] and gets you home directly."
+saving_gbp: null.
+
+All other return transport combinations: DO NOT surface.
 
 11. TRANSIT CHANGES
 Only if not already covered by transport insight for that leg.
 Condition: outbound_transit_changes >= 2 OR return_transit_changes >= 2.
 
 STRICT RULES:
+- All GBP amounts must be whole numbers — no decimal places, ever. Round every pound figure to the nearest pound. This applies to the headline, subheadline, problem_statement, insight text, and saving_gbp. If the data contains decimals (e.g. £702.40), write £702. If saving_gbp is a decimal, round it.
+- Transit and Uber times are approximate — always say "around X minutes" or "roughly X minutes", never a precise figure. Round to the nearest 5 minutes in copy.
+- Uber costs are a range, not a fact. Always present as "£[low]–£[high] by Uber" using outbound_uber_low_gbp / outbound_uber_high_gbp (or return equivalents). Never present a single Uber price as exact.
+- Transport cards (transport_outbound, transport_return) must never show saving_gbp below £40. If the Uber vs transit gap is under £40, omit the card entirely — do not surface it with a reduced saving_gbp or a null saving_gbp. Bus beating Uber by £11 is not an insight.
+- Minimum threshold for financial lever cards: only surface a lever with saving_gbp if the saving is ≥ £40 OR ≥ 5% of recommended total_cost_gbp, whichever is lower. Levers below this threshold should be omitted entirely — do not surface them with a reduced saving_gbp. Exception: value_tradeoff and allin_trap are always surfaced regardless of saving amount. All other levers — including travel_light, checked_bags, departure_airport, split_carrier — must meet the threshold or be omitted. If a lever meets the threshold but saving_gbp is below £40, set saving_gbp to null rather than displaying a small saving amount.
+- Every lever insight is 25 words maximum. Count the words before outputting. If over 25 words, cut — do not summarise by adding semicolons or dashes to chain clauses together. One fact, one number, one sentence.
+  Too long: "The cheapest option on these dates is £702 — £34 less — but it departs on a non-inset day with only 3 nights abroad; at £34 per extra night, we judged the inset day benefit and extra night better value." (41 words)
+  Correct: "The cheapest option is £702 — but it gives you one fewer night in Barcelona." (15 words)
+  The headline carries the label. The insight carries one specific fact.
 - Use ONLY numbers from provided data — never calculate or invent
 - Do not say "baseline"
 - Maximum 1 caveat: only if baggage_is_estimate: true. Text: "Bag fees for [carrier] are estimated — actual price may vary by route."
 - No caveat about seats
+- Never state carrier baggage policy from general knowledge. Only report what outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp contain. If a cost is 0, say "no charge on this leg" — not "[carrier] includes bags."
 - Every verified_field must be an exact field name from the combinations data
 
 CRITICAL: Return ONLY the JSON object. Start with { and end with }.
@@ -512,7 +592,7 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
   "recommendation_prose": "<2-3 sentences to the parent>",
   "lever_insights": [
     {
-      "lever": "<allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
+      "lever": "<value_tradeoff|allin_trap|inset_day|absence_tradeoff|departure_airport|outbound_arrival_airport|return_arrival_airport|split_carrier|travel_light|checked_bags|transport_outbound|transport_return|transit_changes>",
       "headline": "<5 words max>",
       "insight": "<one sentence, specific, with actual numbers>",
       "saving_gbp": <number|null>,
