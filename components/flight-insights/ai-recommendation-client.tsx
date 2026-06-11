@@ -37,6 +37,7 @@ interface AIRecommendationClientProps {
     ret_dest_iata: string;
     return_arrival_time: string | null;
   } | null;
+  combinations?: Array<Record<string, any>> | null;
 }
 
 function fmtShortDate(iso: string): string {
@@ -247,7 +248,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -275,7 +276,11 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         if (!r.ok) throw new Error(`API error: ${r.status}`);
         return r.json();
       })
-      .then(data => setAIResult(data))
+      .then(data => {
+          const idx = data.recommended_index ?? 0;
+          const resolvedCombination = combinations?.[idx] ?? null;
+          setAIResult({ ...data, recommendedCombination: resolvedCombination });
+        })
       .catch(err => {
         if (err.name === 'AbortError') return; // cancelled — ignore
         console.error('[AIRecommendationClient] fetch error:', err);
@@ -354,7 +359,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             </p>
           )}
           {/* Itinerary strip */}
-          {recommendation && (
+          {(() => {
+            const stripRec = aiResult?.recommendedCombination ?? recommendation;
+            return stripRec ? (
             <div style={{
               borderLeft: '2px solid #004349',
               paddingLeft: 16,
@@ -382,16 +389,16 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               }}>
                 <span style={{ color: '#6f797a', minWidth: 56 }}>Outbound</span>
                 <span style={{ fontWeight: 600 }}>
-                  {fmtShortDate(recommendation.outbound_date)}
+                  {fmtShortDate(stripRec.outbound_date)}
                 </span>
                 <span>·</span>
-                <span>{carrierName(recommendation.outbound_carrier)}</span>
+                <span>{carrierName(stripRec.outbound_carrier)}</span>
                 <span>·</span>
-                <span>{recommendation.origin_iata} → {recommendation.out_dest_iata}</span>
-                {recommendation.outbound_departure_time && (
+                <span>{stripRec.origin_iata} → {stripRec.out_dest_iata}</span>
+                {stripRec.outbound_departure_time && (
                   <>
                     <span>·</span>
-                    <span>departs {recommendation.outbound_departure_time.slice(0,5)}</span>
+                    <span>departs {stripRec.outbound_departure_time.slice(0,5)}</span>
                   </>
                 )}
               </div>
@@ -404,21 +411,22 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               }}>
                 <span style={{ color: '#6f797a', minWidth: 56 }}>Return</span>
                 <span style={{ fontWeight: 600 }}>
-                  {fmtShortDate(recommendation.return_date)}
+                  {fmtShortDate(stripRec.return_date)}
                 </span>
                 <span>·</span>
-                <span>{carrierName(recommendation.return_carrier)}</span>
+                <span>{carrierName(stripRec.return_carrier)}</span>
                 <span>·</span>
-                <span>{recommendation.ret_dest_iata} → {recommendation.origin_iata}</span>
-                {recommendation.return_arrival_time && (
+                <span>{stripRec.ret_dest_iata} → {stripRec.origin_iata}</span>
+                {stripRec.return_arrival_time && (
                   <>
                     <span>·</span>
-                    <span>arrives {recommendation.return_arrival_time.slice(0,5)}</span>
+                    <span>arrives {stripRec.return_arrival_time.slice(0,5)}</span>
                   </>
                 )}
               </div>
             </div>
-          )}
+            ) : null;
+          })()}
           {/* Lever cards */}
           {aiResult.lever_insights.length > 0 && (
             <div style={{

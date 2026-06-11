@@ -5,7 +5,7 @@ import type { AIRecommendationOutput } from '@/lib/flights/getAIRecommendation';
 import type { AssembledCombination } from '@/lib/flights/assembleRecommendation';
 
 export interface AIRecommendationResult extends AIRecommendationOutput {
-  recommendedCombination: AssembledCombination | null;
+  recommendedCombination?: Record<string, any> | null;
 }
 
 interface FlightInsightsContextValue {
