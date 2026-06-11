@@ -149,6 +149,7 @@ export async function getAIRecommendation(
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
+    outbound_fare_gbp: c.outbound_fare_gbp,
     // Pre-computed quality fields from buildCandidates.ts — use directly
     trip_nights: c.trip_nights,
     arrival_quality: c.arrival_quality,
@@ -229,8 +230,19 @@ export async function getAIRecommendation(
 
     cards.push({
       lever: 'value_tradeoff',
-      headline_hint: 'Why not the cheapest',
-      voice: `The parent doesn't know there was a cheaper option — do NOT frame this as "we passed" or "why not". Frame around what they GAIN. Lead with the gain: ${gains.join(' and ') || 'better timing'}. The cheapest option costs £${round(cheapestOverall.total_inc_fine)} — this costs £${diff} more but delivers ${gains.join(' and ') || 'meaningfully better value'}. Write: "For £${diff} more than the cheapest option, you get [gain]." Warm, confident, one sentence. Never start with "We passed" or "We chose".`,
+      headline_hint: nightsGained > 0
+        ? `Extra night for £${diff} more`
+        : `Better value for £${diff} more`,
+      voice: `HEADLINE MUST BE EXACTLY: "${nightsGained > 0
+        ? `An extra night for £${diff} more`
+        : `Better timing for £${diff} more`}"
+Do not invent a different headline.
+
+For the insight: do NOT say "we passed" or "why not" or frame around a decision we made. Frame around what the parent GETS.
+
+Format: "For £${diff} more than the cheapest option, you get ${gains.join(' and ') || 'meaningfully better value'}."
+
+One sentence. 25 words max.`,
       facts: {
         cheapest_total:  round(cheapestOverall.total_inc_fine),
         winner_total:    round(recommended.total_inc_fine),
@@ -263,8 +275,20 @@ export async function getAIRecommendation(
       lever: 'inset_day',
       headline_hint: 'Inset day, no absence',
       voice: insetAddsNight
-        ? `Lead with the experience: a Friday afternoon in ${destinationName} instead of Saturday morning, airports significantly quieter before the half-term rush starts. Then: full extra night, zero absence, zero fine. Do NOT start with "zero absence" — that is the compliance benefit, not the experience. One sentence.`
-        : `Lead with the experience: departing before the half-term rush, airports quieter, arriving ${recommended.outbound_arrival_time ?? 'in the afternoon'} with the evening free to settle in. Then: zero absence, zero fine. Do NOT start with "Departing on" or "Flying on". Do NOT claim an extra night — it does not add one here. One sentence.`,
+        ? `CRITICAL: Lead with the discovery — the parent almost certainly does not know their school has an inset day. First sentence must reveal it.
+
+Format: "${context.schoolName ?? 'Your school'} has an inset day on [date] — most families don't know this. It means you can fly a day early, gain a full extra night in ${destinationName}, with zero school absence and zero fine."
+
+Use outbound_date from facts for the date.
+MUST include: school name, inset date, extra night, zero absence, zero fine.
+One sentence. 25 words max. Cut ruthlessly.`
+        : `CRITICAL: Lead with the discovery — the parent almost certainly does not know their school has an inset day. First sentence must reveal it.
+
+Format: "${context.schoolName ?? 'Your school'} has an inset day on [date] — flying on it means quieter airports, a [arrival_time] arrival, zero absence and zero fine."
+
+Do NOT claim an extra night — it does not add one.
+MUST include: school name, inset date, zero absence.
+One sentence. 25 words max.`,
       facts: {
         inset_date:       recommended.outbound_date,
         school:           context.schoolName ?? 'your school',
@@ -342,47 +366,61 @@ export async function getAIRecommendation(
     });
   }
 
-  // Departure airport arbitrage
-  // Only surfaces when recommended airport is NOT Heathrow AND
-  // there's a meaningful cost difference vs LHR option
-  const airportSaving = (() => {
+  // All-in trap: cheapest base fare ≠ cheapest all-in
+  // Find combination with lowest outbound_fare_gbp on same dates
+  const allInTrap = (() => {
     const sameDates = combinationsForPrompt.filter(
       c => c.outbound_date === recommended.outbound_date &&
-           c.return_date   === recommended.return_date
+           c.return_date   === recommended.return_date &&
+           c.origin_iata   !== recommended.origin_iata
     );
-    const lhrOption = sameDates
-      .filter(c => c.origin_iata === 'LHR')
-      .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0];
-    if (!lhrOption) return null;
-    if (recommended.origin_iata === 'LHR') return null;
-    const saving = round(lhrOption.total_cost_gbp -
-                         recommended.total_cost_gbp);
-    return saving >= 30 ? {
-      saving,
-      recAirport: recommended.origin_iata,
-      lhrCost: round(lhrOption.total_cost_gbp),
-      recCost: round(recommended.total_cost_gbp),
-      recCarrier: recommended.outbound_carrier,
-    } : null;
+    if (!sameDates.length) return null;
+
+    const cheapestFarCombo = sameDates.reduce((best, c) =>
+      (c.outbound_fare_gbp ?? Infinity) <
+      (best.outbound_fare_gbp ?? Infinity) ? c : best
+    , sameDates[0]);
+
+    const cheapestFare = cheapestFarCombo.outbound_fare_gbp;
+    const cheapestFareAllin = round(cheapestFarCombo.total_cost_gbp);
+    const recAllin = round(recommended.total_cost_gbp);
+    const allinDiff = cheapestFareAllin - recAllin;
+
+    // Only surface if cheaper fare ends up MORE expensive all-in by at least £20
+    if (allinDiff < 20) return null;
+
+    return {
+      cheap_airport: cheapestFarCombo.origin_iata,
+      cheap_carrier: cheapestFarCombo.outbound_carrier,
+      cheap_fare:    round(cheapestFare ?? 0),
+      cheap_allin:   cheapestFareAllin,
+      rec_airport:   recommended.origin_iata,
+      rec_carrier:   recommended.outbound_carrier,
+      rec_allin:     recAllin,
+      allin_saving:  allinDiff,
+    };
   })();
 
-  console.log('[airport-debug] airportSaving:', JSON.stringify(airportSaving));
+  console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
 
-  if (airportSaving) {
+  if (allInTrap) {
     moneyCards.push({
-      lever: 'departure_airport',
-      headline_hint: 'Secondary hub saves money',
-      voice: `Heathrow prices ${destinationName} at £${airportSaving.lhrCost} on these dates. Flying from ${airportSaving.recAirport} instead with ${airportSaving.recCarrier} brings the all-in down to £${airportSaving.recCost} — a £${airportSaving.saving} saving including transport. One sentence.`,
+      lever: 'allin_trap',
+      headline_hint: 'Cheaper fare, higher cost',
+      voice: `The cheapest outbound fare on these dates is from ${allInTrap.cheap_airport} (${allInTrap.cheap_carrier}) at £${allInTrap.cheap_fare}. But all-in including transport to ${allInTrap.cheap_airport}: £${allInTrap.cheap_allin}. Flying from ${allInTrap.rec_airport} with ${allInTrap.rec_carrier} costs £${allInTrap.allin_saving} less all-in despite the higher base fare. One sentence. 25 words max.`,
       facts: {
-        lhr_cost:    airportSaving.lhrCost,
-        rec_airport: airportSaving.recAirport,
-        rec_cost:    airportSaving.recCost,
-        saving:      airportSaving.saving,
-        carrier:     airportSaving.recCarrier,
+        cheap_airport: allInTrap.cheap_airport,
+        cheap_carrier: allInTrap.cheap_carrier,
+        cheap_fare:    allInTrap.cheap_fare,
+        cheap_allin:   allInTrap.cheap_allin,
+        rec_airport:   allInTrap.rec_airport,
+        rec_carrier:   allInTrap.rec_carrier,
+        rec_allin:     allInTrap.rec_allin,
+        allin_saving:  allInTrap.allin_saving,
       },
       verified_field: 'origin_iata',
-      verified_value:  airportSaving.recAirport,
-      saving_gbp: airportSaving.saving,
+      verified_value:  allInTrap.rec_airport,
+      saving_gbp:      allInTrap.allin_saving,
     });
   }
 
@@ -509,15 +547,18 @@ export async function getAIRecommendation(
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Two separate facts to cover in ONE sentence each — but write as ONE combined sentence only:
+      voice: `The family has just LANDED at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona. They need to get HOME.
 
-Fact 1 (departure time): The return departs at ${retDep} meaning the family leaves accommodation around 03:00–03:30.
+CORRECT direction: "from ${recommended.ret_dest_iata ?? recommended.origin_iata} to home"
+WRONG direction: "to ${recommended.ret_dest_iata ?? recommended.origin_iata}" — NEVER write this.
 
-Fact 2 (getting home from airport): Getting home FROM ${recommended.ret_dest_iata ?? recommended.origin_iata} — NOT to the airport, FROM it — by public transport involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'}. Uber FROM ${recommended.ret_dest_iata ?? recommended.origin_iata} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} and goes direct.
+Write ONE sentence covering:
+1. The return departs at ${retDep} — leave accommodation around 03:00–03:30
+2. Getting HOME from ${recommended.ret_dest_iata ?? recommended.origin_iata}: Uber FROM the airport costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct to home
 
-You MUST include the Uber price range in the sentence — it is in facts as uber_low and uber_high.
-Never say "Uber to [airport]" — always "Uber from [airport]" or "getting home from [airport]".
-Warm, practical. One sentence maximum 30 words.`,
+EXAMPLE of correct sentence: "Return departs 05:20, meaning a 03:30 departure from the hotel — Uber from Stansted home costs £118–£166 and avoids transit at that hour."
+
+Include the Uber price range from facts. 25 words max.`,
       facts: {
         return_departure_time: retDep,
         airport:               recommended.ret_dest_iata ?? 'the airport',
