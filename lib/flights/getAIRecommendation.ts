@@ -551,29 +551,34 @@ One sentence. 25 words max. Include both all-in totals and the saving.`,
   // Early return heads-up
   if (recommended.return_departure_quality === 'very_early') {
     const retDep      = recommended.return_departure_time ?? '05:00';
-    const tChangesRet = recommended.return_transit_changes ?? 0;
+    const tCostRet    = recommended.return_transit_cost_gbp ?? 0;
     const uLowRet     = recommended.return_uber_low_gbp;
     const uHighRet    = recommended.return_uber_high_gbp;
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `The return departs at ${retDep} from Barcelona — the family needs to leave accommodation around 03:00–03:30. That's the key practical heads-up.
+      voice: `Two practical notes in one card. Write as two short sentences — no more.
 
-The transit home from ${recommended.ret_dest_iata ?? recommended.origin_iata} is ALREADY included in the trip cost. Do NOT suggest Uber or mention Uber cost — it would contradict the recommendation.
+Sentence 1 — Barcelona departure side:
+The flight leaves Barcelona at ${retDep}. That means leaving the hotel around 03:00–03:30. Early night or no sleep. Say this plainly.
 
-Write ONE sentence: mention the departure time and what it means for when they leave the hotel. That is all.
+Sentence 2 — London arrival side:
+The flight lands at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'} at ${recommended.ret_dest_iata ?? 'Stansted'}. Transit home (£${round(tCostRet)}) is already included in the price. Uber from ${recommended.ret_dest_iata ?? 'Stansted'} costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct — worth considering with tired kids after a night flight.
 
-EXAMPLE: "Return departs 05:20 from Barcelona — you'll need to leave the hotel around 03:00–03:30."
+EXAMPLE of correct output:
+"Flight leaves Barcelona at 05:20 — plan to leave the hotel around 03:30, so an early night or no sleep. Lands at Stansted at 07:45; the £80 Stansted Express home is included, but Uber direct (£118–£166) is worth considering with tired kids."
 
-Do not mention Uber. Do not mention transit. Just the departure time and hotel departure time.
-25 words max.`,
+Two sentences maximum. Include both £ figures for Uber.
+Never say "Uber to Stansted" — always "Uber from Stansted" or "Uber home".`,
       facts: {
-        return_departure_time: retDep,
-        airport:               recommended.ret_dest_iata ?? 'the airport',
-        transit_changes:       tChangesRet,
-        leave_accommodation:   '03:00–03:30',
-        uber_low:  uLowRet ? round(uLowRet) : null,
-        uber_high: uHighRet ? round(uHighRet) : null,
+        bcn_departure_time: retDep,
+        leave_hotel:        '03:00–03:30',
+        arrival_time:       recommended.return_arrival_time
+                              ?.toString().slice(0,5) ?? '07:45',
+        arrival_airport:    recommended.ret_dest_iata ?? 'Stansted',
+        transit_cost:       round(tCostRet),
+        uber_low:           uLowRet ? round(uLowRet) : null,
+        uber_high:          uHighRet ? round(uHighRet) : null,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -626,9 +631,9 @@ Do not mention Uber. Do not mention transit. Just the departure time and hotel d
     let insight = '';
     if (spec.lever === 'early_return_warning') {
       const uberRange = f.uber_low != null
-        ? ` Uber home costs £${f.uber_low}${f.uber_high != null ? `–£${f.uber_high}` : ''} direct.`
+        ? ` Uber from ${f.arrival_airport} home costs £${f.uber_low}${f.uber_high != null ? `–£${f.uber_high}` : ''} direct.`
         : '';
-      insight = `Return departs at ${f.return_departure_time} — leave the hotel around ${f.leave_accommodation}.${uberRange}`;
+      insight = `Flight leaves Barcelona at ${f.bcn_departure_time} — leave the hotel around ${f.leave_hotel}. Lands at ${f.arrival_airport} at ${f.arrival_time}; transit home (£${f.transit_cost}) included.${uberRange}`;
     } else if (spec.lever === 'transit_changes') {
       insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
     }
