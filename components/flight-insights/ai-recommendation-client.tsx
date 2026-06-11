@@ -181,6 +181,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
 
 const LEVER_COLOURS: Record<string, string> = {
   inset_day:               '#004349',
+  near_miss:               '#004349',
   absence_tradeoff:        '#805600',
   departure_airport:       '#004349',
   outbound_arrival_airport:'#004349',
@@ -193,6 +194,7 @@ const LEVER_COLOURS: Record<string, string> = {
   family_split_risk:       '#ba1a1a',
   bags_estimate:           '#6f797a',
   transit_changes:         '#3f484a',
+  early_return_warning:    '#805600',
   allin_trap:              '#805600',
   value_tradeoff:          '#004349',
 };
@@ -277,8 +279,26 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         return r.json();
       })
       .then(data => {
-          const idx = data.recommended_index ?? 0;
-          const resolvedCombination = combinations?.[idx] ?? null;
+          // Match by date fields — more robust than index which may differ
+          // between server combinations order and client combinations order
+          const winnerOutbound = data.winner_outbound_date;
+          const winnerReturn   = data.winner_return_date;
+          const winnerCarrier  = data.winner_outbound_carrier;
+
+          const resolvedCombination = combinations?.find(c =>
+            c.outbound_date    === winnerOutbound &&
+            c.return_date      === winnerReturn &&
+            c.outbound_carrier === winnerCarrier
+          ) ?? combinations?.[data.recommended_index ?? 0] ?? null;
+
+          console.log('[client] recommended_index from API:', data.recommended_index ?? 0);
+          console.log('[client] combinations array length:', combinations?.length);
+          console.log('[client] resolved combination:',
+            JSON.stringify({
+              out: resolvedCombination?.outbound_date,
+              ret: resolvedCombination?.return_date,
+            })
+          );
           setAIResult({ ...data, recommendedCombination: resolvedCombination });
         })
       .catch(err => {
@@ -360,72 +380,105 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           )}
           {/* Itinerary strip */}
           {(() => {
-            const stripRec = aiResult?.recommendedCombination ?? recommendation;
-            return stripRec ? (
-            <div style={{
-              borderLeft: '2px solid #004349',
-              paddingLeft: 16,
-              margin: '16px 0',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}>
-              <div style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: '#004349',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                marginBottom: 4,
-              }}>
-                Our pick
-              </div>
-              <div style={{
-                display: 'flex',
-                gap: 8,
-                fontSize: 13,
-                color: '#191c1d',
-                alignItems: 'center',
-              }}>
-                <span style={{ color: '#6f797a', minWidth: 56 }}>Outbound</span>
-                <span style={{ fontWeight: 600 }}>
-                  {fmtShortDate(stripRec.outbound_date)}
-                </span>
-                <span>·</span>
-                <span>{carrierName(stripRec.outbound_carrier)}</span>
-                <span>·</span>
-                <span>{stripRec.origin_iata} → {stripRec.out_dest_iata}</span>
-                {stripRec.outbound_departure_time && (
-                  <>
-                    <span>·</span>
-                    <span>departs {stripRec.outbound_departure_time.slice(0,5)}</span>
-                  </>
+            const rec = aiResult?.recommendedCombination ?? recommendation;
+            if (!rec) return null;
+
+            // Insight line — mirrors savings-breakdown logic
+            const recAny = rec as Record<string, any>;
+            let insight = '';
+            if (recAny.is_inset_day) {
+              insight = "Flying on your school's inset day — one day earlier than most families, at no extra cost.";
+            } else if (!recAny.requires_absence) {
+              insight = 'No school absence required for this trip.';
+            }
+
+            return (
+              <div
+                className="bg-white rounded-lg"
+                style={{
+                  padding: 24,
+                  boxShadow: '0 4px 12px rgba(13,92,99,0.08)',
+                  borderLeft: '4px solid #004349',
+                  margin: '16px 0',
+                }}
+              >
+                <p
+                  className="font-inter uppercase tracking-widest"
+                  style={{ fontSize: 11, color: '#004349', marginBottom: 16, fontWeight: 600 }}
+                >
+                  Recommended itinerary
+                </p>
+
+                {insight && (
+                  <p
+                    className="font-inter"
+                    style={{ fontSize: 13, color: '#3f484a', fontStyle: 'italic', marginBottom: 16 }}
+                  >
+                    {insight}
+                  </p>
                 )}
+
+                <div className="flex flex-col" style={{ gap: 10 }}>
+                  {/* Outbound row */}
+                  <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                    <span
+                      className="font-inter"
+                      style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}
+                    >
+                      Outbound
+                    </span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      {fmtShortDate(rec.outbound_date)}
+                    </span>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      {carrierName(rec.outbound_carrier)}
+                    </span>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      from {rec.origin_iata}
+                    </span>
+                    {rec.outbound_departure_time && (
+                      <>
+                        <span style={{ color: '#bfc8c9' }}>·</span>
+                        <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                          departs {rec.outbound_departure_time.toString().slice(0, 5)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Return row */}
+                  <div className="flex flex-wrap items-baseline" style={{ gap: 8 }}>
+                    <span
+                      className="font-inter"
+                      style={{ fontSize: 12, color: '#9ba8a9', width: 56, flexShrink: 0 }}
+                    >
+                      Return
+                    </span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      {fmtShortDate(rec.return_date)}
+                    </span>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      {carrierName(rec.return_carrier)}
+                    </span>
+                    <span style={{ color: '#bfc8c9' }}>·</span>
+                    <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                      to {rec.ret_dest_iata ?? rec.origin_iata}
+                    </span>
+                    {rec.return_arrival_time && (
+                      <>
+                        <span style={{ color: '#bfc8c9' }}>·</span>
+                        <span className="font-inter" style={{ fontSize: 15, color: '#1a2b2c' }}>
+                          arrives {rec.return_arrival_time.toString().slice(0, 5)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div style={{
-                display: 'flex',
-                gap: 8,
-                fontSize: 13,
-                color: '#191c1d',
-                alignItems: 'center',
-              }}>
-                <span style={{ color: '#6f797a', minWidth: 56 }}>Return</span>
-                <span style={{ fontWeight: 600 }}>
-                  {fmtShortDate(stripRec.return_date)}
-                </span>
-                <span>·</span>
-                <span>{carrierName(stripRec.return_carrier)}</span>
-                <span>·</span>
-                <span>{stripRec.ret_dest_iata} → {stripRec.origin_iata}</span>
-                {stripRec.return_arrival_time && (
-                  <>
-                    <span>·</span>
-                    <span>arrives {stripRec.return_arrival_time.slice(0,5)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-            ) : null;
+            );
           })()}
           {/* Lever cards */}
           {aiResult.lever_insights.length > 0 && (
