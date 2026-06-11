@@ -279,6 +279,14 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
       .then(data => {
           const idx = data.recommended_index ?? 0;
           const resolvedCombination = combinations?.[idx] ?? null;
+          console.log('[client] recommended_index from API:', idx);
+          console.log('[client] combinations array length:', combinations?.length);
+          console.log('[client] resolved combination:',
+            JSON.stringify({
+              out: resolvedCombination?.outbound_date,
+              ret: resolvedCombination?.return_date,
+            })
+          );
           setAIResult({ ...data, recommendedCombination: resolvedCombination });
         })
       .catch(err => {

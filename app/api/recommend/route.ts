@@ -113,6 +113,15 @@ export async function POST(request: NextRequest) {
       benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
     }, selectionContext);
 
+    console.log('[route] recommended_index being returned:', aiResult.recommended_index);
+    console.log('[route] combination at that index:',
+      JSON.stringify({
+        out: combinations[aiResult.recommended_index]?.outbound_date,
+        ret: combinations[aiResult.recommended_index]?.return_date,
+        carrier: combinations[aiResult.recommended_index]?.outbound_carrier,
+      })
+    );
+
     return NextResponse.json({
       ...aiResult,
       recommended_index: aiResult.recommended_index,
