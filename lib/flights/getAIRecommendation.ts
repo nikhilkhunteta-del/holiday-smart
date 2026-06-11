@@ -366,6 +366,8 @@ export async function getAIRecommendation(
     } : null;
   })();
 
+  console.log('[airport-debug] airportSaving:', JSON.stringify(airportSaving));
+
   if (airportSaving) {
     moneyCards.push({
       lever: 'departure_airport',
@@ -565,6 +567,9 @@ Warm, practical. One sentence maximum 30 words.`,
     ? [insetCard, ...otherCards]
     : cards;
   const finalCards = orderedCards.slice(0, 5);
+
+  console.log('[airport-debug] finalCards levers:',
+    finalCards.map(c => c.lever));
 
   // Qualitative cards go to right column only
   const rightColumnCards = qualitativeCards.map(spec => {
