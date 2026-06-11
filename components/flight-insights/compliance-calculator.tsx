@@ -416,7 +416,7 @@ export function ComplianceCalculator({
                             ? false
                             : !!(isAIPick(
                                 { outbound_date: dep, return_date: ret },
-                                aiRecommended,
+                                aiRecommended as AssembledCombination | null,
                               ) || (!aiRecommended && recommendation &&
                                 dep === recommendation.outbound_date &&
                                 ret === recommendation.return_date));
