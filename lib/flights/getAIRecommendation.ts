@@ -150,6 +150,7 @@ export async function getAIRecommendation(
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
     outbound_fare_gbp: c.outbound_fare_gbp,
+    return_fare_gbp:   c.return_fare_gbp,
     // Pre-computed quality fields from buildCandidates.ts — use directly
     trip_nights: c.trip_nights,
     arrival_quality: c.arrival_quality,
@@ -435,13 +436,21 @@ One sentence. 25 words max.`,
     // Only surface if cheaper fare ends up MORE expensive all-in by at least £20
     if (allinDiff < 20) return null;
 
+    const cheapDestTransfer   = round(cheapestFarCombo.destination_transfer_cost_gbp ?? 0);
+    const recBaseFare         = round((recommended.outbound_fare_gbp ?? 0) + (recommended.return_fare_gbp ?? 0));
+    const hasExpensiveTransfer = cheapDestTransfer > 50;
+
     return {
-      cheap_description: `${cn(cheapestFarCombo.outbound_carrier)} from ${cheapestFarCombo.origin_iata} on ${fmtD(cheapestFarCombo.outbound_date)}, returning ${fmtD(cheapestFarCombo.return_date)}`,
-      cheap_fare:        round(cheapestFare ?? 0),
-      cheap_allin:       cheapestFareAllin,
-      rec_description:   `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
-      rec_allin:         recAllin,
-      allin_saving:      allinDiff,
+      cheap_description:      `${cn(cheapestFarCombo.outbound_carrier)} from ${cheapestFarCombo.origin_iata} on ${fmtD(cheapestFarCombo.outbound_date)}, returning ${fmtD(cheapestFarCombo.return_date)}`,
+      cheap_fare:             round(cheapestFare ?? 0),
+      cheap_allin:            cheapestFareAllin,
+      cheap_dest_transfer:    cheapDestTransfer,
+      has_expensive_transfer: hasExpensiveTransfer,
+      cheap_dest_iata:        cheapestFarCombo.out_dest_iata,
+      rec_description:        `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
+      rec_base_fare:          recBaseFare,
+      rec_allin:              recAllin,
+      allin_saving:           allinDiff,
     };
   })();
 
@@ -451,20 +460,30 @@ One sentence. 25 words max.`,
     moneyCards.push({
       lever: 'allin_trap',
       headline_hint: 'Google Flights shows fares — we show costs',
-      voice: `Copy cheap_description and rec_description from facts VERBATIM.
+      voice: `Copy cheap_description and rec_description VERBATIM from facts.
 
 Write exactly three sentences:
-1. "[cheap_description]: fare £[cheap_fare], but all-in (fare + bags + seats + transport to airport) totals £[cheap_allin]."
-2. "[rec_description] all-in: £[rec_allin] — £[allin_saving] less despite the higher fare."
-3. "That's what Google Flights won't show you."`,
+
+Sentence 1: "[cheap_description]: base fare £[cheap_fare] — but all-in${allInTrap.has_expensive_transfer ? ` (the destination airport adds £${allInTrap.cheap_dest_transfer} in transfers alone)` : ''} it totals £[cheap_allin]."
+
+Sentence 2: "[rec_description]: base fare £[rec_base_fare], all-in £[rec_allin] — £[allin_saving] less despite the higher fare."
+
+Sentence 3: "That's what Google Flights won't show you."
+
+Copy all descriptions and numbers from facts exactly.
+Include the transfer explanation from sentence 1 only if has_expensive_transfer is true.`,
       facts: {
-        locked_headline:   'Google Flights shows fares — we show costs',
-        cheap_description: allInTrap.cheap_description,
-        cheap_fare:        allInTrap.cheap_fare,
-        cheap_allin:       allInTrap.cheap_allin,
-        rec_description:   allInTrap.rec_description,
-        rec_allin:         allInTrap.rec_allin,
-        allin_saving:      allInTrap.allin_saving,
+        locked_headline:        'Google Flights shows fares — we show costs',
+        cheap_description:      allInTrap.cheap_description,
+        cheap_fare:             allInTrap.cheap_fare,
+        cheap_allin:            allInTrap.cheap_allin,
+        cheap_dest_transfer:    allInTrap.cheap_dest_transfer,
+        has_expensive_transfer: allInTrap.has_expensive_transfer,
+        cheap_dest_iata:        allInTrap.cheap_dest_iata,
+        rec_description:        allInTrap.rec_description,
+        rec_base_fare:          allInTrap.rec_base_fare,
+        rec_allin:              allInTrap.rec_allin,
+        allin_saving:           allInTrap.allin_saving,
       },
       verified_field: 'origin_iata',
       verified_value:  allInTrap.rec_description,
