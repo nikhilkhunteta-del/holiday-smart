@@ -366,6 +366,13 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   );
 
   // ── Derive booking data ──────────────────────────────────────────────────
+  const aiSaving = (() => {
+    const rec = aiResult?.recommendedCombination;
+    if (!rec || !benchmarkCost) return hsSaving ?? 0;
+    const recCost = rec.total_cost_gbp ?? rec.total_inc_fine ?? 0;
+    return Math.round(benchmarkCost - recCost);
+  })();
+
   const rec = aiResult?.recommendedCombination ?? recommendation;
 
   const adults      = fetchParams.adults;
@@ -457,7 +464,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         {/* LEFT — Timeline steps */}
         <div className="lg:col-span-7 space-y-0">
           {timelineCards.map((card, i) => {
-            const isLast = i === timelineCards.length - 1 && !(hsSaving != null && hsSaving > 0);
+            const isLast = i === timelineCards.length - 1 && !(aiSaving > 0);
             const icon = LEVER_ICONS[card.lever] ?? 'lightbulb';
             const isAmber = ['travel_light', 'allin_trap', 'checked_bags',
                              'transport_outbound', 'transport_return'].includes(card.lever);
@@ -524,8 +531,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             );
           })}
 
-          {/* Final step — Total Advantage (always shown if hsSaving > 0) */}
-          {hsSaving != null && hsSaving > 0 && (
+          {/* Final step — Total Advantage (always shown if aiSaving > 0) */}
+          {aiSaving > 0 && (
             <div className="relative flex gap-lg pb-xl hs-step-line-last">
               <div
                 className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white z-10 animate-pulse"
@@ -561,8 +568,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   maxWidth: '42ch',
                 }}>
                   {benchmarkCost != null
-                    ? `Compared to the typical Saturday booking of £${Math.round(benchmarkCost)}, this trip saves your family £${Math.round(hsSaving)}.`
-                    : `This optimised trip saves your family £${Math.round(hsSaving)} compared to the typical booking.`
+                    ? `Compared to the typical Saturday booking of £${Math.round(benchmarkCost)}, this trip saves your family £${Math.round(aiSaving)}.`
+                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to the typical booking.`
                   }
                 </p>
                 <div style={{
@@ -578,7 +585,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     fontWeight: 600,
                     color: '#F06543',
                   }}>
-                    £{Math.round(hsSaving)}
+                    £{Math.round(aiSaving)}
                   </span>
                   <span style={{
                     fontFamily: 'Newsreader, serif',
@@ -737,7 +744,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               )}
 
               {/* Saving vs benchmark */}
-              {hsSaving != null && hsSaving > 0 && (
+              {aiSaving > 0 && (
                 <div className="pt-md">
                   <div className="h-1 w-full bg-outline-variant/30 rounded-full overflow-hidden">
                     <div className="h-full bg-primary" style={{ width: '100%' }} />
@@ -749,7 +756,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     marginTop: 8,
                     textAlign: 'center',
                   }}>
-                    £{Math.round(hsSaving)} below the typical booking
+                    £{Math.round(aiSaving)} below the typical booking
                   </p>
                 </div>
               )}
