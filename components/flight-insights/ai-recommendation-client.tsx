@@ -400,11 +400,16 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
   const isSplit = (rec as any)?.split_carrier ?? false;
 
-  // Separate early_return_warning from timeline cards
-  const timelineCards = (aiResult?.lever_insights ?? [])
-    .filter(c => c.lever !== 'early_return_warning');
-  const returnWarning = (aiResult?.lever_insights ?? [])
+  // Timeline shows only lever_insights (qualitative cards now in right column)
+  const timelineCards = aiResult?.lever_insights ?? [];
+
+  // Right column notes come from right_column_cards
+  // (set by getAIRecommendation) — not lever_insights
+  const rightColCards = aiResult?.right_column_cards ?? [];
+  const earlyReturnNote = rightColCards
     .find(c => c.lever === 'early_return_warning') ?? null;
+  const transitNote = rightColCards
+    .find(c => c.lever === 'transit_changes') ?? null;
 
   // Insight line for itinerary strip
   const recAny = rec as Record<string, any> | null;
@@ -837,20 +842,39 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             </div>
           </div>
 
-          {/* Return logistics note */}
-          {returnWarning && (
-            <div
-              className="mt-lg p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start"
-            >
-              <span className="material-symbols-outlined text-primary">commute</span>
-              <div>
-                <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
-                  Return logistics
+          {/* Right column notes */}
+          {(earlyReturnNote || transitNote) && (
+            <div className="flex flex-col gap-md mt-lg">
+              {earlyReturnNote && (
+                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
+                  <span className="material-symbols-outlined text-secondary">
+                    schedule
+                  </span>
+                  <div>
+                    <div className="font-label-sm text-label-sm font-bold uppercase text-secondary mb-1">
+                      Early departure
+                    </div>
+                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
+                      {earlyReturnNote.insight}
+                    </p>
+                  </div>
                 </div>
-                <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-                  {returnWarning.insight}
-                </p>
-              </div>
+              )}
+              {transitNote && (
+                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
+                  <span className="material-symbols-outlined text-primary">
+                    transfer_within_a_station
+                  </span>
+                  <div>
+                    <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
+                      Getting home
+                    </div>
+                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
+                      {transitNote.insight}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

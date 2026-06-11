@@ -24,6 +24,14 @@ export interface AIRecommendationOutput {
   winner_outbound_date?:    string;
   winner_return_date?:      string;
   winner_outbound_carrier?: string;
+  right_column_cards?: Array<{
+    lever: string;
+    headline?: string;
+    insight: string;
+    verified_field: string;
+    verified_value: string | number | boolean;
+    saving_gbp: number | null;
+  }>;
 }
 
 export interface FamilyContext {
@@ -233,49 +241,6 @@ export async function getAIRecommendation(
       },
       verified_field: 'total_inc_fine',
       verified_value:  round(recommended.total_inc_fine),
-      saving_gbp: null,
-    });
-  }
-
-  // ── CARD 2 — near_miss ────────────────────────────────────────────────
-  const nearMiss = viableCombos
-    .filter(c =>
-      c.index !== recommendedIndex &&
-      c.trip_nights === recommended.trip_nights &&
-      c.total_inc_fine < recommended.total_inc_fine &&
-      (
-        arrivalProblem(c.arrival_quality, c.outbound_arrival_time) !== null ||
-        depProblem(c.outbound_departure_quality, c.outbound_departure_time) !== null
-      )
-    )
-    .sort((a, b) =>
-      (Number(b.is_inset_day === recommended.is_inset_day) -
-       Number(a.is_inset_day === recommended.is_inset_day)) ||
-      (a.total_inc_fine - b.total_inc_fine)
-    )[0] ?? null;
-
-  if (nearMiss) {
-    const reasons = [
-      arrivalProblem(nearMiss.arrival_quality, nearMiss.outbound_arrival_time),
-      depProblem(nearMiss.outbound_departure_quality, nearMiss.outbound_departure_time),
-    ].filter(Boolean).join(' and ');
-    const sharesInset = nearMiss.is_inset_day && recommended.is_inset_day;
-    const nearMissIsChepeast = nearMiss &&
-      nearMiss.outbound_date === cheapestOverall?.outbound_date &&
-      nearMiss.return_date   === cheapestOverall?.return_date;
-
-    cards.push({
-      lever: 'near_miss',
-      headline_hint: nearMissIsChepeast ? 'Why not the cheapest' : 'The one we skipped',
-      voice: `Tell the parent what the cheaper option actually gives them: ${nearMiss.trip_nights} nights departing on a ${nearMiss.is_inset_day ? 'inset day' : 'standard school day'}, but ${reasons}. Then say what this trip gives instead. Do not say "we passed" or "we chose" — frame around what the parent gets, not what we decided. One sentence.`,
-      facts: {
-        alt_total:   round(nearMiss.total_inc_fine),
-        also_inset:  sharesInset,
-        why_skipped: reasons,
-        same_nights: nearMiss.trip_nights,
-      },
-      verified_field: 'total_inc_fine',
-      verified_value:  round(nearMiss.total_inc_fine),
       saving_gbp: null,
     });
   }
@@ -577,18 +542,36 @@ export async function getAIRecommendation(
     });
   }
 
-  // Push money cards (cap 3) then qualitative cards, final cap 5
+  // Push money cards (cap 3); qualitative cards handled separately
   cards.push(...moneyCards.slice(0, 3));
-  cards.push(...qualitativeCards);
+  // qualitative cards handled separately — not in timeline
 
-  // Inset day always leads if present — experience before
-  // financial justification
+  // Inset day leads, qualitative cards excluded from timeline
   const insetCard = cards.find(c => c.lever === 'inset_day');
   const otherCards = cards.filter(c => c.lever !== 'inset_day');
   const orderedCards = insetCard
     ? [insetCard, ...otherCards]
     : cards;
   const finalCards = orderedCards.slice(0, 5);
+
+  // Qualitative cards go to right column only
+  const rightColumnCards = qualitativeCards.map(spec => {
+    const f = spec.facts;
+    let insight = '';
+    if (spec.lever === 'early_return_warning') {
+      insight = `Return departs at ${f.return_departure_time} — leave the hotel around ${f.leave_accommodation}. ${(f.transit_changes as number) >= 2 ? 'A direct Uber to the airport makes sense at this hour.' : 'Worth knowing before you book.'}`;
+    } else if (spec.lever === 'transit_changes') {
+      insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
+    }
+    return {
+      lever:           spec.lever,
+      headline:        spec.headline_hint,
+      insight,
+      verified_field:  spec.verified_field,
+      verified_value:  spec.verified_value,
+      saving_gbp:      spec.saving_gbp,
+    };
+  });
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
@@ -708,6 +691,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
         subheadline: '',
         recommendation_prose: 'We found the best value option for your dates.',
         lever_insights: [],
+        right_column_cards: rightColumnCards,
         caveats: [],
         confidence,
         fallback: false,
@@ -746,6 +730,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       subheadline:             insightParsed.subheadline         ?? '',
       recommendation_prose:    '',
       lever_insights,
+      right_column_cards:      rightColumnCards,
       caveats:                 insightParsed.caveats             ?? [],
       confidence:              'high',
       fallback:                false,
@@ -762,6 +747,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       subheadline: '',
       recommendation_prose: 'We found the best value option for your dates.',
       lever_insights: [],
+      right_column_cards: rightColumnCards,
       caveats: [],
       confidence,
       fallback: false,
