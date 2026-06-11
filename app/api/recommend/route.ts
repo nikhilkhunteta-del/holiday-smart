@@ -111,6 +111,11 @@ export async function POST(request: NextRequest) {
       checkedBags,
       seatsTogether,
       benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
+      destinationName: destinationSlug
+        .split('-')
+        .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' '),
+      transitPreference,
     }, selectionContext);
 
     console.log('[route] recommended_index being returned:', aiResult.recommended_index);

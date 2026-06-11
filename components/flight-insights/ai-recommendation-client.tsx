@@ -181,6 +181,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
 
 const LEVER_COLOURS: Record<string, string> = {
   inset_day:               '#004349',
+  near_miss:               '#004349',
   absence_tradeoff:        '#805600',
   departure_airport:       '#004349',
   outbound_arrival_airport:'#004349',
