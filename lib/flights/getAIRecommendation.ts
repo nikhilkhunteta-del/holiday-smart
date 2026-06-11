@@ -616,6 +616,7 @@ Rules:
 - Never state carrier baggage policy. Only report what cost fields show.
 - Never chain clauses with dashes or semicolons to fit more in. One fact. Cut instead.
 - Never use the word "baseline" or "unfortunately".
+- The fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp refer to CABIN BAGS only. Never use the word "checked" when describing these fields. If the insight mentions bags from these fields, always say "cabin bags" or "cabin bag charge" — never "checked bags".
 
 CARDS:
 ${JSON.stringify(finalCards, null, 2)}
