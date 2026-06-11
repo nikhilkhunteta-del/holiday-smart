@@ -52,9 +52,9 @@ export function effectiveCost(c: ScoredCombination): number {
   if (c.is_inset_day) cost -= INSET_BONUS;
 
   // Penalties (increase effective cost)
-  cost += ARRIVAL_PENALTY[c.arrival_quality]              ?? 40;
-  cost += OUT_DEP_PENALTY[c.outbound_departure_quality]   ?? 35;
-  cost += RET_DEP_PENALTY[c.return_departure_quality]     ?? 35;
+  cost += ARRIVAL_PENALTY[c.arrival_quality ?? '']              ?? 40;
+  cost += OUT_DEP_PENALTY[c.outbound_departure_quality ?? '']   ?? 35;
+  cost += RET_DEP_PENALTY[c.return_departure_quality ?? '']     ?? 35;
   cost += CHANGE_PENALTY * Math.max(0, (c.outbound_transit_changes ?? 0) - 1);
 
   return cost;
