@@ -512,7 +512,7 @@ export async function getAIRecommendation(
         transportCard = {
           lever: 'transport_return',
           headline_hint: 'Worth the Uber home',
-          voice: `Getting home from ${recommended.ret_dest_iata ?? recommended.origin_iata} at ${recommended.return_arrival_time ?? 'an early hour'}: public transport involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} — Uber costs £${round(uLowRet)}–£${round(uHighRet)} and gets you home directly. One sentence.`,
+          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round(uLowRet)}–£${round(uHighRet ?? uLowRet)} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
           facts: {
             airport:         recommended.ret_dest_iata ?? recommended.origin_iata,
             arrival_time:    recommended.return_arrival_time,
@@ -659,6 +659,7 @@ Rules:
 - Never chain clauses with dashes or semicolons to fit more in. One fact. Cut instead.
 - Never use the word "baseline" or "unfortunately".
 - The fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp refer to CABIN BAGS only. Never use the word "checked" when describing these fields. If the insight mentions bags from these fields, always say "cabin bags" or "cabin bag charge" — never "checked bags".
+- Transport return cards describe getting HOME from a London airport, not getting TO an airport. The family has just landed. Never say "Uber to [airport]" in a return card — always "Uber from [airport]" or "getting home from [airport]".
 
 CARDS:
 ${JSON.stringify(finalCards, null, 2)}
