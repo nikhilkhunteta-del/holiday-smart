@@ -209,7 +209,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <FlightInsightsProvider>
       <main className="min-h-screen bg-background">
-        <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <div className="max-w-content mx-auto px-gutter py-xl flex flex-col gap-xl">
 
           {/* 1. PreferencesCard — renders immediately, outside the AI gate */}
           <PreferencesCard

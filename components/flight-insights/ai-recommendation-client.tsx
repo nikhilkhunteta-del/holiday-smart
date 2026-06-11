@@ -359,7 +359,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
   if (aiLoading && !aiResult) return (
     <main className="min-h-screen bg-background">
-      <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+      <div className="max-w-content mx-auto px-gutter py-xl flex flex-col gap-xl">
         <NarrativeSkeleton schoolName={schoolName} hasInsetDay={hasInsetDay} />
       </div>
     </main>
