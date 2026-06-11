@@ -222,7 +222,7 @@ export async function getAIRecommendation(
     cards.push({
       lever: 'value_tradeoff',
       headline_hint: 'Why not the cheapest',
-      voice: `Be upfront: we passed the £${round(cheapestOverall.total_inc_fine)} cheapest option. The extra £${diff} buys: ${gains.join(' and ') || 'better timing'}. Warm, honest, one sentence. Do not say "we" more than once.`,
+      voice: `The parent doesn't know there was a cheaper option — do NOT frame this as "we passed" or "why not". Frame around what they GAIN. Lead with the gain: ${gains.join(' and ') || 'better timing'}. The cheapest option costs £${round(cheapestOverall.total_inc_fine)} — this costs £${diff} more but delivers ${gains.join(' and ') || 'meaningfully better value'}. Write: "For £${diff} more than the cheapest option, you get [gain]." Warm, confident, one sentence. Never start with "We passed" or "We chose".`,
       facts: {
         cheapest_total:  round(cheapestOverall.total_inc_fine),
         winner_total:    round(recommended.total_inc_fine),
