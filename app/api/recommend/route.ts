@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
+import { selectCombination } from '@/lib/flights/selectCombination';
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
       transitPreference,
     );
 
+    const selectionContext = selectCombination(assembled.shortlist);
+    if (!selectionContext) {
+      return NextResponse.json({ fallback: true }, { status: 200 });
+    }
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -64,14 +70,11 @@ export async function POST(request: NextRequest) {
       checkedBags,
       seatsTogether,
       benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
-    });
+    }, selectionContext);
 
-    // Return AI result plus the recommended combination index
-    // mapped back to the full combinations array
     return NextResponse.json({
       ...aiResult,
-      // Include the full recommended combination so client can
-      // identify OUR PICK in matrix and leg tables
+      recommended_index: aiResult.recommended_index,
       recommendedCombination: assembled.shortlist[aiResult.recommended_index] ?? null,
     });
 

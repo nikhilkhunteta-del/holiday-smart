@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ScoredCombination } from './buildCandidates';
+import { selectCombination, type SelectionContext } from './selectCombination';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
@@ -40,6 +41,7 @@ export interface FamilyContext {
 export async function getAIRecommendation(
   combinations: ScoredCombination[],
   context: FamilyContext,
+  selectionContext?: SelectionContext | null,
 ): Promise<AIRecommendationOutput> {
 
   const FALLBACK: AIRecommendationOutput = {
@@ -131,123 +133,19 @@ export async function getAIRecommendation(
     pre_score: c.pre_score,
   }));
 
-  // ── Call 1 — Pick the best combination ───────────────────────────────────
-  const pickPrompt = `You are advising a London family booking a school holiday flight. Pick the single best combination from the shortlist below.
+  // ── Selection (deterministic — no LLM call) ───────────────────────
+  const ctx = selectionContext ?? selectCombination(combinations);
+  if (!ctx) return FALLBACK;
 
-FAMILY:
-- School: ${context.schoolName ?? 'unknown'}, ${context.borough ?? 'London'} (${context.postcodeDistrict})
-- Party: ${context.adults} adults, ${context.children} children${context.infants ? `, ${context.infants} infants` : ''}
-- Window: ${context.windowStart} to ${context.windowEnd}
-- Bags: ${context.cabinBags} cabin bags, ${context.checkedBags} checked bags
-- Seats together: yes (already included in seat_cost_gbp)
+  const recommendedIndex = combinations.findIndex(c =>
+    c.outbound_date === ctx.winner.outbound_date &&
+    c.return_date   === ctx.winner.return_date &&
+    c.origin_iata   === ctx.winner.origin_iata &&
+    c.outbound_carrier === ctx.winner.outbound_carrier &&
+    c.return_carrier   === ctx.winner.return_carrier
+  );
 
-SHORTLIST (${combinations.length} curated candidates — each represents the best of its type):
-${JSON.stringify(combinationsForPrompt, null, 2)}
-
-SCORING FRAMEWORK:
-Score each combination out of 100 internally. Do NOT write out your scoring — output only the JSON. All reasoning goes inside picking_reasoning only.
-
-COST SCORE (35 points):
-- Cheapest combination = 35 points
-- Each £25 more expensive = -1 point
-- Floor: 15 points
-
-INSET DAY BONUS (10 points):
-- is_inset_day: true AND arrival_quality 'excellent' or 'good': 10 points
-  (genuine extra day — family arrives in time to use it)
-- is_inset_day: true AND arrival_quality 'acceptable': 3 points
-  (no absence benefit only — not a usable extra day)
-- is_inset_day: true AND arrival_quality 'poor': 0 points
-  (flying a day early but arriving at night — no benefit)
-- is_inset_day: false: 0 points
-
-ARRIVAL QUALITY SCORE (20 points):
-- 'excellent' (before 14:00): 20 points
-- 'good' (14:00–18:00): 15 points
-- 'acceptable' (18:00–21:00): 6 points
-- 'poor' (after 21:00): 0 points
-
-OUTBOUND DEPARTURE QUALITY SCORE (15 points):
-- 'ideal' (09:00–13:00): 15 points — comfortable morning, arrives with time to enjoy destination
-- 'good' (13:00–17:00): 10 points — relaxed but arrives late afternoon
-- 'very_early' (before 09:00): 6 points — stressful but compensated by early arrival
-- 'poor' (after 17:00): 2 points — arrives at night, first day wasted
-
-RETURN DEPARTURE QUALITY SCORE (15 points):
-- 'excellent' (after 17:00): 15 points — full last day at destination
-- 'good' (13:00–17:00): 12 points — most of last day usable
-- 'early' (09:00–13:00): 5 points — morning checkout only, last day mostly lost
-- 'very_early' (before 09:00): 2 points — last day completely lost
-
-JOURNEY EASE SCORE (5 points):
-- 0 transit changes AND total_outbound_travel_mins < 90: 5 points
-- 0 transit changes AND total_outbound_travel_mins 90–120: 4 points
-- 1 transit change: 3 points
-- 2+ transit changes: 1 point
-- null: 3 points
-
-PICK: highest total score wins.
-If two combinations score within 2 points of each other, pick the cheaper one.
-
-FINAL CHECK before confirming your pick:
-1. Is there any combination with is_inset_day: true AND arrival_quality 'excellent' or 'good'? If yes and you have not picked it, explain why not.
-2. Does your pick have outbound_departure_quality 'poor' (after 17:00)? If yes, is the cost saving vs the next 'ideal' or 'good' departure worth arriving at night?
-3. Does your pick have return_departure_quality 'very_early' (before 09:00)? If yes, is the cost saving vs the next 'early' or 'good' return worth losing the last day entirely?
-4. Is there a combination within £30 where the family gets meaningfully more usable holiday time?
-5. If your pick costs more than the cheapest combination, state the exact cost difference in picking_reasoning. Example: "costs £33 more than the cheapest option (index 6 at £702.40)."
-
-IMPORTANT:
-- fine_gbp is already included in total_inc_fine
-- Do not penalise split_carrier — mixing airlines is fine and often saves money
-- Never celebrate an inset day departure that arrives after 18:00 as giving an "extra day" — it does not
-- The cheapest option is not always the best — but always justify any pick that costs more
-- When comparing trip_nights between two combinations, always state the DIFFERENCE not the absolute value. Example: "index 1 has 1 more night than index 6" not "index 1 has 4 trip nights". The difference is what matters for the parent.
-
-CRITICAL: Return ONLY the JSON object. Start with { and end with }.
-
-{
-  "recommended_index": <number>,
-  "confidence": "<high|medium|low>",
-  "picking_reasoning": "<2-3 sentences explaining why this combination wins — what trade-offs did you consider? Internal use only, not shown to parent.>"
-}`;
-
-  let recommendedIndex = 0;
-  let pickingReasoning = '';
-  let confidence: 'high' | 'medium' | 'low' = 'low';
-
-  try {
-    const pickStart = Date.now();
-    const { data: pickMessage, response: pickRawResponse } = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: pickPrompt }],
-    }).withResponse();
-    console.log('[getAIRecommendation] pick call ms:', Date.now() - pickStart);
-    console.log('[getAIRecommendation] pick response status:', pickRawResponse.status);
-    console.log('[getAIRecommendation] pick response cached:', pickRawResponse.headers.get('cf-cache-status'));
-
-    const pickText = pickMessage.content[0]?.type === 'text' ? pickMessage.content[0].text : '';
-    const cleanPickText = pickText.replace(/```json|```/g, '').trim();
-    const pickJsonMatch = cleanPickText.match(/\{[\s\S]*\}/);
-    if (!pickJsonMatch) {
-      console.error('[getAIRecommendation] No JSON in pick response:', cleanPickText.slice(0, 200));
-      return FALLBACK;
-    }
-    const pickParsed = JSON.parse(pickJsonMatch[0]);
-
-    recommendedIndex = Math.max(0, Math.min(
-      pickParsed.recommended_index ?? 0,
-      combinations.length - 1,
-    ));
-    pickingReasoning = pickParsed.picking_reasoning ?? '';
-    confidence = pickParsed.confidence ?? 'low';
-
-    console.log('[getAIRecommendation] recommended_index:', recommendedIndex);
-    console.log('[getAIRecommendation] picking_reasoning:', pickingReasoning);
-  } catch (err) {
-    console.error('[getAIRecommendation] Pick call error:', err);
-    return FALLBACK;
-  }
+  const confidence: 'high' | 'medium' | 'low' = 'high';
 
   // ── Call 2 — Generate headline + insights ─────────────────────────────────
   const recommended = combinationsForPrompt[recommendedIndex];
@@ -345,12 +243,28 @@ CRITICAL: Return ONLY the JSON object. Start with { and end with }.
 RECOMMENDED COMBINATION:
 ${JSON.stringify(recommended, null, 2)}
 
-WHY THIS WAS PICKED (use this to write headline + prose):
-${pickingReasoning}
+WHY THIS WAS PICKED (use SELECTION CONTEXT above, not this):
+The winner was selected by a deterministic effective-cost formula.
+Use the pre-computed deltas above to explain the choice.
+Do not invent reasoning — only use the supplied numbers.
 
-BENCHMARK CONTEXT:
-- Typical Saturday booking cost for this family on this route: ${context.benchmarkCost != null ? `£${context.benchmarkCost}` : 'not available'}
-- Saving vs typical Saturday booking: ${benchmarkSaving != null ? `£${benchmarkSaving}` : 'not available'}
+SELECTION CONTEXT (pre-computed — use these numbers directly, do not recalculate):
+
+Winner: index ${recommendedIndex} — ${ctx.winner.outbound_date} → ${ctx.winner.return_date}, ${ctx.winner.trip_nights} nights, £${Math.round(ctx.winner.total_cost_gbp)} all-in
+
+vs Cheapest overall:
+  cost_diff_gbp: ${ctx.vsChepeast.cost_diff_gbp} (positive = winner costs more, negative = winner is cheaper)
+  nights_diff: ${ctx.vsChepeast.nights_diff} (positive = winner has more nights)
+  winner_is_cheapest: ${ctx.vsChepeast.winner_is_cheapest}
+
+${ctx.vsInset ? `vs Cheapest inset day option:
+  cost_diff_gbp: ${ctx.vsInset.cost_diff_gbp}
+  nights_diff: ${ctx.vsInset.nights_diff}
+  winner_is_inset: ${ctx.vsInset.winner_is_inset}
+  inset_adds_extra_night: ${ctx.vsInset.nights_diff > 0}` : 'No inset day combinations available.'}
+
+Benchmark (typical Saturday booking): ${context.benchmarkCost != null ? `£${Math.round(context.benchmarkCost)}` : 'not available'}
+Saving vs benchmark: ${context.benchmarkCost != null ? `£${Math.round(context.benchmarkCost - ctx.winner.total_cost_gbp)}` : 'not available'}
 
 SAME-DATE SUMMARIES (pre-computed — use directly):
 
@@ -475,6 +389,19 @@ CROSS-DATE LEVERS:
 
 1. INSET DAY
 Use: cross_date_levers.inset_day
+
+INSET DAY COPY RULE — READ BEFORE WRITING:
+Check inset_adds_extra_night from SELECTION CONTEXT above.
+
+If inset_adds_extra_night is TRUE:
+  You may say "a full extra day/night in [destination]."
+  This is the inset day's strongest benefit — lead with it.
+
+If inset_adds_extra_night is FALSE (or winner is not the inset day):
+  NEVER say "extra day" or "extra night" — it is factually wrong.
+  The inset day here means earlier departure, quieter airports, zero absence — not an additional day at the destination.
+  Frame only as: "flying before the half-term rush with no school absence."
+
 Case A — cheapest_inset_is_recommended TRUE: ALWAYS surface.
   - arrival_quality 'excellent' or 'good': One sentence only. No em-dashes chaining multiple clauses. State one fact.
     Bad: "Departing on 23 October — Vaughan Primary's inset day — means zero school absence and zero fines, and flying Friday instead of Saturday also means you beat the half-term rush — airports are significantly quieter the day before the holiday weekend starts." (three clauses, two em-dashes, reads as a paragraph)
