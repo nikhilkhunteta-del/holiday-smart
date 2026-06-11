@@ -205,6 +205,13 @@ export async function getAIRecommendation(
     EI: 'Aer Lingus',
   };
   const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
+  const fmtD = (iso: string): string => {
+    const d = new Date(iso + 'T00:00:00');
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  };
 
   const cards: CardSpec[] = [];
 
@@ -248,49 +255,18 @@ export async function getAIRecommendation(
         ? `An extra night for £${diff} more`
         : `Better timing for £${diff} more`}"
 
-The parent has not seen any other options yet — they do not know a cheaper option exists. Introduce it, then explain the trade-off.
+Use cheapest_description and winner_description from facts VERBATIM — copy them exactly, do not reformat.
 
-The cheapest option is: ${cn(cheapestOverall.outbound_carrier)} ${cheapestOverall.origin_iata}→${cheapestOverall.out_dest_iata}, ${(() => {
-        const d = new Date(cheapestOverall.outbound_date + 'T00:00:00');
-        const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-      })()} → ${(() => {
-        const d = new Date(cheapestOverall.return_date + 'T00:00:00');
-        const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-      })()} at £${round(cheapestOverall.total_inc_fine)}.
-It gives ${cheapestOverall.trip_nights} nights.
-Our pick gives ${recommended.trip_nights} nights on the inset day.
-Difference: £${diff} more.
+Write: "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard school day. For £[extra_cost] more, [winner_description] adds [what_it_buys]."
 
-Format: "The cheapest option — [carrier] [dates] — costs £[X] but gives [N] nights on a standard day. For £${diff} more you get [gains]."
-
-Include: carrier, date range, cheapest cost, nights, what the extra £${diff} buys.
-Two sentences maximum. 35 words max total.`,
+Two sentences max. Copy the descriptions exactly.`,
       facts: {
-        cheapest_total:         round(cheapestOverall.total_inc_fine),
-        winner_total:           round(recommended.total_inc_fine),
-        extra_cost:             diff,
-        what_it_buys:           gains.join(' and ') || 'better timing',
-        cheapest_nights:        cheapestOverall.trip_nights,
-        winner_nights:          recommended.trip_nights,
-        cheapest_carrier:       cn(cheapestOverall.outbound_carrier),
-        cheapest_origin:        cheapestOverall.origin_iata,
-        cheapest_destination:   cheapestOverall.out_dest_iata,
-        cheapest_outbound_date: (() => {
-          const d = new Date(cheapestOverall.outbound_date + 'T00:00:00');
-          const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-        })(),
-        cheapest_return_date: (() => {
-          const d = new Date(cheapestOverall.return_date + 'T00:00:00');
-          const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-        })(),
+        cheapest_description: `${cn(cheapestOverall.outbound_carrier)}, ${cheapestOverall.origin_iata}→${cheapestOverall.out_dest_iata}, ${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)}, £${round(cheapestOverall.total_inc_fine)}`,
+        cheapest_nights:      cheapestOverall.trip_nights,
+        winner_description:   `${cn(recommended.outbound_carrier)}, ${recommended.origin_iata}→${recommended.out_dest_iata}, ${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)}, £${round(recommended.total_inc_fine)}`,
+        winner_nights:        recommended.trip_nights,
+        extra_cost:           diff,
+        what_it_buys:         gains.join(' and ') || 'better timing',
       },
       verified_field: 'total_inc_fine',
       verified_value:  round(recommended.total_inc_fine),
@@ -437,14 +413,12 @@ One sentence. 25 words max.`,
     if (allinDiff < 20) return null;
 
     return {
-      cheap_airport: cheapestFarCombo.origin_iata,
-      cheap_carrier: cheapestFarCombo.outbound_carrier,
-      cheap_fare:    round(cheapestFare ?? 0),
-      cheap_allin:   cheapestFareAllin,
-      rec_airport:   recommended.origin_iata,
-      rec_carrier:   recommended.outbound_carrier,
-      rec_allin:     recAllin,
-      allin_saving:  allinDiff,
+      cheap_description: `${cn(cheapestFarCombo.outbound_carrier)} ${cheapestFarCombo.origin_iata}→${cheapestFarCombo.out_dest_iata} on ${fmtD(cheapestFarCombo.outbound_date)}`,
+      cheap_fare:        round(cheapestFare ?? 0),
+      cheap_allin:       cheapestFareAllin,
+      rec_description:   `${cn(recommended.outbound_carrier)} ${recommended.origin_iata}→${recommended.out_dest_iata}`,
+      rec_allin:         recAllin,
+      allin_saving:      allinDiff,
     };
   })();
 
@@ -454,29 +428,24 @@ One sentence. 25 words max.`,
     moneyCards.push({
       lever: 'allin_trap',
       headline_hint: 'Google Flights shows fares — we show costs',
-      voice: `HEADLINE MUST BE EXACTLY: "Google Flights shows fares — we show costs"
-(Use an em-dash, not a period. Do not split into two sentences for the headline.)
+      voice: `Use cheap_description and rec_description VERBATIM — copy them exactly.
 
-The parent may not know what "all-in" means. Explain it in the insight.
+Write exactly three sentences:
+1. "The [cheap_description] fare costs £[cheap_fare] — but all-in (fare + bags + seats + transport to the airport) it totals £[cheap_allin]."
+2. "[rec_description] all-in costs £[rec_allin] — £[allin_saving] less despite the higher base fare."
+3. "That's what Google Flights won't show you."
 
-All-in = fare + bags + seat selection + transport to the airport. Google Flights only shows the fare.
-
-Format: "The £${allInTrap.cheap_fare} ${cn(allInTrap.cheap_carrier)} fare from ${allInTrap.cheap_airport} looks cheaper — but all-in (fare + bags + seats + transport to the airport) it costs £${allInTrap.cheap_allin} versus £${allInTrap.rec_allin} from ${allInTrap.rec_airport}. That's the difference Google Flights won't show you."
-
-Three sentences maximum. Include both all-in totals.
-End with the "Google Flights won't show you" line or similar — it is the product's key differentiator.`,
+Copy all descriptions and numbers from facts exactly.`,
       facts: {
-        cheap_airport: allInTrap.cheap_airport,
-        cheap_carrier: cn(allInTrap.cheap_carrier),
-        cheap_fare:    allInTrap.cheap_fare,
-        cheap_allin:   allInTrap.cheap_allin,
-        rec_airport:   allInTrap.rec_airport,
-        rec_carrier:   allInTrap.rec_carrier,
-        rec_allin:     allInTrap.rec_allin,
-        allin_saving:  allInTrap.allin_saving,
+        cheap_description: allInTrap.cheap_description,
+        cheap_fare:        allInTrap.cheap_fare,
+        cheap_allin:       allInTrap.cheap_allin,
+        rec_description:   allInTrap.rec_description,
+        rec_allin:         allInTrap.rec_allin,
+        allin_saving:      allInTrap.allin_saving,
       },
       verified_field: 'origin_iata',
-      verified_value:  allInTrap.rec_airport,
+      verified_value:  allInTrap.rec_description,
       saving_gbp:      allInTrap.allin_saving,
     });
   }
@@ -604,33 +573,17 @@ End with the "Google Flights won't show you" line or similar — it is the produ
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Two sentences. No more.
+      voice: `Copy each fact statement VERBATIM from facts. Assemble into exactly two sentences:
 
-Sentence 1 — Barcelona side:
-"Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30."
+Sentence 1: "[bcn_departure]."
+Sentence 2: "[arrival_statement]; [transit_statement]. [uber_statement] — worth considering with tired kids after a night flight."
 
-Sentence 2 — Getting home from ${recommended.ret_dest_iata ?? 'Stansted'}:
-Name the specific transit route from facts (transit_route field). The transit cost (£${round(tCostRet)}) is already included in the price. Uber from ${recommended.ret_dest_iata ?? 'Stansted'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct — worth it with tired kids to avoid the changes.
-
-EXACT EXAMPLE of what to write:
-"Flight leaves Barcelona at 05:20 — plan to leave the hotel around 03:30 for an early start or no sleep. The Stansted Express home (£80) is included in your cost; Uber from Stansted direct (£118–£166) avoids the changes with tired kids — worth considering."
-
-RULES:
-- Always name the transit route (e.g. "Stansted Express") from transit_route in facts — never say just "transit"
-- Always include both Uber prices from facts
-- Never say "Uber to Stansted" — always "from Stansted"
-- "included in your cost" or "already included" — make clear the transit is pre-costed
-- 50 words max total`,
+Copy every statement exactly as given. Do not rephrase, summarise, or omit any part. The statements are pre-written — your job is assembly only.`,
       facts: {
-        bcn_departure_time: retDep,
-        leave_hotel:        '03:00–03:30',
-        arrival_time:       recommended.return_arrival_time
-                              ?.toString().slice(0,5) ?? '07:45',
-        arrival_airport:    recommended.ret_dest_iata ?? 'Stansted',
-        transit_cost:       round(tCostRet),
-        transit_route:      recommended.return_transit_route ?? null,
-        uber_low:           uLowRet ? round(uLowRet) : null,
-        uber_high:          uHighRet ? round(uHighRet) : null,
+        bcn_departure:     `Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30`,
+        arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'Stansted'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
+        transit_statement: `${recommended.return_transit_route ?? 'transit home'} (£${round(tCostRet)}) is already included in your cost`,
+        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'Stansted'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct`,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -682,10 +635,7 @@ RULES:
     const f = spec.facts;
     let insight = '';
     if (spec.lever === 'early_return_warning') {
-      const uberRange = f.uber_low != null
-        ? ` Uber from ${f.arrival_airport} home costs £${f.uber_low}${f.uber_high != null ? `–£${f.uber_high}` : ''} direct.`
-        : '';
-      insight = `Flight leaves Barcelona at ${f.bcn_departure_time} — leave the hotel around ${f.leave_hotel}. Lands at ${f.arrival_airport} at ${f.arrival_time}; transit home (£${f.transit_cost}) included.${uberRange}`;
+      insight = `${f.bcn_departure}. ${f.arrival_statement}; ${f.transit_statement}. ${f.uber_statement} — worth considering with tired kids after a night flight.`;
     } else if (spec.lever === 'transit_changes') {
       insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
     }
@@ -797,7 +747,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
   try {
     const insightStart = Date.now();
     const insightMessage = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       messages: [{ role: 'user', content: insightPrompt }],
     });
