@@ -290,7 +290,13 @@ Do NOT claim an extra night — it does not add one.
 MUST include: school name, inset date, zero absence.
 One sentence. 25 words max.`,
       facts: {
-        inset_date:       recommended.outbound_date,
+        inset_date:       (() => {
+          const d = new Date(recommended.outbound_date + 'T00:00:00');
+          const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                          'Jul','Aug','Sep','Oct','Nov','Dec'];
+          return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+        })(),
         school:           context.schoolName ?? 'your school',
         adds_extra_night: insetAddsNight,
         arrival_time:     recommended.outbound_arrival_time,
@@ -407,7 +413,11 @@ One sentence. 25 words max.`,
     moneyCards.push({
       lever: 'allin_trap',
       headline_hint: 'Cheaper fare, higher cost',
-      voice: `The cheapest outbound fare on these dates is from ${allInTrap.cheap_airport} (${allInTrap.cheap_carrier}) at £${allInTrap.cheap_fare}. But all-in including transport to ${allInTrap.cheap_airport}: £${allInTrap.cheap_allin}. Flying from ${allInTrap.rec_airport} with ${allInTrap.rec_carrier} costs £${allInTrap.allin_saving} less all-in despite the higher base fare. One sentence. 25 words max.`,
+      voice: `The cheapest outbound fare on these dates is £${allInTrap.cheap_fare} from ${allInTrap.cheap_airport} (${allInTrap.cheap_carrier}). But explain WHY the all-in is £${allInTrap.cheap_allin} — if it's a secondary destination airport (like Girona instead of Barcelona), the onward transfer adds significant cost. Use cheap_allin and cheap_airport from facts.
+
+Format: "The £${allInTrap.cheap_fare} fare from ${allInTrap.cheap_airport} looks cheaper — but all-in including transport costs £${allInTrap.cheap_allin} versus £${allInTrap.rec_allin} from ${allInTrap.rec_airport}, a £${allInTrap.allin_saving} difference."
+
+One sentence. 25 words max. Include both all-in totals and the saving.`,
       facts: {
         cheap_airport: allInTrap.cheap_airport,
         cheap_carrier: allInTrap.cheap_carrier,
@@ -547,18 +557,16 @@ One sentence. 25 words max.`,
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `The family has just LANDED at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona. They need to get HOME.
+      voice: `The return departs at ${retDep} from Barcelona — the family needs to leave accommodation around 03:00–03:30. That's the key practical heads-up.
 
-CORRECT direction: "from ${recommended.ret_dest_iata ?? recommended.origin_iata} to home"
-WRONG direction: "to ${recommended.ret_dest_iata ?? recommended.origin_iata}" — NEVER write this.
+The transit home from ${recommended.ret_dest_iata ?? recommended.origin_iata} is ALREADY included in the trip cost. Do NOT suggest Uber or mention Uber cost — it would contradict the recommendation.
 
-Write ONE sentence covering:
-1. The return departs at ${retDep} — leave accommodation around 03:00–03:30
-2. Getting HOME from ${recommended.ret_dest_iata ?? recommended.origin_iata}: Uber FROM the airport costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct to home
+Write ONE sentence: mention the departure time and what it means for when they leave the hotel. That is all.
 
-EXAMPLE of correct sentence: "Return departs 05:20, meaning a 03:30 departure from the hotel — Uber from Stansted home costs £118–£166 and avoids transit at that hour."
+EXAMPLE: "Return departs 05:20 from Barcelona — you'll need to leave the hotel around 03:00–03:30."
 
-Include the Uber price range from facts. 25 words max.`,
+Do not mention Uber. Do not mention transit. Just the departure time and hotel departure time.
+25 words max.`,
       facts: {
         return_departure_time: retDep,
         airport:               recommended.ret_dest_iata ?? 'the airport',
