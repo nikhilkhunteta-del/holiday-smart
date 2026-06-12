@@ -134,7 +134,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
   }, [lines.length]);
 
   const lineStyle = {
-    fontSize: 15,
+    fontSize: 18,
     color: '#191c1d',
     lineHeight: 1.5,
     display: 'flex',
@@ -193,7 +193,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         }
       `}</style>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {lines.slice(0, visibleIndex).map((line, i) => (
           <div key={i} style={{ ...lineStyle, opacity: 1 }}>
             <span style={iconStyle}>✓</span>
