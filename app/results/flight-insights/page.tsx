@@ -5,7 +5,6 @@ import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
-import { CTABlock } from '@/components/flight-insights/cta-block';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 
@@ -210,7 +209,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   return (
     <FlightInsightsProvider>
       <main className="min-h-screen bg-background">
-        <div className="max-w-content mx-auto px-margin-desktop py-xl flex flex-col gap-xl">
+        <div className="max-w-content mx-auto px-gutter py-xl flex flex-col gap-xl">
 
           {/* 1. PreferencesCard — renders immediately, outside the AI gate */}
           <PreferencesCard
@@ -228,6 +227,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             hasInsetDay={hasInsetDay}
             recommendation={recommendation}
             combinations={assembled?.combinations ?? null}
+            hsSaving={hsSaving}
+            benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
           >
 
             {/* 3. SavingsBreakdown */}
@@ -323,15 +324,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               combinationCount={combinationCount}
             />
 
-            {/* 8. CTABlock */}
-            <CTABlock
-              adults={adults}
-              children={children}
-              fallbackOutboundDate={smartOutboundDate}
-              fallbackReturnDate={smartReturnDate}
-              fallbackOrigin={recommendation?.origin_iata ?? 'LHR'}
-              fallbackOutDest={recommendation?.out_dest_iata ?? 'BCN'}
-            />
 
           </AIRecommendationClient>
 

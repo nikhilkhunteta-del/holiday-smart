@@ -24,6 +24,14 @@ export interface AIRecommendationOutput {
   winner_outbound_date?:    string;
   winner_return_date?:      string;
   winner_outbound_carrier?: string;
+  right_column_cards?: Array<{
+    lever: string;
+    headline?: string;
+    insight: string;
+    verified_field: string;
+    verified_value: string | number | boolean;
+    saving_gbp: number | null;
+  }>;
 }
 
 export interface FamilyContext {
@@ -141,6 +149,8 @@ export async function getAIRecommendation(
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
+    outbound_fare_gbp: c.outbound_fare_gbp,
+    return_fare_gbp:   c.return_fare_gbp,
     // Pre-computed quality fields from buildCandidates.ts — use directly
     trip_nights: c.trip_nights,
     arrival_quality: c.arrival_quality,
@@ -186,6 +196,40 @@ export async function getAIRecommendation(
     return null;
   };
 
+  const CARRIER_NAMES: Record<string, string> = {
+    BA: 'British Airways',
+    U2: 'easyJet',
+    FR: 'Ryanair',
+    W6: 'Wizz Air',
+    VY: 'Vueling',
+    TP: 'TAP Air Portugal',
+    EI: 'Aer Lingus',
+  };
+  const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
+  const simplifyRoute = (route: string | null): string => {
+    if (!route) return 'public transport';
+    const operators = route
+      .split('→')
+      .map(s => s.trim())
+      .filter(s =>
+        s.match(/Line|Express|Rail|Bus|Coach|National/i) &&
+        !s.match(/\d+min/)
+      )
+      .map(s => s.replace(/\s*\(.*?\)/g, '').trim())
+      .filter((s, i, arr) => arr.indexOf(s) === i);
+    if (!operators.length) return 'public transport';
+    if (operators.length === 1) return operators[0];
+    return operators.slice(0, -1).join(', ') + ' and ' + operators[operators.length - 1];
+  };
+
+  const fmtD = (iso: string): string => {
+    const d = new Date(iso + 'T00:00:00');
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  };
+
   const cards: CardSpec[] = [];
 
   // ── Find reference combinations ───────────────────────────────────────
@@ -221,61 +265,33 @@ export async function getAIRecommendation(
 
     cards.push({
       lever: 'value_tradeoff',
-      headline_hint: 'Why not the cheapest',
-      voice: `Be upfront: we passed the £${round(cheapestOverall.total_inc_fine)} cheapest option. The extra £${diff} buys: ${gains.join(' and ') || 'better timing'}. Warm, honest, one sentence. Do not say "we" more than once.`,
+      headline_hint: nightsGained > 0
+        ? `Extra night for £${diff} more`
+        : `Better value for £${diff} more`,
+      voice: `HEADLINE MUST BE EXACTLY: "${nightsGained > 0
+        ? `An extra night for £${diff} more`
+        : `Better timing for £${diff} more`}"
+
+Copy cheapest_description and winner_description from facts VERBATIM.
+
+Write exactly two sentences:
+1. "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard school day."
+2. "For £[extra_cost] more, [winner_description] [what_it_buys]."
+
+Copy descriptions exactly. No airlines. No airports.`,
       facts: {
-        cheapest_total:  round(cheapestOverall.total_inc_fine),
-        winner_total:    round(recommended.total_inc_fine),
-        extra_cost:      diff,
-        what_it_buys:    gains.join(' and ') || 'better timing',
-        cheapest_nights: cheapestOverall.trip_nights,
-        winner_nights:   recommended.trip_nights,
+        locked_headline:      nightsGained > 0
+          ? `An extra night for £${diff} more`
+          : `Better timing for £${diff} more`,
+        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_inc_fine)}`,
+        cheapest_nights:      cheapestOverall.trip_nights,
+        winner_description:   `${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)} at £${round(recommended.total_inc_fine)}`,
+        winner_nights:        recommended.trip_nights,
+        extra_cost:           diff,
+        what_it_buys:         gains.join(' and ') || 'better timing',
       },
       verified_field: 'total_inc_fine',
       verified_value:  round(recommended.total_inc_fine),
-      saving_gbp: null,
-    });
-  }
-
-  // ── CARD 2 — near_miss ────────────────────────────────────────────────
-  const nearMiss = viableCombos
-    .filter(c =>
-      c.index !== recommendedIndex &&
-      c.trip_nights === recommended.trip_nights &&
-      c.total_inc_fine < recommended.total_inc_fine &&
-      (
-        arrivalProblem(c.arrival_quality, c.outbound_arrival_time) !== null ||
-        depProblem(c.outbound_departure_quality, c.outbound_departure_time) !== null
-      )
-    )
-    .sort((a, b) =>
-      (Number(b.is_inset_day === recommended.is_inset_day) -
-       Number(a.is_inset_day === recommended.is_inset_day)) ||
-      (a.total_inc_fine - b.total_inc_fine)
-    )[0] ?? null;
-
-  if (nearMiss) {
-    const reasons = [
-      arrivalProblem(nearMiss.arrival_quality, nearMiss.outbound_arrival_time),
-      depProblem(nearMiss.outbound_departure_quality, nearMiss.outbound_departure_time),
-    ].filter(Boolean).join(' and ');
-    const sharesInset = nearMiss.is_inset_day && recommended.is_inset_day;
-    const nearMissIsChepeast = nearMiss &&
-      nearMiss.outbound_date === cheapestOverall?.outbound_date &&
-      nearMiss.return_date   === cheapestOverall?.return_date;
-
-    cards.push({
-      lever: 'near_miss',
-      headline_hint: nearMissIsChepeast ? 'Why not the cheapest' : 'The one we skipped',
-      voice: `Tell the parent what the cheaper option actually gives them: ${nearMiss.trip_nights} nights departing on a ${nearMiss.is_inset_day ? 'inset day' : 'standard school day'}, but ${reasons}. Then say what this trip gives instead. Do not say "we passed" or "we chose" — frame around what the parent gets, not what we decided. One sentence.`,
-      facts: {
-        alt_total:   round(nearMiss.total_inc_fine),
-        also_inset:  sharesInset,
-        why_skipped: reasons,
-        same_nights: nearMiss.trip_nights,
-      },
-      verified_field: 'total_inc_fine',
-      verified_value:  round(nearMiss.total_inc_fine),
       saving_gbp: null,
     });
   }
@@ -298,10 +314,29 @@ export async function getAIRecommendation(
       lever: 'inset_day',
       headline_hint: 'Inset day, no absence',
       voice: insetAddsNight
-        ? `Lead with the experience: a Friday afternoon in ${destinationName} instead of Saturday morning, airports significantly quieter before the half-term rush starts. Then: full extra night, zero absence, zero fine. Do NOT start with "zero absence" — that is the compliance benefit, not the experience. One sentence.`
-        : `Lead with the experience: departing before the half-term rush, airports quieter, arriving ${recommended.outbound_arrival_time ?? 'in the afternoon'} with the evening free to settle in. Then: zero absence, zero fine. Do NOT start with "Departing on" or "Flying on". Do NOT claim an extra night — it does not add one here. One sentence.`,
+        ? `CRITICAL: Lead with the discovery — the parent almost certainly does not know their school has an inset day. First sentence must reveal it.
+
+Format: "${context.schoolName ?? 'Your school'} has an inset day on [date] — most families don't know this. It means you can fly a day early, gain a full extra night in ${destinationName}, with zero school absence and zero fine."
+
+Use outbound_date from facts for the date.
+MUST include: school name, inset date, extra night, zero absence, zero fine.
+One sentence. 25 words max. Cut ruthlessly.`
+        : `CRITICAL: Lead with the discovery — the parent almost certainly does not know their school has an inset day. First sentence must reveal it.
+
+Format: "${context.schoolName ?? 'Your school'} has an inset day on [date] — flying on it means quieter airports, a [arrival_time] arrival, zero absence and zero fine."
+
+Do NOT claim an extra night — it does not add one.
+MUST include: school name, inset date, zero absence.
+One sentence. 25 words max.`,
       facts: {
-        inset_date:       recommended.outbound_date,
+        inset_date:       (() => {
+          const d = new Date(recommended.outbound_date + 'T00:00:00');
+          const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                          'Jul','Aug','Sep','Oct','Nov','Dec'];
+          return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+        })(),
+        locked_headline:  'Inset day, no absence',
         school:           context.schoolName ?? 'your school',
         adds_extra_night: insetAddsNight,
         arrival_time:     recommended.outbound_arrival_time,
@@ -323,13 +358,14 @@ export async function getAIRecommendation(
     const total   = round(recommended.cabin_bag_cost_gbp ?? 0);
     moneyCards.push({
       lever: 'travel_light',
-      headline_hint: `Cabin bags cost £${total}`,
+      headline_hint: 'The personal item hack',
       voice: outCost > 0 && retCost > 0
-        ? `Frame as an opportunity, not a cost: travelling with personal items only on both legs saves £${total}. The outbound charges £${round(outCost)} and return charges £${round(retCost)}. Start with "Travel light and save £${total}" or similar. One sentence.`
+        ? `Frame as a hack, not a cost. "Pack personal items only and save £${total} — outbound cabin bag costs £${round(outCost)}, return costs £${round(retCost)}." Lead with the saving and the action. Punchy, one sentence.`
         : outCost === 0
-          ? `Frame as an opportunity: the outbound has no bag charge but the return charges £${round(retCost)} — packing to personal items only on the return saves £${round(retCost)}. Start with the saving. One sentence.`
-          : `Frame as an opportunity: the outbound charges £${round(outCost)} for cabin bags, return has no charge — packing to personal items only outbound saves £${round(outCost)}. Start with the saving. One sentence.`,
+          ? `Frame as a hack. The outbound is free but the return charges £${round(retCost)} for cabin bags — packing to personal items only on the return saves £${round(retCost)}. Lead with the action and saving. One sentence.`
+          : `Frame as a hack. The outbound charges £${round(outCost)} for cabin bags but the return is free — packing to personal items only outbound saves £${round(outCost)}. Lead with the action and saving. One sentence.`,
       facts: {
+        locked_headline:   'The personal item hack',
         outbound_bag_cost: round(outCost),
         return_bag_cost:   round(retCost),
         total_bag_cost:    total,
@@ -374,6 +410,84 @@ export async function getAIRecommendation(
       verified_field: 'split_carrier',
       verified_value:  true,
       saving_gbp: splitSaving.saving,
+    });
+  }
+
+  // All-in trap: cheapest base fare ≠ cheapest all-in
+  // Find combination with lowest outbound_fare_gbp on same dates
+  const allInTrap = (() => {
+    const sameDates = combinationsForPrompt.filter(
+      c => c.outbound_date === recommended.outbound_date &&
+           c.return_date   === recommended.return_date &&
+           c.origin_iata !== recommended.origin_iata
+    );
+    if (!sameDates.length) return null;
+
+    const cheapestFarCombo = sameDates.reduce((best, c) =>
+      (c.outbound_fare_gbp ?? Infinity) <
+      (best.outbound_fare_gbp ?? Infinity) ? c : best
+    , sameDates[0]);
+
+    const cheapestFare = cheapestFarCombo.outbound_fare_gbp;
+    const cheapestFareAllin = round(cheapestFarCombo.total_cost_gbp);
+    const recAllin = round(recommended.total_cost_gbp);
+    const allinDiff = cheapestFareAllin - recAllin;
+
+    // Only surface if cheaper fare ends up MORE expensive all-in by at least £20
+    if (allinDiff < 20) return null;
+
+    const cheapDestTransfer   = round(cheapestFarCombo.destination_transfer_cost_gbp ?? 0);
+    const recBaseFare         = round((recommended.outbound_fare_gbp ?? 0) + (recommended.return_fare_gbp ?? 0));
+    const hasExpensiveTransfer = cheapDestTransfer > 50;
+
+    return {
+      cheap_description:      `${cn(cheapestFarCombo.outbound_carrier)} from ${cheapestFarCombo.origin_iata} on ${fmtD(cheapestFarCombo.outbound_date)}, returning ${fmtD(cheapestFarCombo.return_date)}`,
+      cheap_fare:             round(cheapestFare ?? 0),
+      cheap_allin:            cheapestFareAllin,
+      cheap_dest_transfer:    cheapDestTransfer,
+      has_expensive_transfer: hasExpensiveTransfer,
+      cheap_dest_iata:        cheapestFarCombo.out_dest_iata,
+      rec_description:        `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
+      rec_base_fare:          recBaseFare,
+      rec_allin:              recAllin,
+      allin_saving:           allinDiff,
+    };
+  })();
+
+  console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
+
+  if (allInTrap) {
+    moneyCards.push({
+      lever: 'allin_trap',
+      headline_hint: 'Google Flights shows fares — we show costs',
+      voice: `Copy cheap_description and rec_description VERBATIM from facts.
+
+Write exactly three sentences:
+
+Sentence 1: "[cheap_description]: base fare £[cheap_fare] — but all-in${allInTrap.has_expensive_transfer ? ` (the destination airport adds £${allInTrap.cheap_dest_transfer} in transfers alone)` : ''} it totals £[cheap_allin]."
+
+Sentence 2: "[rec_description]: base fare £[rec_base_fare], all-in £[rec_allin] — £[allin_saving] less despite the higher fare."
+
+Sentence 3: "That's what Google Flights won't show you."
+
+Copy all descriptions and numbers from facts exactly.
+Include the transfer explanation from sentence 1 only if has_expensive_transfer is true.`,
+      facts: {
+        locked_headline:        'Google Flights shows fares — we show costs',
+        cheap_description:      allInTrap.cheap_description,
+        cheap_fare:             allInTrap.cheap_fare,
+        cheap_allin:            allInTrap.cheap_allin,
+        cheap_dest_transfer:    allInTrap.cheap_dest_transfer,
+        has_expensive_transfer: allInTrap.has_expensive_transfer,
+        cheap_dest_iata:        allInTrap.cheap_dest_iata,
+        rec_description:        allInTrap.rec_description,
+        rec_base_fare:          allInTrap.rec_base_fare,
+        rec_allin:              allInTrap.rec_allin,
+        allin_saving:           allInTrap.allin_saving,
+      },
+      verified_field: 'origin_iata',
+      verified_value:  allInTrap.rec_description,
+      saving_gbp:      allInTrap.allin_saving,
     });
   }
 
@@ -470,7 +584,7 @@ export async function getAIRecommendation(
         transportCard = {
           lever: 'transport_return',
           headline_hint: 'Worth the Uber home',
-          voice: `Getting home from ${recommended.ret_dest_iata ?? recommended.origin_iata} at ${recommended.return_arrival_time ?? 'an early hour'}: public transport involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} — Uber costs £${round(uLowRet)}–£${round(uHighRet)} and gets you home directly. One sentence.`,
+          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round(uLowRet)}–£${round(uHighRet ?? uLowRet)} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
           facts: {
             airport:         recommended.ret_dest_iata ?? recommended.origin_iata,
             arrival_time:    recommended.return_arrival_time,
@@ -493,17 +607,25 @@ export async function getAIRecommendation(
 
   // Early return heads-up
   if (recommended.return_departure_quality === 'very_early') {
-    const retDep = recommended.return_departure_time ?? '05:00';
-    const retChanges = recommended.return_transit_changes ?? 0;
+    const retDep      = recommended.return_departure_time ?? '05:00';
+    const tCostRet    = recommended.return_transit_cost_gbp ?? 0;
+    const uLowRet     = recommended.return_uber_low_gbp;
+    const uHighRet    = recommended.return_uber_high_gbp;
     qualitativeCards.push({
       lever: 'early_return_warning',
       headline_hint: 'Early return — plan ahead',
-      voice: `Heads-up, not a criticism: the return departs at ${retDep} — that means leaving the accommodation around 03:00–03:30. Worth knowing before booking. ${retChanges >= 2 ? `Getting to the airport involves ${retChanges} changes — an Uber direct may be worth considering.` : 'A direct taxi or Uber to the airport makes sense at this hour.'} Warm, practical, one sentence. Do not use the word "unfortunately".`,
+      voice: `Copy each statement from facts VERBATIM.
+Write exactly two sentences — no more:
+
+Sentence 1: "[bcn_departure]."
+Sentence 2: "[arrival_statement]; [transit_statement]. [uber_statement] — worth considering with tired kids after a night flight."
+
+Do not add, remove, or rephrase anything. Assembly only.`,
       facts: {
-        return_departure_time: retDep,
-        airport:               recommended.ret_dest_iata ?? 'the airport',
-        transit_changes:       retChanges,
-        leave_accommodation:   '03:00–03:30',
+        bcn_departure:     `Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30`,
+        arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'STN'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
+        transit_statement: `${simplifyRoute(recommended.return_transit_route)} (£${round(tCostRet)}) is already included in your cost`,
+        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'STN'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct`,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -535,11 +657,39 @@ export async function getAIRecommendation(
     });
   }
 
-  // Push money cards (cap 3) then qualitative cards, final cap 5
+  // Push money cards (cap 3); qualitative cards handled separately
   cards.push(...moneyCards.slice(0, 3));
-  cards.push(...qualitativeCards);
+  // qualitative cards handled separately — not in timeline
 
-  const finalCards = cards.slice(0, 5);
+  // Inset day leads, qualitative cards excluded from timeline
+  const insetCard = cards.find(c => c.lever === 'inset_day');
+  const otherCards = cards.filter(c => c.lever !== 'inset_day');
+  const orderedCards = insetCard
+    ? [insetCard, ...otherCards]
+    : cards;
+  const finalCards = orderedCards.slice(0, 5);
+
+  console.log('[airport-debug] finalCards levers:',
+    finalCards.map(c => c.lever));
+
+  // Qualitative cards go to right column only
+  const rightColumnCards = qualitativeCards.map(spec => {
+    const f = spec.facts;
+    let insight = '';
+    if (spec.lever === 'early_return_warning') {
+      insight = `${f.bcn_departure}. ${f.arrival_statement}; ${f.transit_statement}. ${f.uber_statement} — worth considering with tired kids after a night flight.`;
+    } else if (spec.lever === 'transit_changes') {
+      insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
+    }
+    return {
+      lever:           spec.lever,
+      headline:        spec.headline_hint,
+      insight,
+      verified_field:  spec.verified_field,
+      verified_value:  spec.verified_value,
+      saving_gbp:      spec.saving_gbp,
+    };
+  });
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
@@ -600,7 +750,7 @@ The CARDS array below has already been chosen. Do not add, drop, or reorder card
 
 For EACH card write only:
   "i":       the card's index (0-based)
-  "headline": 5 words max, plain English, no numbers, no em-dash
+  "headline": "Copy locked_headline from facts EXACTLY — do not rephrase, do not shorten, do not add words. If locked_headline is not in facts, write 5 words max."
   "insight":  ONE sentence, 25 words max, ONE fact, guided by the card's "voice" instruction
 
 Rules:
@@ -609,6 +759,8 @@ Rules:
 - Never state carrier baggage policy. Only report what cost fields show.
 - Never chain clauses with dashes or semicolons to fit more in. One fact. Cut instead.
 - Never use the word "baseline" or "unfortunately".
+- The fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp refer to CABIN BAGS only. Never use the word "checked" when describing these fields. If the insight mentions bags from these fields, always say "cabin bags" or "cabin bag charge" — never "checked bags".
+- Transport return cards describe getting HOME from a London airport, not getting TO an airport. The family has just landed. Never say "Uber to [airport]" in a return card — always "Uber from [airport]" or "getting home from [airport]".
 
 CARDS:
 ${JSON.stringify(finalCards, null, 2)}
@@ -637,7 +789,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
   try {
     const insightStart = Date.now();
     const insightMessage = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       messages: [{ role: 'user', content: insightPrompt }],
     });
@@ -657,6 +809,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
         subheadline: '',
         recommendation_prose: 'We found the best value option for your dates.',
         lever_insights: [],
+        right_column_cards: rightColumnCards,
         caveats: [],
         confidence,
         fallback: false,
@@ -695,6 +848,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       subheadline:             insightParsed.subheadline         ?? '',
       recommendation_prose:    '',
       lever_insights,
+      right_column_cards:      rightColumnCards,
       caveats:                 insightParsed.caveats             ?? [],
       confidence:              'high',
       fallback:                false,
@@ -711,6 +865,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       subheadline: '',
       recommendation_prose: 'We found the best value option for your dates.',
       lever_insights: [],
+      right_column_cards: rightColumnCards,
       caveats: [],
       confidence,
       fallback: false,
