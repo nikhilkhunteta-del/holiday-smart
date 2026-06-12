@@ -7,6 +7,8 @@ import { AIRecommendationClient } from '@/components/flight-insights/ai-recommen
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { computeScenarios } from '@/lib/flights/computeScenarios';
+import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
 
 export const dynamic = 'force-dynamic';
 
@@ -180,6 +182,21 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   const combinationCount = assembled?.combinations?.length ?? 0;
 
+  const scenarios = assembled?.combinations && recommendation
+    ? computeScenarios(
+        assembled.combinations,
+        recommendation,
+        transitPreference,
+        adults,
+        children,
+        cabinBags,
+        checkedBags,
+        seatsTogether,
+      )
+    : [];
+
+  const currentPageUrl = `/results/flight-insights?urn=${urn}&start=${windowStart}&end=${windowEnd}&adults=${adults}&children=${children}&tripStyle=${tripStyle}&cabin_bags=${cabinBags}&checked_bags=${checkedBags}&seats=${seatsTogether}&transit=${transitPreference}`;
+
   const combinationRange = assembled?.combinations
     ? Math.max(...assembled.combinations.map((c: any) => c.total_inc_fine ?? 0)) -
       Math.min(...assembled.combinations
@@ -204,6 +221,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     postcodeDistrict,
     schoolName,
     borough,
+    currentPageUrl,
   };
 
   return (
@@ -231,6 +249,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             combinations={assembled?.combinations ?? null}
             hsSaving={hsSaving}
             benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
+            scenarios={scenarios}
           >
 
             {/* 3. SavingsBreakdown */}

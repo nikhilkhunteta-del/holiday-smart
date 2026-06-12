@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
+import type { ScenarioResult } from './computeScenarios';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
@@ -32,6 +33,10 @@ export interface AIRecommendationOutput {
     verified_value: string | number | boolean;
     saving_gbp: number | null;
   }>;
+  scenario_insights?: Array<{
+    lever:   string;
+    insight: string;
+  }>;
 }
 
 export interface FamilyContext {
@@ -49,6 +54,7 @@ export interface FamilyContext {
   benchmarkCost: number | null; // pre-computed typical Saturday booking cost
   destinationName?: string | null;
   transitPreference?: 'auto' | 'uber' | null;
+  scenarios?: ScenarioResult[];
 }
 
 interface CardSpec {
@@ -767,6 +773,33 @@ CARDS:
 ${JSON.stringify(finalCards, null, 2)}
 
 ──────────────────────────────────────────
+SCENARIO CARDS
+──────────────────────────────────────────
+For each scenario below, write ONE sentence (max 20 words)
+describing what the parent gets or saves. Use only the
+values in facts. Copy numbers exactly — never calculate.
+
+Rules:
+- travel_light: lead with the saving and action
+- skip_seats: mention the caveat (may not sit together)
+- transport_flip (costs more): frame as convenience
+  upgrade, mention Uber range from facts
+- transport_flip (saves money): lead with the saving
+- If flight_changes is true: mention "different flight"
+
+Return as:
+"scenarios": [
+  { "lever": "<lever>", "insight": "<sentence>" }
+]
+
+SCENARIOS:
+${JSON.stringify((context.scenarios ?? []).map(s => ({
+  lever:           s.lever,
+  locked_headline: s.locked_headline,
+  facts:           s.facts,
+})), null, 2)}
+
+──────────────────────────────────────────
 CAVEATS
 ──────────────────────────────────────────
 Maximum 1 caveat. Only include if recommended.baggage_is_estimate is true: "Bag fees for [carrier] are estimates — actual price may vary by route and demand."
@@ -781,6 +814,9 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
   "subheadline": "<one sentence>",
   "cards": [
     { "i": 0, "headline": "<5 words>", "insight": "<25 words max>" }
+  ],
+  "scenarios": [
+    { "lever": "<lever>", "insight": "<20 words max>" }
   ],
   "caveats": ["<string>"]
 }`;
@@ -824,6 +860,9 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
     console.log('[getAIRecommendation] cards count:', insightParsed.cards?.length);
     console.log('[getAIRecommendation] headline:', insightParsed.headline);
 
+    const scenarioInsights: Array<{ lever: string; insight: string }> =
+      insightParsed.scenarios ?? [];
+
     // Stitch written copy back onto card specs — model never touches verified numbers
     const written: Array<{ i: number; headline: string; insight: string }> =
       insightParsed.cards ?? [];
@@ -850,6 +889,7 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       recommendation_prose:    '',
       lever_insights,
       right_column_cards:      rightColumnCards,
+      scenario_insights:       scenarioInsights,
       caveats:                 insightParsed.caveats             ?? [],
       confidence:              'high',
       fallback:                false,

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
+import { ScenarioStrip } from './scenario-strip';
+import type { ScenarioResult } from '@/lib/flights/computeScenarios';
 
 interface FetchParams {
   destinationSlug: string;
@@ -19,6 +21,7 @@ interface FetchParams {
   postcodeDistrict: string;
   schoolName: string | null;
   borough: string | null;
+  currentPageUrl?: string;
 }
 
 interface AIRecommendationClientProps {
@@ -40,6 +43,7 @@ interface AIRecommendationClientProps {
   combinations?: Array<Record<string, any>> | null;
   hsSaving?: number;
   benchmarkCost?: number | null;
+  scenarios?: ScenarioResult[];
 }
 
 function fmtShortDate(iso: string): string {
@@ -284,7 +288,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, hsSaving, benchmarkCost }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, hsSaving, benchmarkCost, scenarios }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -908,6 +912,25 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
         </div>
       </div>
+
+      {/* Scenario Strip — what-if preference switcher */}
+      {(() => {
+        const scenariosWithInsights = (scenarios ?? []).map(s => ({
+          ...s,
+          facts: {
+            ...s.facts,
+            insight: aiResult?.scenario_insights?.find(
+              si => si.lever === s.lever
+            )?.insight ?? null,
+          },
+        }));
+        return scenariosWithInsights.length > 0 ? (
+          <ScenarioStrip
+            scenarios={scenariosWithInsights}
+            currentUrl={fetchParams.currentPageUrl ?? ''}
+          />
+        ) : null;
+      })()}
 
       {/* Children (SavingsBreakdown, ComplianceCalculator, LegOptions, HSValueSummary) */}
       {children && (
