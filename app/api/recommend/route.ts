@@ -3,6 +3,7 @@ import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
 import { selectCombination } from '@/lib/flights/selectCombination';
+import { computeScenarios } from '@/lib/flights/computeScenarios';
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,6 +57,26 @@ export async function POST(request: NextRequest) {
     if (!selectionContext) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
+
+    // Compute what-if scenarios using full assembled combinations
+    const currentWinner = assembled.combinations.find(c =>
+      c.outbound_date    === selectionContext.winner.outbound_date &&
+      c.return_date      === selectionContext.winner.return_date   &&
+      c.outbound_carrier === selectionContext.winner.outbound_carrier,
+    ) ?? assembled.combinations[0];
+
+    const scenarios = currentWinner
+      ? computeScenarios(
+          assembled.combinations,
+          currentWinner,
+          transitPreference,
+          adults,
+          children,
+          cabinBags,
+          checkedBags,
+          seatsTogether,
+        )
+      : [];
 
     const combinations = assembled.shortlist;
     console.log('[validate] top combinations:',
@@ -116,6 +137,7 @@ export async function POST(request: NextRequest) {
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' '),
       transitPreference,
+      scenarios,
     }, selectionContext);
 
     console.log('[route] recommended_index being returned:', aiResult.recommended_index);
