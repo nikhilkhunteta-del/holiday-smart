@@ -727,17 +727,34 @@ BENCHMARK:
 - Typical Saturday booking: ${context.benchmarkCost != null ? `£${round(context.benchmarkCost)}` : 'not available'}
 - Saving vs benchmark: ${context.benchmarkCost != null ? `£${round(context.benchmarkCost - recommended.total_cost_gbp)}` : 'not available'}
 
+SELECTION CONTEXT:
+- recommended_nights: ${recommended.trip_nights}
+- cheapest_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
+- nights_diff: ${recommended.trip_nights - (cheapestOverall?.trip_nights ?? recommended.trip_nights)}
+- baseline_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
+- destination_name: ${destinationName}
+
 ──────────────────────────────────────────
 HEADLINE
 ──────────────────────────────────────────
-One sentence. Start with "We found". Include £${round(recommended.total_cost_gbp)}.
-${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp
-  ? `Include the £${round(context.benchmarkCost - recommended.total_cost_gbp)} saving vs the typical Saturday booking.`
-  : ''}
-${recommended.is_inset_day ? 'Mention the inset day departure.' : ''}
-No decimal places. No subordinate clause at the end starting with "—".
-Good: "We found Barcelona for £736 — a day earlier than most families and £42 less than the typical Saturday booking."
-Bad: "Barcelona for £736.34 — £42.17 less than a typical Saturday booking from Heathrow."
+Lead with what the family GETS — nights in destination and total cost.
+The departure mechanic ("flying a day early", "mixing carriers") goes in the subheadline, not the headline.
+
+Format options (pick the most relevant):
+
+If recommended has more nights than cheapest (nights_diff > 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the typical booking${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less` : ''}."
+
+If same nights but saving vs benchmark:
+  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the typical booking, same [trip_nights] nights."
+
+If same nights, minimal or no saving:
+  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+
+Never start with "Flying" or "Departing".
+Never lead with a departure mechanic.
+Always lead with nights or total cost.
+No decimal places.
 
 SUBHEADLINE
 One sentence explaining the 2–3 key optimisations in plain English.
@@ -746,8 +763,9 @@ Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton 
 
 PROBLEM STATEMENT
 Exactly 2 sentences.
-First: what the typical parent from ${context.schoolName ?? 'this school'} does and pays — use £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} exactly.
+First: "Most parents from ${context.schoolName ?? 'this school'} book a straightforward return flight for the half-term window and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights."
 Second: "That's the obvious route — but not the optimal one."
+The nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) MUST appear in the first sentence — copy it exactly from this instruction.
 
 ──────────────────────────────────────────
 INSIGHT CARDS
