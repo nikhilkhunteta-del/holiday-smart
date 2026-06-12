@@ -1,6 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
+import { NIGHT_VALUE } from './selectCombination';
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -333,11 +334,16 @@ function buildAssembledBaseline(
 function computeSavingCategory(
   baselineTotal: number,
   recommendationTotal: number,
+  nightsDiff: number = 0,
 ): 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' {
-  const saving = baselineTotal - recommendationTotal;
-  if (saving >= 75) return 'significant';
-  if (saving >= 20) return 'modest';
-  if (saving >= 0)  return 'minimal';
+  // Raw saving: positive means recommendation is cheaper
+  const rawSaving = baselineTotal - recommendationTotal;
+  // Adjust for extra nights — paying more for extra nights
+  // is still good value if the premium is under NIGHT_VALUE
+  const adjustedSaving = rawSaving + (nightsDiff * NIGHT_VALUE);
+  if (adjustedSaving >= 75) return 'significant';
+  if (adjustedSaving >= 20) return 'modest';
+  if (adjustedSaving >= 0)  return 'minimal';
   return 'baseline_cheapest';
 }
 
@@ -458,9 +464,19 @@ export async function assembleCombinationsOnly(
 
   const recommendation = assembled[0];
 
+  const baselineNights = Math.round(
+    (new Date(assembledBaseline.return_date + 'T00:00:00').getTime() -
+     new Date(assembledBaseline.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const recNights = Math.round(
+    (new Date(recommendation.return_date + 'T00:00:00').getTime() -
+     new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const nightsDiff = recNights - baselineNights;
   const savingCategory = computeSavingCategory(
     assembledBaseline.total_cost_gbp,
     recommendation.total_cost_gbp,
+    nightsDiff,
   );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
@@ -535,9 +551,19 @@ export async function assembleRecommendation(
   const recommendation =
     base.combinations[aiRecommendation.recommended_index] ?? base.combinations[0];
 
+  const baselineNights = Math.round(
+    (new Date(base.baseline.return_date + 'T00:00:00').getTime() -
+     new Date(base.baseline.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const recNights = Math.round(
+    (new Date(recommendation.return_date + 'T00:00:00').getTime() -
+     new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const nightsDiff = recNights - baselineNights;
   const savingCategory = computeSavingCategory(
     base.baseline.total_cost_gbp,
     recommendation.total_cost_gbp,
+    nightsDiff,
   );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
