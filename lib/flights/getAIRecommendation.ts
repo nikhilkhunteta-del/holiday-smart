@@ -275,7 +275,7 @@ export async function getAIRecommendation(
 Copy cheapest_description and winner_description from facts VERBATIM.
 
 Write exactly two sentences:
-1. "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard school day."
+1. "The cheapest option — [cheapest_description] — gives [cheapest_nights] nights on a standard half-term departure day."
 2. "For £[extra_cost] more, [winner_description] [what_it_buys]."
 
 Copy descriptions exactly. No airlines. No airports.`,
@@ -360,10 +360,10 @@ One sentence. 25 words max.`,
       lever: 'travel_light',
       headline_hint: 'The personal item hack',
       voice: outCost > 0 && retCost > 0
-        ? `Frame as a hack, not a cost. "Pack personal items only and save £${total} — outbound cabin bag costs £${round(outCost)}, return costs £${round(retCost)}." Lead with the saving and the action. Punchy, one sentence.`
+        ? `Lead with the action and saving, not the cost statement. Format: "Pack personal items only on [leg(s)] and save £[amount] — [reason why that leg charges]." Never start with "Packing to personal items" (passive). Always start with "Pack" (imperative) or "Save £X by packing" (saving-first). Frame as a hack, not a cost. "Pack personal items only and save £${total} — outbound cabin bag costs £${round(outCost)}, return costs £${round(retCost)}." Punchy, one sentence.`
         : outCost === 0
-          ? `Frame as a hack. The outbound is free but the return charges £${round(retCost)} for cabin bags — packing to personal items only on the return saves £${round(retCost)}. Lead with the action and saving. One sentence.`
-          : `Frame as a hack. The outbound charges £${round(outCost)} for cabin bags but the return is free — packing to personal items only outbound saves £${round(outCost)}. Lead with the action and saving. One sentence.`,
+          ? `Lead with the action and saving, not the cost statement. Format: "Pack personal items only on [leg(s)] and save £[amount] — [reason why that leg charges]." Never start with "Packing to personal items" (passive). Always start with "Pack" (imperative) or "Save £X by packing" (saving-first). The outbound is free but the return charges £${round(retCost)} for cabin bags — pack to personal items only on the return and save £${round(retCost)}. One sentence.`
+          : `Lead with the action and saving, not the cost statement. Format: "Pack personal items only on [leg(s)] and save £[amount] — [reason why that leg charges]." Never start with "Packing to personal items" (passive). Always start with "Pack" (imperative) or "Save £X by packing" (saving-first). The outbound charges £${round(outCost)} for cabin bags but the return is free — pack to personal items only outbound and save £${round(outCost)}. One sentence.`,
       facts: {
         locked_headline:   'The personal item hack',
         outbound_bag_cost: round(outCost),
@@ -520,8 +520,8 @@ Include the transfer explanation from sentence 1 only if has_expensive_transfer 
           saving_vs_uber:   saving,
           changes:          tChangesOut,
           time_around_mins: round5(tMinsOut),
-          uber_low:         round(uLowOut),
-          uber_high:        uHighOut ? round(uHighOut) : null,
+          uber_low:         round5(round(uLowOut)),
+          uber_high:        uHighOut ? round5(round(uHighOut)) : null,
         },
         verified_field: 'outbound_transit_cost_gbp',
         verified_value:  round(tCostOut),
@@ -533,11 +533,11 @@ Include the transfer explanation from sentence 1 only if has_expensive_transfer 
       transportCard = {
         lever: 'transport_outbound',
         headline_hint: 'Worth the Uber',
-        voice: `Justify taking an Uber to ${recommended.origin_iata}: public transport means ${tChangesOut} change${tChangesOut === 1 ? '' : 's'} at ${recommended.outbound_departure_time ?? 'an early hour'} with kids, and Uber goes direct for £${round(uLowOut)}–£${round(uHighOut)}.${winnerIsCheapest ? ' The all-in is still the cheapest viable trip.' : ''} One sentence.`,
+        voice: `Justify taking an Uber to ${recommended.origin_iata}: public transport means ${tChangesOut} change${tChangesOut === 1 ? '' : 's'} at ${recommended.outbound_departure_time ?? 'an early hour'} with kids, and Uber goes direct for £${round5(round(uLowOut))}–£${round5(round(uHighOut))}.${winnerIsCheapest ? ' The all-in is still the cheapest viable trip.' : ''} One sentence.`,
         facts: {
           airport:              recommended.origin_iata,
-          uber_low:             round(uLowOut),
-          uber_high:            round(uHighOut),
+          uber_low:             round5(round(uLowOut)),
+          uber_high:            round5(round(uHighOut)),
           transit_changes:      tChangesOut,
           departure_time:       recommended.outbound_departure_time,
           still_cheapest_allin: winnerIsCheapest,
@@ -571,8 +571,8 @@ Include the transfer explanation from sentence 1 only if has_expensive_transfer 
             transit_cost:   round(tCostRet),
             saving_vs_uber: saving,
             changes:        tChangesRet,
-            uber_low:       round(uLowRet),
-            uber_high:      uHighRet ? round(uHighRet) : null,
+            uber_low:       round5(round(uLowRet)),
+            uber_high:      uHighRet ? round5(round(uHighRet)) : null,
           },
           verified_field: 'return_transit_cost_gbp',
           verified_value:  round(tCostRet),
@@ -584,12 +584,12 @@ Include the transfer explanation from sentence 1 only if has_expensive_transfer 
         transportCard = {
           lever: 'transport_return',
           headline_hint: 'Worth the Uber home',
-          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round(uLowRet)}–£${round(uHighRet ?? uLowRet)} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
+          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round5(round(uLowRet))}–£${round5(round(uHighRet ?? uLowRet))} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
           facts: {
             airport:         recommended.ret_dest_iata ?? recommended.origin_iata,
             arrival_time:    recommended.return_arrival_time,
-            uber_low:        round(uLowRet),
-            uber_high:       round(uHighRet),
+            uber_low:        round5(round(uLowRet)),
+            uber_high:       round5(round(uHighRet)),
             transit_changes: tChangesRet,
           },
           verified_field: 'return_uber_high_gbp',
@@ -625,7 +625,7 @@ Do not add, remove, or rephrase anything. Assembly only.`,
         bcn_departure:     `Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30`,
         arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'STN'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
         transit_statement: `${simplifyRoute(recommended.return_transit_route)} (£${round(tCostRet)}) is already included in your cost`,
-        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'STN'} home costs £${uLowRet ? round(uLowRet) : 'X'}–£${uHighRet ? round(uHighRet) : 'Y'} direct`,
+        uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'STN'} home costs £${uLowRet ? round5(round(uLowRet)) : 'X'}–£${uHighRet ? round5(round(uHighRet)) : 'Y'} direct`,
       },
       verified_field: 'return_departure_quality',
       verified_value:  'very_early',
@@ -648,8 +648,8 @@ Do not add, remove, or rephrase anything. Assembly only.`,
         airport:   recommended.origin_iata,
         changes:   changes,
         route:     route,
-        uber_low:  recommended.outbound_uber_low_gbp ? round(recommended.outbound_uber_low_gbp) : null,
-        uber_high: recommended.outbound_uber_high_gbp ? round(recommended.outbound_uber_high_gbp) : null,
+        uber_low:  recommended.outbound_uber_low_gbp ? round5(round(recommended.outbound_uber_low_gbp)) : null,
+        uber_high: recommended.outbound_uber_high_gbp ? round5(round(recommended.outbound_uber_high_gbp)) : null,
       },
       verified_field: 'outbound_transit_changes',
       verified_value:  changes,
@@ -761,6 +761,7 @@ Rules:
 - Never use the word "baseline" or "unfortunately".
 - The fields outbound_cabin_bag_cost_gbp and return_cabin_bag_cost_gbp refer to CABIN BAGS only. Never use the word "checked" when describing these fields. If the insight mentions bags from these fields, always say "cabin bags" or "cabin bag charge" — never "checked bags".
 - Transport return cards describe getting HOME from a London airport, not getting TO an airport. The family has just landed. Never say "Uber to [airport]" in a return card — always "Uber from [airport]" or "getting home from [airport]".
+- Uber price ranges must be rounded to the nearest £5 for display. £49–£68 becomes £50–£70. £118–£166 becomes £120–£165. Apply this rounding to all Uber ranges in all cards and in the early_return_warning facts. The facts object pre-rounds these values — use them exactly as provided.
 
 CARDS:
 ${JSON.stringify(finalCards, null, 2)}
