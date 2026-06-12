@@ -69,15 +69,12 @@ BEGIN
         WHEN p_checked_bags = 0 THEN 0
         ELSE COALESCE(ab.first_checked_bag_gbp, 0) * p_checked_bags
       END AS checked_bag_cost_gbp,
+      -- Ryanair only: flat £10 one-time fee for 2+ adults wanting seats together.
       CASE
-        WHEN NOT p_seats_together THEN 0
-        WHEN ab.seat_selection_gbp IS NULL THEN 0
-        ELSE ab.seat_selection_gbp *
-          CASE WHEN ab.child_same_as_adult
-            THEN p_adults + p_children
-            ELSE p_adults
-          END
+        WHEN fs.airline_iata = 'FR' AND p_adults >= 2 AND p_seats_together THEN 10.00
+        ELSE 0.00
       END AS seat_cost_gbp,
+      ab.family_seating_notes AS seating_notes,
       dat.transit_offpeak_fare_pence,
       dat.transit_peak_fare_pence,
       dat.uber_low_pence,
@@ -104,8 +101,7 @@ BEGIN
       END AS transit_family_pence,
       COALESCE(da.transfer_cost_gbp, 0) * 2 AS destination_transfer_gbp,
       fs.airline_iata IN ('FR', 'W6') AS baggage_is_estimate,
-      ab.seat_selection_gbp IS NOT NULL
-        AND NOT p_seats_together AS family_split_risk
+      fs.airline_iata = 'FR' AND p_adults >= 2 AND NOT p_seats_together AS family_split_risk
     FROM fare_snapshots fs
     JOIN airline_baggage_fees ab ON ab.airline_iata = fs.airline_iata
     LEFT JOIN district_airport_transit dat
@@ -176,7 +172,8 @@ BEGIN
       'transit_changes',            transit_changes,
       'destination_transfer_gbp',   destination_transfer_gbp,
       'baggage_is_estimate',        baggage_is_estimate,
-      'family_split_risk',          family_split_risk
+      'family_split_risk',          family_split_risk,
+      'seating_notes',              seating_notes
     )
     ORDER BY sort_total ASC
   )

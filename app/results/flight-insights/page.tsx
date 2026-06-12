@@ -40,7 +40,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   const cabinBags         = parseInt(searchParams.cabin_bags   ?? String(adults));
   const checkedBags       = parseInt(searchParams.checked_bags ?? (tripType === 'circuit' ? String(adults) : '0'));
-  const seatsTogether     = searchParams.seats !== 'false';
+  const seatsTogether     = searchParams.seats === 'true';
   const transitPreference = (searchParams.transit === 'uber' ? 'uber' : 'auto') as 'auto' | 'uber';
 
   const destinationSlug = 'barcelona';
@@ -218,6 +218,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             seatsTogether={seatsTogether}
             transitPreference={transitPreference}
             postcodeDistrict={postcodeDistrict}
+            outboundCarrier={recommendation?.outbound_carrier ?? null}
+            adults={adults}
           />
 
           {/* 2. AIRecommendationClient gates all remaining content until AI resolves */}

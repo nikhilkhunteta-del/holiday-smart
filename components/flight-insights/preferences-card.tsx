@@ -9,6 +9,8 @@ interface Props {
   seatsTogether: boolean;
   transitPreference: 'auto' | 'uber';
   postcodeDistrict: string | null;
+  outboundCarrier?: string | null;
+  adults?: number;
 }
 
 function Stepper({
@@ -74,7 +76,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
-export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transitPreference, postcodeDistrict }: Props) {
+export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transitPreference, postcodeDistrict, outboundCarrier, adults = 2 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [expanded, setExpanded] = useState(false);
@@ -178,11 +180,17 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
           {/* Pre-select seats */}
           <div>
             <span style={label}>Pre-select seats</span>
-            <span style={sub}>Guarantees seats together · children free on Ryanair</span>
+            <span style={sub}>
+              {outboundCarrier === 'FR' && adults >= 2
+                ? 'Ryanair charges a one-time £10 fee for the second adult. Toggle to include.'
+                : outboundCarrier
+                  ? `Optional — ${outboundCarrier === 'U2' ? 'easyJet' : outboundCarrier === 'W6' ? 'Wizz Air' : outboundCarrier === 'BA' ? 'British Airways' : outboundCarrier === 'VY' ? 'Vueling' : outboundCarrier === 'TP' ? 'TAP' : outboundCarrier} seats families together at no charge`
+                  : 'Most airlines seat families together at no charge'}
+            </span>
             <Toggle checked={seatsTogether} onChange={v => update('seats', v ? 'true' : 'false')} />
-            {!seatsTogether && (
+            {!seatsTogether && outboundCarrier === 'FR' && adults >= 2 && (
               <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#B45309', display: 'block', marginTop: 4 }}>
-                Family split risk on most airlines
+                Ryanair may not seat your family together without a paid reservation
               </span>
             )}
           </div>

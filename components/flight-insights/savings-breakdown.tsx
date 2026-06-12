@@ -237,10 +237,11 @@ export function SavingsBreakdown({
   ];
 
   // Seats
+  const seatsRowZero = effectiveRecommendation.seat_cost_gbp === 0 && baseline.seat_cost_gbp === 0;
   const detSeatsSmart = [
     seatsTogether
-      ? `${party_size} seats reserved · ${carriersStr}${hasRyanair ? ' · children free on Ryanair' : ''}${bundleApplied ? ' · bundle applied' : ''}`
-      : 'No advance seat selection · family split risk',
+      ? `${party_size} seats reserved · ${carriersStr}${bundleApplied ? ' · bundle applied' : ''}`
+      : 'No advance seat selection',
   ];
   const detSeatsBase = [
     `seats · ${carrierName(baseline.carrier)}`,
@@ -274,7 +275,7 @@ export function SavingsBreakdown({
     { label: 'Flights',               smart: smartFlightTotal,                             base: baseline.baseline_fare_gbp,                   smartDetail: detFlightsSmart,  baseDetail: detFlightsBase  },
     { label: 'Cabin bags',            smart: effectiveRecommendation.cabin_bag_cost_gbp,            base: baseline.cabin_bag_cost_gbp,                  smartDetail: detCabinSmart,    baseDetail: detCabinBase    },
     { label: 'Checked bags',          smart: effectiveRecommendation.checked_bag_cost_gbp,          base: baseline.checked_bag_cost_gbp,                smartDetail: detCheckedSmart,  baseDetail: detCheckedBase  },
-    { label: 'Seats',                 smart: effectiveRecommendation.seat_cost_gbp,                 base: baseline.seat_cost_gbp,                       smartDetail: detSeatsSmart,    baseDetail: detSeatsBase    },
+    ...(!seatsRowZero ? [{ label: 'Seats', smart: effectiveRecommendation.seat_cost_gbp, base: baseline.seat_cost_gbp, smartDetail: detSeatsSmart, baseDetail: detSeatsBase }] : []),
     { label: 'London transport',      smart: effectiveRecommendation.transit_cost_gbp,              base: baseline.transit_cost_gbp,                    smartDetail: detTransitSmart,  baseDetail: detTransitBase  },
     { label: 'Destination transfers', smart: effectiveRecommendation.destination_transfer_cost_gbp, base: baseline.destination_transfer_cost_gbp,       smartDetail: detDestSmart,     baseDetail: detDestBase     },
   ];
@@ -378,6 +379,11 @@ export function SavingsBreakdown({
 
             {/* Disclaimer */}
             <div style={{ marginTop: 16 }}>
+              {seatsRowZero && (
+                <p className="font-inter" style={{ fontSize: 11, color: '#6f797a', marginBottom: 8 }}>
+                  Families seated together at no charge — see carrier policy.
+                </p>
+              )}
               <p className="font-inter" style={{ fontSize: 11, color: '#9ba8a9', marginBottom: 6 }}>
                 Typical Saturday booking: {carrierName(baseline.carrier)} · {baseline.baseline_airport} · {fmtShortDate(baseline.outbound_date)} → {fmtShortDate(baseline.return_date)} · {fmt(baseline.total_cost_gbp)}
               </p>

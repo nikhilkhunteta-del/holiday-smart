@@ -377,18 +377,17 @@ BEGIN
         p_checked_bags * COALESCE(abf_ret.first_checked_bag_max_gbp,
                                    abf_ret.first_checked_bag_gbp, 0)     AS ret_checked_cost_max,
         -- ── Seats ─────────────────────────────────────────────────────────────
-        CASE WHEN p_seats_together THEN
-          CASE WHEN COALESCE(abf_out.child_same_as_adult, true) = false
-               THEN p_adults     * COALESCE(abf_out.seat_selection_gbp, 0)
-               ELSE v_party_size * COALESCE(abf_out.seat_selection_gbp, 0)
-          END
-        ELSE 0 END                                                        AS out_seat_cost,
-        CASE WHEN p_seats_together THEN
-          CASE WHEN COALESCE(abf_ret.child_same_as_adult, true) = false
-               THEN p_adults     * COALESCE(abf_ret.seat_selection_gbp, 0)
-               ELSE v_party_size * COALESCE(abf_ret.seat_selection_gbp, 0)
-          END
-        ELSE 0 END                                                        AS ret_seat_cost,
+        -- Ryanair only: flat £10 one-time fee when 2+ adults want seats together.
+        -- All other carriers seat families together at no charge.
+        CASE
+          WHEN cp.out_carrier = 'FR' AND p_adults >= 2 AND p_seats_together
+          THEN 10.00
+          ELSE 0.00
+        END                                                               AS out_seat_cost,
+        0.00                                                              AS ret_seat_cost,
+        -- ── Seating notes ─────────────────────────────────────────────────────
+        abf_out.family_seating_notes                                      AS out_seating_notes,
+        abf_ret.family_seating_notes                                      AS ret_seating_notes,
         -- ── Bundle fields ─────────────────────────────────────────────────────
         abf_out.bundle_price_delta_gbp                                    AS out_bundle_delta,
         abf_out.bundle_includes_checked                                   AS out_bundle_inc_checked,
@@ -524,10 +523,12 @@ BEGIN
         'cabin_bag_cost_max_gbp',        ROUND(f.cabin_bag_cost_max::numeric,                    2),
         'checked_bag_cost_min_gbp',      ROUND(f.checked_bag_cost_min::numeric,                  2),
         'checked_bag_cost_max_gbp',      ROUND(f.checked_bag_cost_max::numeric,                  2),
-        -- ── Seats — combined + per-leg (new) ─────────────────────────────────
+        -- ── Seats — combined + per-leg ───────────────────────────────────────
         'seat_cost_gbp',                 ROUND(f.seat_cost_total::numeric,                       2),
         'outbound_seat_cost_gbp',        ROUND(f.out_seat_cost::numeric,                         2),
         'return_seat_cost_gbp',          ROUND(f.ret_seat_cost::numeric,                         2),
+        'outbound_seating_notes',        f.out_seating_notes,
+        'return_seating_notes',          f.ret_seating_notes,
         -- ── Ancillary totals — combined + per-leg (new) ───────────────────────
         'fare_plus_ancillary_gbp',       ROUND(f.fare_plus_ancillary::numeric,                   2),
         'outbound_ancillary_gbp',        ROUND(f.out_ancillary::numeric,                         2),
@@ -668,12 +669,12 @@ BEGIN
             ELSE 0
           END                                                             AS cabin_bag_cost,
           2 * p_checked_bags * COALESCE(a.first_checked_bag_gbp, 0)      AS checked_bag_cost,
-          CASE WHEN p_seats_together THEN
-            CASE WHEN COALESCE(a.child_same_as_adult, true) = false
-                 THEN 2 * p_adults     * COALESCE(a.seat_selection_gbp, 0)
-                 ELSE 2 * v_party_size * COALESCE(a.seat_selection_gbp, 0)
-            END
-          ELSE 0 END                                                      AS seat_cost,
+          CASE
+            WHEN v_baseline_carrier = 'FR' AND p_adults >= 2 AND p_seats_together
+            THEN 10.00
+            ELSE 0.00
+          END                                                              AS seat_cost,
+          a.family_seating_notes                                          AS family_seating_notes,
           a.bundle_price_delta_gbp                                        AS bundle_delta,
           a.bundle_includes_checked                                       AS bundle_inc_checked,
           COALESCE(da.transfer_cost_gbp * 2, 0)                          AS dest_transfer_cost,
@@ -713,7 +714,8 @@ BEGIN
         'destination_transfer_cost_gbp', ROUND(bc.dest_transfer_cost::numeric,              2),
         'destination_transfer_known',    bc.dest_transfer_known,
         'outbound_departure_time',       to_char(v_baseline_dep_time, 'HH24:MI'),
-        'baseline_is_fallback',          v_baseline_fallback
+        'baseline_is_fallback',          v_baseline_fallback,
+        'family_seating_notes',          bc.family_seating_notes
       )
     INTO v_baseline_out
     FROM bl_calc bc;
