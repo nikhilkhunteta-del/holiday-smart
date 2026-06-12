@@ -49,6 +49,8 @@ export type AssembledCombination = {
   baggage_is_estimate: boolean;
   family_split_risk: boolean;
   split_risk_carriers: string[] | null;
+  outbound_seating_notes: string | null;
+  return_seating_notes: string | null;
   // Transit-enriched fields (added in TypeScript)
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
@@ -75,6 +77,7 @@ export type AssembledBaseline = {
   outbound_departure_time: string | null;
   baseline_is_fallback: boolean;
   baseline_airport: string;
+  family_seating_notes: string | null;
   // Transit-enriched fields
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
@@ -157,6 +160,8 @@ function mapCombination(
     baggage_is_estimate: c.baggage_is_estimate,
     family_split_risk: c.family_split_risk,
     split_risk_carriers: c.split_risk_carriers,
+    outbound_seating_notes: c.outbound_seating_notes ?? null,
+    return_seating_notes: c.return_seating_notes ?? null,
     outbound_transit_cost_gbp: outTransitGbp,
     return_transit_cost_gbp: retTransitGbp,
     transit_cost_gbp: transitCostGbp,
@@ -313,6 +318,7 @@ function buildAssembledBaseline(
     outbound_departure_time: baseline.outbound_departure_time ?? null,
     baseline_is_fallback: baseline.baseline_is_fallback,
     baseline_airport: nearestAirport,
+    family_seating_notes: baseline.family_seating_notes ?? null,
     outbound_transit_cost_gbp: blOutTransitGbp,
     return_transit_cost_gbp: blRetTransitGbp,
     transit_cost_gbp: blTransitCostGbp,

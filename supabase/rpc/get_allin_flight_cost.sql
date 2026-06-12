@@ -187,17 +187,19 @@ BEGIN
         END                                        AS baggage_cost,
         abf_out.first_checked_bag_gbp              AS out_bag_fee_pp,
         abf_ret.first_checked_bag_gbp              AS ret_bag_fee_pp,
-        -- Seat selection: per person per leg
+        -- Seat fee: Ryanair only, flat £10 for 2+ adults. All other carriers: £0.
+        -- Applied once total (not per leg). Not included in allin_total —
+        -- returned as an optional display field for the UI.
         CASE
-          WHEN abf_out.airline_iata IS NOT NULL
-           AND abf_ret.airline_iata IS NOT NULL
-          THEN (COALESCE(abf_out.seat_selection_gbp, 0)
-              + COALESCE(abf_ret.seat_selection_gbp, 0))
-               * v_party_size
-          ELSE NULL
-        END                                        AS seat_cost,
-        abf_out.seat_selection_gbp                 AS out_seat_fee_pp,
-        abf_ret.seat_selection_gbp                 AS ret_seat_fee_pp,
+          WHEN abf_out.family_seating_policy = 'guaranteed_free'
+           AND cp.out_carrier = 'FR'
+           AND p_adults >= 2
+          THEN 10.00
+          ELSE 0.00
+        END                                        AS seat_fee_gbp,
+        abf_out.family_seating_policy              AS out_seating_policy,
+        abf_out.family_seating_notes               AS out_seating_notes,
+        abf_ret.family_seating_notes               AS ret_seating_notes,
         -- Bundle upgrade reference (outbound carrier only)
         abf_out.bundle_name                        AS bundle_name,
         abf_out.bundle_price_delta_gbp             AS bundle_price_delta_gbp,
@@ -261,9 +263,9 @@ BEGIN
           ELSE             wc.public_transfer_gbp
         END                                                        AS transfer_cost,
         -- All-in total: null when transfer cost unknown; sorts last via NULLS LAST
+        -- seat_fee_gbp excluded — optional upsell, not a default cost
         wc.base_fare_total
           + COALESCE(wc.baggage_cost, 0)
-          + COALESCE(wc.seat_cost,    0)
           + CASE p_transport_mode
               WHEN 'uber' THEN COALESCE(wc.uber_transfer_gbp, wc.public_transfer_gbp)
               ELSE             wc.public_transfer_gbp
@@ -293,9 +295,10 @@ BEGIN
         'baggage_cost',            r.baggage_cost,
         'outbound_bag_fee_pp',     r.out_bag_fee_pp,
         'return_bag_fee_pp',       r.ret_bag_fee_pp,
-        'seat_cost',               r.seat_cost,
-        'outbound_seat_fee_pp',    r.out_seat_fee_pp,
-        'return_seat_fee_pp',      r.ret_seat_fee_pp,
+        'seat_fee_gbp',            r.seat_fee_gbp,
+        'outbound_seating_policy', r.out_seating_policy,
+        'outbound_seating_notes',  r.out_seating_notes,
+        'return_seating_notes',    r.ret_seating_notes,
         'bundle_name',                    r.bundle_name,
         'bundle_price_delta_gbp',         r.bundle_price_delta_gbp,
         'bundle_includes_checked',        r.bundle_includes_checked,
