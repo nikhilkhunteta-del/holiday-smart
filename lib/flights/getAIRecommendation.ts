@@ -272,7 +272,7 @@ export async function getAIRecommendation(
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? 'The straightforward booking turned out to be the best option — say this with confidence, not apology.' : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
+        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? 'The Heathrow option turned out to be the best option — say this with confidence, not apology.' : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
           combination_count:    combCount,
@@ -851,16 +851,18 @@ The departure mechanic ("flying a day early", "mixing carriers") goes in the sub
 Format options (pick the most relevant):
 
 If recommended has more nights than cheapest (nights_diff > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the typical booking${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less` : ''}."
+  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the cheapest option${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less than booking from Heathrow` : ''}."
 
 If same nights but saving vs benchmark:
-  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the typical booking, same [trip_nights] nights."
+  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option, same [trip_nights] nights."
 
 If same nights, minimal or no saving:
-  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+  "We found [trip_nights] nights in [destinationName] for £[total] — here's the full picture."
 
 Never start with "Flying" or "Departing".
 Never lead with a departure mechanic.
+Never say "typical booking", "straightforward booking", or "standard option".
+Always say "cheapest option" or "Heathrow option" when making a comparison.
 Always lead with nights or total cost.
 No decimal places.
 
@@ -871,9 +873,14 @@ Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton 
 
 PROBLEM STATEMENT
 Exactly 2 sentences.
-First: "Most parents from ${context.schoolName ?? 'this school'} book a straightforward return flight for the half-term window and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights."
-Second: "That's the obvious route — but not the optimal one."
-The nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) MUST appear in the first sentence — copy it exactly from this instruction.
+First: "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term from Heathrow pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — without checking every airport, date, and all-in cost combination."
+Second: "That's the obvious option. It's not always the optimal one."
+Rules:
+- Always use the borough from the first sentence — "Most Harrow families" not "Most families"
+- Always say "from Heathrow"
+- Always include the nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) — copy it exactly from this instruction
+- Never say "typical", "straightforward", or "standard booking"
+- Never describe the parent's behaviour — describe the market price
 
 ──────────────────────────────────────────
 INSIGHT CARDS
