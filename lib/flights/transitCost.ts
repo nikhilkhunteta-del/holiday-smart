@@ -11,7 +11,7 @@
 const EARLY_FLIGHT_HOUR = 7;
 const EARLY_SURGE_HOUR = 6;
 const UBER_XL_MULTIPLIER = 1.5;
-const UBER_XL_THRESHOLD = 4;           // people
+const UBER_XL_THRESHOLD = 5;           // people
 const UBER_TRANSIT_THRESHOLD_PENCE = 5000;  // £50
 const MIN_CHANGES_FOR_UBER = 2;
 const TIME_DELTA_THRESHOLD_MINS = 30;
@@ -28,6 +28,7 @@ export type TransitCostInput = {
   adults: number;
   children: { age: number }[];
   infants: number;
+  checkedBags?: number;
 };
 
 export type AirportTransitCost = {
@@ -133,7 +134,8 @@ export function computeTransitCost(
 
   // ── Uber (XL-adjusted) ──────────────────────────────────────────────────────
   const totalPeople = adults + children.length + infants;
-  const isXL = totalPeople >= UBER_XL_THRESHOLD;
+  const isXL = totalPeople >= UBER_XL_THRESHOLD ||
+               (input.checkedBags ?? 0) >= 2;
   const xlMult = isXL ? UBER_XL_MULTIPLIER : 1;
   const uberLow = Math.round((row?.uber_low_pence ?? 0) * xlMult);
   const uberHigh = Math.round((row?.uber_high_pence ?? 0) * xlMult);
