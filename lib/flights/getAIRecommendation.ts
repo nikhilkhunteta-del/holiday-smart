@@ -55,6 +55,8 @@ export interface FamilyContext {
   destinationName?: string | null;
   transitPreference?: 'auto' | 'uber' | null;
   scenarios?: ScenarioResult[];
+  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  combinationCount: number;
 }
 
 interface CardSpec {
@@ -254,6 +256,58 @@ export async function getAIRecommendation(
     recommended.outbound_date === cheapestOverall?.outbound_date &&
     recommended.return_date   === cheapestOverall?.return_date;
 
+  // ── Saving category helpers ───────────────────────────────────────────
+  const isSigOrModest = context.savingCategory === 'significant' ||
+    context.savingCategory === 'modest';
+  const isMinimal = context.savingCategory === 'minimal';
+  const isBaselineCheapest = context.savingCategory === 'baseline_cheapest';
+
+  const combCount = context.combinationCount > 0
+    ? `${context.combinationCount}+`
+    : '100+';
+
+  // ── LEAD CARD — only when no inset day ───────────────────────────────
+  if (!recommended.is_inset_day) {
+    if (isBaselineCheapest || isMinimal) {
+      cards.push({
+        lever: 'lead_research',
+        headline_hint: `${combCount} combinations checked`,
+        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? 'The Heathrow option turned out to be the best option — say this with confidence, not apology.' : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
+        facts: {
+          locked_headline:      `${combCount} combinations checked`,
+          combination_count:    combCount,
+          is_baseline_cheapest: isBaselineCheapest,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value:  round(recommended.total_cost_gbp),
+        saving_gbp: null,
+      });
+    } else {
+      const benchSaving = context.benchmarkCost != null
+        ? round(context.benchmarkCost - recommended.total_cost_gbp)
+        : null;
+      if (benchSaving != null && benchSaving > 0) {
+        cards.push({
+          lever: 'lead_saving',
+          headline_hint: `£${benchSaving} less than typical`,
+          voice: `One sentence leading with what we found: £${benchSaving} less than the typical booking for the same destination and window. Include total cost £${round(recommended.total_cost_gbp)}. Do not mention airports or carriers here — that comes in later cards.`,
+          facts: {
+            locked_headline: `£${benchSaving} less than typical`,
+            saving:          benchSaving,
+            total:           round(recommended.total_cost_gbp),
+          },
+          verified_field: 'total_cost_gbp',
+          verified_value:  round(recommended.total_cost_gbp),
+          saving_gbp: benchSaving,
+        });
+      }
+    }
+  }
+
+  // ── SELECTION STORY CARD ──────────────────────────────────────────────
+  // Computed after splitSaving and allInTrap are available — inserted here
+  // as a placeholder; pushed after those vars are set below.
+
   // ── CARD 1 — value_tradeoff ───────────────────────────────────────────
   if (!winnerIsCheapest && cheapestOverall) {
     const diff = round(recommended.total_inc_fine - cheapestOverall.total_inc_fine);
@@ -357,8 +411,13 @@ One sentence. 25 words max.`,
   // ── MONEY LEVERS (max 3) ──────────────────────────────────────────────
   const moneyCards: CardSpec[] = [];
 
+  // Travel light is shown in the scenario strip when bag costs exist —
+  // suppress from left strip to avoid redundancy.
+  const SUPPRESS_TRAVEL_LIGHT_IN_STRIP = true;
+
   // Cabin bags
-  if ((recommended.cabin_bag_cost_gbp ?? 0) > 0) {
+  if ((recommended.cabin_bag_cost_gbp ?? 0) > 0 &&
+      !SUPPRESS_TRAVEL_LIGHT_IN_STRIP) {
     const outCost = recommended.outbound_cabin_bag_cost_gbp ?? 0;
     const retCost = recommended.return_cabin_bag_cost_gbp ?? 0;
     const total   = round(recommended.cabin_bag_cost_gbp ?? 0);
@@ -402,22 +461,7 @@ One sentence. 25 words max.`,
     } : null;
   })();
 
-  if (splitSaving) {
-    moneyCards.push({
-      lever: 'split_carrier',
-      headline_hint: 'Mixing carriers saves money',
-      voice: `Combining ${splitSaving.outCarrier} outbound and ${splitSaving.retCarrier} return saves £${splitSaving.saving} vs the cheapest single-airline option (${splitSaving.singleCarrier}). One sentence.`,
-      facts: {
-        saving:         splitSaving.saving,
-        out_carrier:    splitSaving.outCarrier,
-        ret_carrier:    splitSaving.retCarrier,
-        single_carrier: splitSaving.singleCarrier,
-      },
-      verified_field: 'split_carrier',
-      verified_value:  true,
-      saving_gbp: splitSaving.saving,
-    });
-  }
+  // split_carrier pushed after allInTrap is computed — see below
 
   // All-in trap: cheapest base fare ≠ cheapest all-in
   // Find combination with lowest outbound_fare_gbp on same dates
@@ -461,6 +505,28 @@ One sentence. 25 words max.`,
   })();
 
   console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
+
+  // Split carrier — suppress when selection_story will already cover
+  // the routing decision via the all-in trap explanation
+  const splitCoveredBySelectionStory =
+    allInTrap !== null && splitSaving != null && splitSaving.saving >= 40;
+
+  if (splitSaving && !splitCoveredBySelectionStory) {
+    moneyCards.push({
+      lever: 'split_carrier',
+      headline_hint: 'Mixing carriers saves money',
+      voice: `Combining ${splitSaving.outCarrier} outbound and ${splitSaving.retCarrier} return saves £${splitSaving.saving} vs the cheapest single-airline option (${splitSaving.singleCarrier}). One sentence.`,
+      facts: {
+        saving:         splitSaving.saving,
+        out_carrier:    splitSaving.outCarrier,
+        ret_carrier:    splitSaving.retCarrier,
+        single_carrier: splitSaving.singleCarrier,
+      },
+      verified_field: 'split_carrier',
+      verified_value:  true,
+      saving_gbp: splitSaving.saving,
+    });
+  }
 
   if (allInTrap) {
     moneyCards.push({
@@ -665,14 +731,68 @@ Do not add, remove, or rephrase anything. Assembly only.`,
 
   // Push money cards (cap 3); qualitative cards handled separately
   cards.push(...moneyCards.slice(0, 3));
-  // qualitative cards handled separately — not in timeline
+
+  // ── SELECTION STORY CARD — pushed after splitSaving/allInTrap resolved ─
+  const hasSelectionStory =
+    (splitSaving != null && splitSaving.saving >= 40) ||
+    (recommended.origin_iata !== recommended.ret_dest_iata) ||
+    (allInTrap != null);
+
+  if (hasSelectionStory) {
+    const storyFacts: Record<string, string | number | boolean | null> = {
+      locked_headline: 'Why this routing',
+      out_carrier:     cn(recommended.outbound_carrier),
+      ret_carrier:     cn(recommended.return_carrier),
+      out_airport:     recommended.origin_iata,
+      ret_airport:     recommended.ret_dest_iata,
+      is_split:        recommended.split_carrier,
+      is_open_jaw:     recommended.origin_iata !== recommended.ret_dest_iata,
+    };
+    if (splitSaving?.saving) storyFacts.split_saving = splitSaving.saving;
+    if (allInTrap) {
+      storyFacts.allin_tension        = true;
+      storyFacts.cheaper_fare_airport = allInTrap.cheap_dest_iata;
+    }
+
+    cards.push({
+      lever: 'selection_story',
+      headline_hint: 'Why this routing',
+      voice: `Explain specifically why this airport and carrier combination was chosen. Not generic process — specific tension.
+${recommended.split_carrier && splitSaving?.saving ? `\nBA outbound + VY return saves £${splitSaving.saving} vs cheapest single airline.` : ''}
+${recommended.origin_iata !== recommended.ret_dest_iata ? `\nDifferent airports each way (${recommended.origin_iata} out, ${recommended.ret_dest_iata} in) because all-in costs diverge once transport is included.` : ''}
+${allInTrap ? `\nThe cheapest fare airport (${allInTrap.cheap_dest_iata}) looks cheaper on the fare but costs more all-in.` : ''}
+
+One sentence. Specific to this result. No generic "we searched 5 airports" statements.`,
+      facts: storyFacts,
+      verified_field: 'outbound_carrier',
+      verified_value:  recommended.outbound_carrier,
+      saving_gbp: splitSaving?.saving ?? null,
+    });
+  }
+
+  // ── Card filtering based on saving category ────────────────────────────
+  let filteredCards = cards;
+
+  if (isBaselineCheapest) {
+    filteredCards = cards.filter(c =>
+      !['value_tradeoff', 'allin_trap'].includes(c.lever)
+    );
+  }
+
+  if (isMinimal) {
+    const diff = round(recommended.total_inc_fine -
+      (cheapestOverall?.total_inc_fine ?? recommended.total_inc_fine));
+    if (diff < 15) {
+      filteredCards = cards.filter(c => c.lever !== 'value_tradeoff');
+    }
+  }
 
   // Inset day leads, qualitative cards excluded from timeline
-  const insetCard = cards.find(c => c.lever === 'inset_day');
-  const otherCards = cards.filter(c => c.lever !== 'inset_day');
+  const insetCard = filteredCards.find(c => c.lever === 'inset_day');
+  const otherCards = filteredCards.filter(c => c.lever !== 'inset_day');
   const orderedCards = insetCard
     ? [insetCard, ...otherCards]
-    : cards;
+    : filteredCards;
   const finalCards = orderedCards.slice(0, 5);
 
   console.log('[airport-debug] finalCards levers:',
@@ -743,16 +863,18 @@ The departure mechanic ("flying a day early", "mixing carriers") goes in the sub
 Format options (pick the most relevant):
 
 If recommended has more nights than cheapest (nights_diff > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the typical booking${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less` : ''}."
+  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the cheapest option${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less than booking from Heathrow` : ''}."
 
 If same nights but saving vs benchmark:
-  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the typical booking, same [trip_nights] nights."
+  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option, same [trip_nights] nights."
 
 If same nights, minimal or no saving:
-  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+  "We found [trip_nights] nights in [destinationName] for £[total] — here's the full picture."
 
 Never start with "Flying" or "Departing".
 Never lead with a departure mechanic.
+Never say "typical booking", "straightforward booking", or "standard option".
+Always say "cheapest option" or "Heathrow option" when making a comparison.
 Always lead with nights or total cost.
 No decimal places.
 
@@ -763,9 +885,14 @@ Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton 
 
 PROBLEM STATEMENT
 Exactly 2 sentences.
-First: "Most parents from ${context.schoolName ?? 'this school'} book a straightforward return flight for the half-term window and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights."
-Second: "That's the obvious route — but not the optimal one."
-The nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) MUST appear in the first sentence — copy it exactly from this instruction.
+First: "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term from Heathrow pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — without checking every airport, date, and all-in cost combination."
+Second: "That's the obvious option. It's not always the optimal one."
+Rules:
+- Always use the borough from the first sentence — "Most Harrow families" not "Most families"
+- Always say "from Heathrow"
+- Always include the nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) — copy it exactly from this instruction
+- Never say "typical", "straightforward", or "standard booking"
+- Never describe the parent's behaviour — describe the market price
 
 ──────────────────────────────────────────
 INSIGHT CARDS

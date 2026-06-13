@@ -25,161 +25,172 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{
-        fontFamily:      'Inter, sans-serif',
-        fontSize:        11,
-        fontWeight:      700,
-        color:           '#004349',
-        letterSpacing:   '0.06em',
-        textTransform:   'uppercase',
-      }}>
-        What if you changed your preferences?
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+      {/* Section header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          fontFamily:    'Inter, sans-serif',
+          fontSize:      11,
+          fontWeight:    700,
+          color:         '#004349',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          marginBottom:  6,
+        }}>
+          Adjust and recalculate
+        </div>
+        <p style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize:   14,
+          color:      '#6f797a',
+          lineHeight: 1.5,
+          margin:     0,
+        }}>
+          Change a preference and we'll find the best flight combination for
+          that scenario — including if a different flight wins.
+        </p>
       </div>
 
-      <div style={{
-        display:               'grid',
-        gridTemplateColumns:   'repeat(auto-fill, minmax(240px, 1fr))',
-        gap:                   12,
-      }}>
-        {scenarios.map((scenario, i) => (
-          <div
-            key={i}
-            style={{
-              background:     '#ffffff',
-              border:         '1px solid #e1e3e3',
-              borderRadius:   12,
-              padding:        '16px 18px',
-              display:        'flex',
-              flexDirection:  'column',
-              gap:            10,
-            }}
-          >
-            {/* Icon + headline */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{
-                width:           36,
-                height:          36,
-                borderRadius:    '50%',
-                background:      'rgba(0,67,73,0.06)',
-                display:         'flex',
-                alignItems:      'center',
-                justifyContent:  'center',
-                flexShrink:      0,
-              }}>
-                <span
-                  className="material-symbols-outlined"
-                  style={{ fontSize: 18, color: '#004349' }}
-                >
-                  {SCENARIO_ICONS[scenario.lever] ?? 'tune'}
-                </span>
-              </div>
-              <div style={{
-                fontFamily:  'Newsreader, serif',
-                fontSize:    16,
-                fontWeight:  500,
-                color:       '#004349',
-                lineHeight:  1.3,
-              }}>
-                {scenario.locked_headline}
-              </div>
-            </div>
+      {/* Scenario items */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {scenarios.map((scenario, i) => {
+          const isAmber = scenario.saving > 0;
+          const isLast  = i === scenarios.length - 1;
+          const icon    = SCENARIO_ICONS[scenario.lever] ?? 'tune';
 
-            {/* Insight sentence */}
-            {scenario.facts.insight && (
-              <p style={{
-                fontFamily: 'Inter, sans-serif',
-                fontSize:   13,
-                color:      '#3f484a',
-                lineHeight: 1.5,
-                margin:     0,
-              }}>
-                {scenario.facts.insight as string}
-              </p>
-            )}
-
-            {/* Cost delta */}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              {scenario.saving > 0 ? (
-                <>
-                  <span style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize:   15,
-                    fontWeight: 700,
-                    color:      '#004349',
-                  }}>
-                    Save £{scenario.saving}
-                  </span>
-                  <span style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize:   12,
-                    color:      '#6f797a',
-                  }}>
-                    total: £{scenario.scenario_total}
-                  </span>
-                </>
-              ) : scenario.saving < 0 ? (
-                <>
-                  <span style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize:   15,
-                    fontWeight: 600,
-                    color:      '#805600',
-                  }}>
-                    £{Math.abs(scenario.saving)} more
-                  </span>
-                  <span style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize:   12,
-                    color:      '#6f797a',
-                  }}>
-                    total: £{scenario.scenario_total}
-                  </span>
-                </>
-              ) : (
-                <span style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize:   13,
-                  color:      '#6f797a',
-                }}>
-                  Same total cost
-                </span>
-              )}
-            </div>
-
-            {/* Flight changes badge */}
-            {scenario.flight_changes && (
-              <div style={{
-                fontFamily:    'Inter, sans-serif',
-                fontSize:      11,
-                color:         '#805600',
-                fontWeight:    600,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-              }}>
-                ↻ Different flight selected
-              </div>
-            )}
-
-            {/* Try this link */}
-            <a
-              href={buildUrl(scenario.url_params)}
-              style={{
-                display:        'inline-flex',
-                alignItems:     'center',
-                gap:            4,
-                fontFamily:     'Inter, sans-serif',
-                fontSize:       12,
-                fontWeight:     600,
-                color:          '#004349',
-                textDecoration: 'none',
-                marginTop:      4,
-              }}
+          return (
+            <div
+              key={i}
+              className={`relative flex gap-lg pb-xl ${
+                isLast ? 'hs-step-line-last' : 'hs-step-line'
+              }`}
             >
-              Try this →
-            </a>
-          </div>
-        ))}
+              {/* Circle icon */}
+              <div
+                className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white z-10"
+                style={{
+                  background: isAmber ? '#805600' : '#004349',
+                  boxShadow:  '0 2px 12px -2px rgba(13,92,99,0.08)',
+                }}
+              >
+                <span className="material-symbols-outlined">{icon}</span>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1">
+                <h3 style={{
+                  fontFamily:   'Newsreader, serif',
+                  fontSize:     22,
+                  fontWeight:   500,
+                  color:        isAmber ? '#805600' : '#004349',
+                  marginBottom: 8,
+                  lineHeight:   1.4,
+                }}>
+                  {scenario.locked_headline}
+                </h3>
+
+                {/* Insight sentence */}
+                {scenario.facts.insight && (
+                  <p style={{
+                    fontFamily:   'Inter, sans-serif',
+                    fontSize:     16,
+                    color:        '#3f484a',
+                    lineHeight:   1.6,
+                    marginBottom: 10,
+                    maxWidth:     '42ch',
+                  }}>
+                    {scenario.facts.insight as string}
+                  </p>
+                )}
+
+                {/* Cost delta */}
+                <div style={{
+                  display:       'flex',
+                  alignItems:    'baseline',
+                  gap:           10,
+                  marginBottom:  8,
+                }}>
+                  {scenario.saving > 0 ? (
+                    <>
+                      <span style={{
+                        fontFamily:    'Inter, sans-serif',
+                        fontSize:      13,
+                        fontWeight:    700,
+                        color:         '#805600',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                      }}>
+                        Save £{scenario.saving}
+                      </span>
+                      <span style={{
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize:   12,
+                        color:      '#6f797a',
+                      }}>
+                        total: £{scenario.scenario_total}
+                      </span>
+                    </>
+                  ) : scenario.saving < 0 ? (
+                    <>
+                      <span style={{
+                        fontFamily:    'Inter, sans-serif',
+                        fontSize:      13,
+                        fontWeight:    600,
+                        color:         '#6f797a',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                      }}>
+                        £{Math.abs(scenario.saving)} more
+                      </span>
+                      <span style={{
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize:   12,
+                        color:      '#6f797a',
+                      }}>
+                        total: £{scenario.scenario_total}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+
+                {/* Flight changes badge */}
+                {scenario.flight_changes && (
+                  <div style={{
+                    fontFamily:    'Inter, sans-serif',
+                    fontSize:      11,
+                    color:         '#004349',
+                    fontWeight:    600,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    marginBottom:  8,
+                  }}>
+                    ↻ Different flight selected
+                  </div>
+                )}
+
+                {/* Try this link */}
+                <a
+                  href={buildUrl(scenario.url_params)}
+                  style={{
+                    display:        'inline-flex',
+                    alignItems:     'center',
+                    gap:            4,
+                    fontFamily:     'Inter, sans-serif',
+                    fontSize:       13,
+                    fontWeight:     600,
+                    color:          '#004349',
+                    textDecoration: 'none',
+                    borderBottom:   '1px solid rgba(0,67,73,0.3)',
+                    paddingBottom:  1,
+                  }}
+                >
+                  Try this →
+                </a>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -545,6 +545,8 @@ export async function assembleRecommendation(
     checkedBags,
     seatsTogether,
     benchmarkCost: base.benchmark,
+    savingCategory: base.savingCategory,
+    combinationCount: base.combinations.length,
   });
 
   // Override recommendation with AI pick

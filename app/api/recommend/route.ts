@@ -138,6 +138,8 @@ export async function POST(request: NextRequest) {
         .join(' '),
       transitPreference,
       scenarios,
+      savingCategory: body.savingCategory ?? 'modest',
+      combinationCount: body.combinationCount ?? 0,
     }, selectionContext);
 
     console.log('[route] recommended_index being returned:', aiResult.recommended_index);
