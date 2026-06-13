@@ -506,12 +506,7 @@ One sentence. 25 words max.`,
 
   console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
 
-  // Split carrier — suppress when selection_story will already cover
-  // the routing decision via the all-in trap explanation
-  const splitCoveredBySelectionStory =
-    allInTrap !== null && splitSaving != null && splitSaving.saving >= 40;
-
-  if (splitSaving && !splitCoveredBySelectionStory) {
+  if (splitSaving) {
     moneyCards.push({
       lever: 'split_carrier',
       headline_hint: 'Mixing carriers saves money',
@@ -733,10 +728,13 @@ Do not add, remove, or rephrase anything. Assembly only.`,
   cards.push(...moneyCards.slice(0, 3));
 
   // ── SELECTION STORY CARD — pushed after splitSaving/allInTrap resolved ─
+  // Only fires for genuine non-obvious routing tension: all-in trap or
+  // open-jaw routing. Split carrier saving is covered by its own card.
   const hasSelectionStory =
-    (splitSaving != null && splitSaving.saving >= 40) ||
-    (recommended.origin_iata !== recommended.ret_dest_iata) ||
-    (allInTrap != null);
+    allInTrap != null ||
+    (recommended.origin_iata !== recommended.ret_dest_iata &&
+     recommended.origin_iata !==
+     (recommended.ret_dest_iata ?? recommended.origin_iata));
 
   if (hasSelectionStory) {
     const storyFacts: Record<string, string | number | boolean | null> = {
