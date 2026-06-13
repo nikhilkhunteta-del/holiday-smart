@@ -461,22 +461,7 @@ One sentence. 25 words max.`,
     } : null;
   })();
 
-  if (splitSaving) {
-    moneyCards.push({
-      lever: 'split_carrier',
-      headline_hint: 'Mixing carriers saves money',
-      voice: `Combining ${splitSaving.outCarrier} outbound and ${splitSaving.retCarrier} return saves £${splitSaving.saving} vs the cheapest single-airline option (${splitSaving.singleCarrier}). One sentence.`,
-      facts: {
-        saving:         splitSaving.saving,
-        out_carrier:    splitSaving.outCarrier,
-        ret_carrier:    splitSaving.retCarrier,
-        single_carrier: splitSaving.singleCarrier,
-      },
-      verified_field: 'split_carrier',
-      verified_value:  true,
-      saving_gbp: splitSaving.saving,
-    });
-  }
+  // split_carrier pushed after allInTrap is computed — see below
 
   // All-in trap: cheapest base fare ≠ cheapest all-in
   // Find combination with lowest outbound_fare_gbp on same dates
@@ -520,6 +505,28 @@ One sentence. 25 words max.`,
   })();
 
   console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
+
+  // Split carrier — suppress when selection_story will already cover
+  // the routing decision via the all-in trap explanation
+  const splitCoveredBySelectionStory =
+    allInTrap !== null && splitSaving != null && splitSaving.saving >= 40;
+
+  if (splitSaving && !splitCoveredBySelectionStory) {
+    moneyCards.push({
+      lever: 'split_carrier',
+      headline_hint: 'Mixing carriers saves money',
+      voice: `Combining ${splitSaving.outCarrier} outbound and ${splitSaving.retCarrier} return saves £${splitSaving.saving} vs the cheapest single-airline option (${splitSaving.singleCarrier}). One sentence.`,
+      facts: {
+        saving:         splitSaving.saving,
+        out_carrier:    splitSaving.outCarrier,
+        ret_carrier:    splitSaving.retCarrier,
+        single_carrier: splitSaving.singleCarrier,
+      },
+      verified_field: 'split_carrier',
+      verified_value:  true,
+      saving_gbp: splitSaving.saving,
+    });
+  }
 
   if (allInTrap) {
     moneyCards.push({
