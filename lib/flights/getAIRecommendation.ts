@@ -411,8 +411,13 @@ One sentence. 25 words max.`,
   // ── MONEY LEVERS (max 3) ──────────────────────────────────────────────
   const moneyCards: CardSpec[] = [];
 
+  // Travel light is shown in the scenario strip when bag costs exist —
+  // suppress from left strip to avoid redundancy.
+  const SUPPRESS_TRAVEL_LIGHT_IN_STRIP = true;
+
   // Cabin bags
-  if ((recommended.cabin_bag_cost_gbp ?? 0) > 0) {
+  if ((recommended.cabin_bag_cost_gbp ?? 0) > 0 &&
+      !SUPPRESS_TRAVEL_LIGHT_IN_STRIP) {
     const outCost = recommended.outbound_cabin_bag_cost_gbp ?? 0;
     const retCost = recommended.return_cabin_bag_cost_gbp ?? 0;
     const total   = round(recommended.cabin_bag_cost_gbp ?? 0);
