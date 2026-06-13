@@ -222,6 +222,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     schoolName,
     borough,
     currentPageUrl,
+    savingCategory,
+    combinationCount,
   };
 
   return (

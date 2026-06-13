@@ -22,6 +22,8 @@ interface FetchParams {
   schoolName: string | null;
   borough: string | null;
   currentPageUrl?: string;
+  savingCategory: string;
+  combinationCount: number;
 }
 
 interface AIRecommendationClientProps {
@@ -92,6 +94,9 @@ const LEVER_ICONS: Record<string, string> = {
   checked_bags:         'luggage',
   departure_airport:    'flight_takeoff',
   early_return_warning: 'schedule',
+  lead_research:        'manage_search',
+  lead_saving:          'savings',
+  selection_story:      'route',
 };
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -218,6 +223,9 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
 // ── Lever card ────────────────────────────────────────────────────────────────
 
 const LEVER_COLOURS: Record<string, string> = {
+  lead_research:           '#004349',
+  lead_saving:             '#004349',
+  selection_story:         '#004349',
   inset_day:               '#004349',
   near_miss:               '#004349',
   absence_tradeoff:        '#805600',
