@@ -131,7 +131,7 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
         });
         setVisible(true);
       }, 200);
-    }, 1200);
+    }, 1800);
     return () => {
       clearInterval(intervalId);
       clearTimeout(timeoutId);
@@ -186,6 +186,11 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
           from { transform: rotate(0deg); }
           to   { transform: rotate(360deg); }
         }
+        @keyframes loadingBar {
+          0%   { width: 24px; opacity: 0.4; }
+          50%  { width: 48px; opacity: 1; }
+          100% { width: 24px; opacity: 0.4; }
+        }
         .spinner {
           display: inline-block;
           width: 14px;
@@ -216,6 +221,32 @@ function NarrativeSkeleton({ schoolName, hasInsetDay }: {
           <span>{lines[visibleIndex]}</span>
         </div>
       </div>
+
+      {visibleIndex === lines.length - 1 && (
+        <div style={{
+          marginTop:  24,
+          display:    'flex',
+          alignItems: 'center',
+          gap:        10,
+          opacity:    0.6,
+        }}>
+          <div style={{
+            width:       24,
+            height:      2,
+            background:  '#004349',
+            borderRadius: 2,
+            animation:   'loadingBar 1.2s ease-in-out infinite',
+          }} />
+          <span style={{
+            fontFamily:    'Inter, sans-serif',
+            fontSize:      12,
+            color:         '#6f797a',
+            letterSpacing: '0.04em',
+          }}>
+            Finding your best option...
+          </span>
+        </div>
+      )}
     </div>
   );
 }

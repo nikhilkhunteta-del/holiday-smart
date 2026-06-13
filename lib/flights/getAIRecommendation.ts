@@ -506,12 +506,7 @@ One sentence. 25 words max.`,
 
   console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
 
-  // Split carrier — suppress when selection_story will already cover
-  // the routing decision via the all-in trap explanation
-  const splitCoveredBySelectionStory =
-    allInTrap !== null && splitSaving != null && splitSaving.saving >= 40;
-
-  if (splitSaving && !splitCoveredBySelectionStory) {
+  if (splitSaving) {
     moneyCards.push({
       lever: 'split_carrier',
       headline_hint: 'Mixing carriers saves money',
@@ -733,10 +728,13 @@ Do not add, remove, or rephrase anything. Assembly only.`,
   cards.push(...moneyCards.slice(0, 3));
 
   // ── SELECTION STORY CARD — pushed after splitSaving/allInTrap resolved ─
+  // Only fires for genuine non-obvious routing tension: all-in trap or
+  // open-jaw routing. Split carrier saving is covered by its own card.
   const hasSelectionStory =
-    (splitSaving != null && splitSaving.saving >= 40) ||
-    (recommended.origin_iata !== recommended.ret_dest_iata) ||
-    (allInTrap != null);
+    allInTrap != null ||
+    (recommended.origin_iata !== recommended.ret_dest_iata &&
+     recommended.origin_iata !==
+     (recommended.ret_dest_iata ?? recommended.origin_iata));
 
   if (hasSelectionStory) {
     const storyFacts: Record<string, string | number | boolean | null> = {
@@ -852,31 +850,35 @@ SELECTION CONTEXT:
 - cheapest_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
 - nights_diff: ${recommended.trip_nights - (cheapestOverall?.trip_nights ?? recommended.trip_nights)}
 - baseline_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
+- extra_cost: ${cheapestOverall ? round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) : 0}
 - destination_name: ${destinationName}
 
 ──────────────────────────────────────────
 HEADLINE
 ──────────────────────────────────────────
-Lead with what the family GETS — nights in destination and total cost.
-The departure mechanic ("flying a day early", "mixing carriers") goes in the subheadline, not the headline.
+HEADLINE MUST follow one of these exact formats. Pick the best match — FORMAT A takes priority when winner has extra nights.
 
-Format options (pick the most relevant):
+FORMAT A — winner has MORE nights than cheapest AND costs more (nights_diff > 0, extra_cost > 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — ${cheapestOverall && round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) < 50 ? 'one extra night for just £[extra_cost] more.' : 'one extra night for £[extra_cost] more.'}"
+  Use "just" only if extra_cost < 50. Use "one extra night" not "1 more night".
 
-If recommended has more nights than cheapest (nights_diff > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — [nights_diff] more night[s] than the cheapest option${context.benchmarkCost != null && context.benchmarkCost > recommended.total_cost_gbp ? ` and £${round(context.benchmarkCost - recommended.total_cost_gbp)} less than booking from Heathrow` : ''}."
+FORMAT B — winner has MORE nights AND costs less than benchmark (nights_diff > 0, benchmarkSaving > 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — one extra night and £[benchmarkSaving] less than booking from Heathrow."
 
-If same nights but saving vs benchmark:
-  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option, same [trip_nights] nights."
+FORMAT C — same nights, meaningful saving vs benchmark (nights_diff = 0, benchmarkSaving > 20):
+  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option."
 
-If same nights, minimal or no saving:
-  "We found [trip_nights] nights in [destinationName] for £[total] — here's the full picture."
+FORMAT D — same nights, minimal or no saving (nights_diff = 0, benchmarkSaving ≤ 20):
+  "We found [trip_nights] nights in [destinationName] for £[total] — the optimal routing for your window."
 
-Never start with "Flying" or "Departing".
-Never lead with a departure mechanic.
-Never say "typical booking", "straightforward booking", or "standard option".
-Always say "cheapest option" or "Heathrow option" when making a comparison.
-Always lead with nights or total cost.
-No decimal places.
+FORMAT E — inset day adds extra night:
+  "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from Heathrow."
+
+RULES:
+- Never say "cheapest option" in the headline
+- Never say "typical booking" or "standard booking"
+- Never use decimal places
+- Always lead with nights or saving, not departure mechanic
 
 SUBHEADLINE
 One sentence explaining the 2–3 key optimisations in plain English.
