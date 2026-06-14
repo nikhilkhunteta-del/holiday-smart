@@ -7,129 +7,11 @@ import { AIRecommendationClient } from '@/components/flight-insights/ai-recommen
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
-import type { ScenarioResult } from '@/lib/flights/computeScenarios';
+import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
+import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
-import type { CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
 
 export const dynamic = 'force-dynamic';
-
-// ── Server-side scenario comparison ────────────────────────────────────────
-// Compares pre-assembled scenario results against current assembly to produce
-// ScenarioResult[] without re-running client-side cost adjustments.
-function buildScenarioResults(
-  recommendation: CombinationsOnlyResult['recommendation'] | null,
-  current:        CombinationsOnlyResult | null,
-  scenarioResults: {
-    light:   CombinationsOnlyResult | null;
-    checked: CombinationsOnlyResult | null;
-    uber:    CombinationsOnlyResult | null;
-    seats:   CombinationsOnlyResult | null;
-  },
-  opts: {
-    cabinBags:          number;
-    checkedBags:        number;
-    seatsTogether:      boolean;
-    transitPreference:  'auto' | 'uber';
-    adults:             number;
-  },
-): ScenarioResult[] {
-  if (!current || !recommendation) return [];
-
-  const currentTotal = recommendation.total_cost_gbp;
-  const results: ScenarioResult[] = [];
-
-  const makeResult = (
-    lever: string,
-    headline: string,
-    scenarioResult: CombinationsOnlyResult | null,
-    urlParams: Record<string, string>,
-    facts: Record<string, string | number | boolean | null>,
-  ): ScenarioResult | null => {
-    if (!scenarioResult) return null;
-    const rec    = scenarioResult.recommendation;
-    const saving = Math.round(currentTotal - rec.total_cost_gbp);
-    const flightChanges =
-      rec.outbound_date    !== recommendation.outbound_date ||
-      rec.return_date      !== recommendation.return_date   ||
-      rec.origin_iata      !== recommendation.origin_iata   ||
-      rec.outbound_carrier !== recommendation.outbound_carrier;
-    const tripNights = Math.round(
-      (new Date(rec.return_date + 'T00:00:00').getTime() -
-       new Date(rec.outbound_date + 'T00:00:00').getTime()) / 86400000,
-    );
-    return {
-      lever,
-      locked_headline: headline,
-      current_total:   Math.round(currentTotal),
-      scenario_total:  Math.round(rec.total_cost_gbp),
-      saving,
-      flight_changes:  flightChanges,
-      scenario_winner: {
-        outbound_date:    rec.outbound_date,
-        return_date:      rec.return_date,
-        outbound_carrier: rec.outbound_carrier,
-        return_carrier:   rec.return_carrier,
-        origin_iata:      rec.origin_iata,
-        out_dest_iata:    rec.out_dest_iata,
-        trip_nights:      tripNights,
-      },
-      facts,
-      url_params: urlParams,
-    };
-  };
-
-  // Travel light
-  if (opts.cabinBags > 0) {
-    const bagCost = Math.round(
-      (recommendation.cabin_bag_cost_gbp ?? 0) +
-      (recommendation.checked_bag_cost_gbp ?? 0),
-    );
-    if (bagCost > 0) {
-      const r = makeResult(
-        'travel_light',
-        'Travel light — skip cabin bags',
-        scenarioResults.light,
-        { cabin_bags: '0', checked_bags: '0' },
-        { bag_saving: bagCost, current_bags: opts.cabinBags },
-      );
-      if (r && r.saving > 0) results.push(r);
-    }
-  }
-
-  // Skip seats (only if currently selected)
-  if (opts.seatsTogether) {
-    const seatCost = Math.round(recommendation.seat_cost_gbp ?? 0);
-    if (seatCost > 0) {
-      const r = makeResult(
-        'skip_seats',
-        'Skip seat selection — save the fee',
-        null, // seat toggle doesn't change assembly — skip for now
-        { seats: 'false' },
-        { seat_saving: seatCost, caveat: 'You may not sit together — airlines try to seat families but cannot guarantee it.' },
-      );
-      if (r) results.push(r);
-    }
-  }
-
-  // Transport flip
-  if (scenarioResults.uber) {
-    const uberRec = scenarioResults.uber.recommendation;
-    const costDiff = Math.round(uberRec.total_cost_gbp - currentTotal);
-    const label = opts.transitPreference !== 'uber'
-      ? (costDiff > 0 ? `Door-to-door Uber — £${costDiff} more` : `Uber saves £${Math.abs(costDiff)}`)
-      : `Public transport saves £${Math.abs(costDiff)}`;
-    const r = makeResult(
-      'transport_flip',
-      label,
-      scenarioResults.uber,
-      { transit: opts.transitPreference !== 'uber' ? 'uber' : 'auto' },
-      { cost_diff: costDiff, costs_more: costDiff > 0 },
-    );
-    if (r) results.push(r);
-  }
-
-  return results;
-}
 
 interface PageProps {
   searchParams: {
@@ -345,7 +227,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     recommendation,
     assembled,
     { light: scenarioLightResult, checked: scenarioCheckedResult,
-      uber: scenarioUberResult, seats: scenarioSeatsResult },
+      uber:  scenarioUberResult,  seats: scenarioSeatsResult },
     { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
   );
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
-import type { ScenarioResult } from '@/lib/flights/computeScenarios';
+import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface FetchParams {
   destinationSlug: string;

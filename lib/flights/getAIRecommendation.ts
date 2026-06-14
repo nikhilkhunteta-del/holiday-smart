@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
-import type { ScenarioResult } from './computeScenarios';
+import type { ScenarioResult } from './buildScenarioResults';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
