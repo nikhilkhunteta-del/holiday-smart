@@ -388,6 +388,9 @@ export async function assembleCombinationsOnly(
   children: number,
   infants: number,
   transitPreference: 'auto' | 'uber' = 'auto',
+  cabinBags: number = adults,
+  checkedBags: number = 0,
+  seatsTogether: boolean = true,
 ): Promise<CombinationsOnlyResult> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
