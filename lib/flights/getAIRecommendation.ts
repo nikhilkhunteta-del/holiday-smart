@@ -523,38 +523,98 @@ One sentence. 25 words max.`,
     });
   }
 
-  if (allInTrap) {
+  // ── CARD — allin_education (always present) ──────
+  // Find the most striking fare vs all-in example
+  // from same-date combinations
+  const allExamples = combinationsForPrompt
+    .filter(c =>
+      c.outbound_date === recommended.outbound_date &&
+      c.return_date   === recommended.return_date &&
+      c.origin_iata   === recommended.origin_iata
+    )
+    .sort((a, b) =>
+      (a.outbound_fare_gbp ?? 0) -
+      (b.outbound_fare_gbp ?? 0)
+    );
+
+  const cheapestFareExample = allExamples[0];
+  const mostExpensiveFareExample =
+    allExamples[allExamples.length - 1];
+
+  // Use allInTrap if exists, otherwise use
+  // cheapest vs most expensive fare example
+  const educationExample = allInTrap ??
+    (cheapestFareExample && mostExpensiveFareExample &&
+     cheapestFareExample !== mostExpensiveFareExample
+      ? {
+          cheap_description:
+            `${cn(cheapestFareExample.outbound_carrier)} ` +
+            `from ${cheapestFareExample.origin_iata}`,
+          cheap_fare:  round(
+            cheapestFareExample.outbound_fare_gbp ?? 0
+          ),
+          cheap_allin: round(
+            cheapestFareExample.total_cost_gbp
+          ),
+          rec_description:
+            `${cn(recommended.outbound_carrier)} ` +
+            `from ${recommended.origin_iata}`,
+          rec_base_fare: round(
+            (recommended.outbound_fare_gbp ?? 0) +
+            (recommended.return_fare_gbp ?? 0)
+          ),
+          rec_allin:   round(recommended.total_cost_gbp),
+          allin_saving: round(
+            cheapestFareExample.total_cost_gbp -
+            recommended.total_cost_gbp
+          ),
+          has_expensive_transfer: false,
+          cheap_dest_transfer: 0,
+          cheap_dest_iata: cheapestFareExample.out_dest_iata,
+        }
+      : null
+    );
+
+  if (educationExample) {
     moneyCards.push({
       lever: 'allin_trap',
-      headline_hint: 'Google Flights shows fares — we show costs',
-      voice: `Copy cheap_description and rec_description VERBATIM from facts.
+      headline_hint:
+        'Google Flights shows fares — we show costs',
+      voice: `HEADLINE MUST BE EXACTLY: "Google Flights shows fares — we show costs"
+
+Use cheap_description and rec_description from facts VERBATIM.
 
 Write exactly three sentences:
+1. "[cheap_description]: fare £[cheap_fare] — but all-in (fare + bags + seats + transport to airport)${educationExample.has_expensive_transfer ? ` plus £${educationExample.cheap_dest_transfer} destination transfer` : ''} totals £[cheap_allin]."
+2. "[rec_description]: all-in £[rec_allin] — £[allin_saving] less${educationExample.allin_saving > 0 ? ' despite the higher base fare' : ''}."
+3. "That's what Google Flights won't show you."
 
-Sentence 1: "[cheap_description]: base fare £[cheap_fare] — but all-in${allInTrap.has_expensive_transfer ? ` (the destination airport adds £${allInTrap.cheap_dest_transfer} in transfers alone)` : ''} it totals £[cheap_allin]."
-
-Sentence 2: "[rec_description]: base fare £[rec_base_fare], all-in £[rec_allin] — £[allin_saving] less despite the higher fare."
-
-Sentence 3: "That's what Google Flights won't show you."
-
-Copy all descriptions and numbers from facts exactly.
-Include the transfer explanation from sentence 1 only if has_expensive_transfer is true.`,
+If allin_saving <= 0, skip sentence 2 and instead write: "We show the true all-in cost so there are no surprises at checkout."`,
       facts: {
-        locked_headline:        'Google Flights shows fares — we show costs',
-        cheap_description:      allInTrap.cheap_description,
-        cheap_fare:             allInTrap.cheap_fare,
-        cheap_allin:            allInTrap.cheap_allin,
-        cheap_dest_transfer:    allInTrap.cheap_dest_transfer,
-        has_expensive_transfer: allInTrap.has_expensive_transfer,
-        cheap_dest_iata:        allInTrap.cheap_dest_iata,
-        rec_description:        allInTrap.rec_description,
-        rec_base_fare:          allInTrap.rec_base_fare,
-        rec_allin:              allInTrap.rec_allin,
-        allin_saving:           allInTrap.allin_saving,
+        locked_headline:
+          'Google Flights shows fares — we show costs',
+        cheap_description:
+          educationExample.cheap_description,
+        cheap_fare:
+          educationExample.cheap_fare,
+        cheap_allin:
+          educationExample.cheap_allin,
+        rec_description:
+          educationExample.rec_description,
+        rec_base_fare:
+          educationExample.rec_base_fare,
+        rec_allin:
+          educationExample.rec_allin,
+        allin_saving:
+          educationExample.allin_saving,
+        has_expensive_transfer:
+          educationExample.has_expensive_transfer,
       },
-      verified_field: 'origin_iata',
-      verified_value:  allInTrap.rec_description,
-      saving_gbp:      allInTrap.allin_saving,
+      verified_field: 'total_cost_gbp',
+      verified_value:  round(recommended.total_cost_gbp),
+      saving_gbp: educationExample.allin_saving > 0
+        ? educationExample.allin_saving
+        : null,
     });
   }
 
