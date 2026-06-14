@@ -788,13 +788,11 @@ Do not add, remove, or rephrase anything. Assembly only.`,
   cards.push(...moneyCards.slice(0, 3));
 
   // ── SELECTION STORY CARD — pushed after splitSaving/allInTrap resolved ─
-  // Only fires for genuine non-obvious routing tension: all-in trap or
-  // open-jaw routing. Split carrier saving is covered by its own card.
+  // Only fires for genuine routing tension: all-in trap or open-jaw.
+  // Split carrier saving is covered by the split_carrier card — never here.
   const hasSelectionStory =
-    allInTrap != null ||
-    (recommended.origin_iata !== recommended.ret_dest_iata &&
-     recommended.origin_iata !==
-     (recommended.ret_dest_iata ?? recommended.origin_iata));
+    allInTrap !== null ||
+    (recommended.out_dest_iata !== recommended.ret_dest_iata);
 
   if (hasSelectionStory) {
     const storyFacts: Record<string, string | number | boolean | null> = {
@@ -815,12 +813,18 @@ Do not add, remove, or rephrase anything. Assembly only.`,
     cards.push({
       lever: 'selection_story',
       headline_hint: 'Why this routing',
-      voice: `Explain specifically why this airport and carrier combination was chosen. Not generic process — specific tension.
-${recommended.split_carrier && splitSaving?.saving ? `\nBA outbound + VY return saves £${splitSaving.saving} vs cheapest single airline.` : ''}
-${recommended.origin_iata !== recommended.ret_dest_iata ? `\nDifferent airports each way (${recommended.origin_iata} out, ${recommended.ret_dest_iata} in) because all-in costs diverge once transport is included.` : ''}
-${allInTrap ? `\nThe cheapest fare airport (${allInTrap.cheap_dest_iata}) looks cheaper on the fare but costs more all-in.` : ''}
+      voice: `CRITICAL: Do NOT mention split carrier saving or the £[X] saving from mixing carriers. That is covered by the split_carrier card.
 
-One sentence. Specific to this result. No generic "we searched 5 airports" statements.`,
+The selection_story explains ONLY the airport or destination routing tension:
+- Why a secondary destination airport (like Reus) looks cheap on the fare but costs more all-in
+- Why different outbound and return airports were chosen
+
+If the only tension is split carrier (no all-in trap, no open jaw), do NOT fire this card — return null and skip it.
+
+${allInTrap ? `The cheapest fare airport (${allInTrap.cheap_dest_iata}) looks cheaper on the fare but costs more all-in.` : ''}
+${recommended.out_dest_iata !== recommended.ret_dest_iata ? `Different destination airports each way (${recommended.out_dest_iata} out, ${recommended.ret_dest_iata} in) because all-in costs diverge once transport is included.` : ''}
+
+One sentence. Specific. No carrier saving numbers.`,
       facts: storyFacts,
       verified_field: 'outbound_carrier',
       verified_value:  recommended.outbound_carrier,
@@ -947,14 +951,13 @@ Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton 
 
 PROBLEM STATEMENT
 Exactly 2 sentences.
-First: "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term from Heathrow pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — without checking every airport, date, and all-in cost combination."
-Second: "That's the obvious option. It's not always the optimal one."
+"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term search Google Flights, pick the cheapest Saturday departure from Heathrow, and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights. That's the first result. It's not always the best one."
 Rules:
-- Always use the borough from the first sentence — "Most Harrow families" not "Most families"
-- Always say "from Heathrow"
-- Always include the nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) — copy it exactly from this instruction
-- Never say "typical", "straightforward", or "standard booking"
-- Never describe the parent's behaviour — describe the market price
+- Always use the borough — "Most Harrow families" not "Most families"
+- baseline_nights comes from SELECTION CONTEXT field baseline_nights — use it exactly
+- "cheapest Saturday departure" is specific and honest — never "typical" or "straightforward"
+- "first result" is what Google Flights surfaces
+- Never say "obvious option"
 
 ──────────────────────────────────────────
 INSIGHT CARDS
