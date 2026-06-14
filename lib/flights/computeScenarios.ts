@@ -114,17 +114,6 @@ function buildScenario(
     scenario_total:  round(scenarioAdjustedTotal),
     saving:          round(currentTotal - scenarioAdjustedTotal),
     flight_changes:  flightChanges,
-    scenario_winner: scenarioWinner ? {
-      outbound_date:    scenarioWinner.outbound_date,
-      return_date:      scenarioWinner.return_date,
-      outbound_carrier: scenarioWinner.outbound_carrier,
-      return_carrier:   scenarioWinner.return_carrier,
-      origin_iata:      scenarioWinner.origin_iata,
-      out_dest_iata:    scenarioWinner.out_dest_iata,
-      trip_nights:      tripNightsFromDates(
-        scenarioWinner.outbound_date, scenarioWinner.return_date
-      ),
-    } : null,
     facts,
     url_params: urlParams,
   };
