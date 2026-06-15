@@ -504,7 +504,12 @@ export async function assembleCombinationsOnly(
     recommendation.total_cost_gbp,
     nightsDiff,
   );
-  const baselineIsRecommended = savingCategory === 'baseline_cheapest';
+  console.log('[savingCategory]', {
+    savingCategory,
+    baseline_total: Math.round(assembledBaseline.total_cost_gbp),
+    recommendation_total: Math.round(recommendation.total_cost_gbp),
+    nightsDiff,
+  });
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
     return_date: assembledBaseline.return_date,
