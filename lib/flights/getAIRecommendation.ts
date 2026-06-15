@@ -273,6 +273,16 @@ export async function getAIRecommendation(
     recommended.outbound_date === cheapestOverall?.outbound_date &&
     recommended.return_date   === cheapestOverall?.return_date;
 
+  // How much more/less than baseline (benchmark cost)?
+  const baselineDiff = context.benchmarkCost != null
+    ? round(recommended.total_cost_gbp - context.benchmarkCost)
+    : null;
+
+  // How much more than trueCheapest (for value_tradeoff card only)
+  const cheapestDiff = round(
+    recommended.total_cost_gbp - cheapestOverall.total_cost_gbp
+  );
+
   // ── Saving category helpers ───────────────────────────────────────────
   const isSigOrModest = context.savingCategory === 'significant' ||
     context.savingCategory === 'modest';
@@ -931,26 +941,39 @@ SELECTION CONTEXT:
 - cheapest_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
 - nights_diff: ${recommended.trip_nights - (cheapestOverall?.trip_nights ?? recommended.trip_nights)}
 - baseline_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
-- extra_cost: ${cheapestOverall ? round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) : 0}
+- cheapest_diff: ${cheapestDiff}
+- baseline_cost: £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'unknown'}
+- baseline_diff: ${baselineDiff != null
+    ? (baselineDiff > 0
+       ? `£${baselineDiff} more than baseline`
+       : `£${Math.abs(baselineDiff)} less than baseline`)
+    : 'unknown'}
 - destination_name: ${destinationName}
 
 ──────────────────────────────────────────
 HEADLINE
 ──────────────────────────────────────────
-HEADLINE MUST follow one of these exact formats. Pick the best match — FORMAT A takes priority when winner has extra nights.
+HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
 
-FORMAT A — winner has MORE nights than cheapest AND costs more (nights_diff > 0, extra_cost > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — ${cheapestOverall && round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) < 50 ? 'one extra night for just £[extra_cost] more.' : 'one extra night for £[extra_cost] more.'}"
-  Use "just" only if extra_cost < 50. Use "one extra night" not "1 more night".
+FORMAT A — recommended costs MORE than baseline but gets more nights than trueCheapest (baseline_diff > 0, nights_diff > 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — £[baseline_diff] more than the typical booking, but one extra night."
+  Use "just £[baseline_diff] more" only if baseline_diff < 30.
 
-FORMAT B — winner has MORE nights AND costs less than benchmark (nights_diff > 0, benchmarkSaving > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — one extra night and £[benchmarkSaving] less than booking from Heathrow."
+FORMAT B — recommended costs LESS than baseline (baseline_diff < 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — £[abs(baseline_diff)] less than the typical booking."
 
-FORMAT C — same nights, meaningful saving vs benchmark (nights_diff = 0, benchmarkSaving > 20):
-  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option."
+FORMAT C — recommended costs same as baseline (within £10 either way):
+  "We found [trip_nights] nights in [destinationName] for £[total] — same price as the typical booking, better routing."
 
-FORMAT D — same nights, minimal or no saving (nights_diff = 0, benchmarkSaving ≤ 20):
-  "We found [trip_nights] nights in [destinationName] for £[total] — the optimal routing for your window."
+FORMAT D — minimal saving, no strong comparison:
+  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+
+RULES:
+- baseline_diff = recommended.total_cost_gbp − baseline_cost (positive = we cost more)
+- Always compare against baseline, never against trueCheapest
+- If baseline_diff > 0: explain what the extra money buys (extra night, better airport)
+- If baseline_diff < 0: lead with the saving
+- Never say "cheapest option" in the headline
 
 FORMAT E — inset day adds extra night:
   "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from Heathrow."
