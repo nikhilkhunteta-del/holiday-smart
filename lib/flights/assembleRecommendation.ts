@@ -544,6 +544,62 @@ export async function assembleCombinationsOnly(
 
   console.log('DEBUG trueCheapest passed to AI:',
     JSON.stringify(debugTrueCheapest, null, 2));
+
+  console.log('DEBUG baseline all-in:', JSON.stringify({
+    outbound_date:   assembledBaseline.outbound_date,
+    return_date:     assembledBaseline.return_date,
+    carrier:         assembledBaseline.carrier,
+    origin:          assembledBaseline.origin_iata,
+    fare:            Math.round(assembledBaseline.outbound_fare_gbp
+                       ?? assembledBaseline.party_total_gbp ?? 0),
+    bags:            Math.round(
+                       assembledBaseline.cabin_bag_cost_gbp ?? 0),
+    seats:           Math.round(
+                       assembledBaseline.seat_cost_gbp ?? 0),
+    out_transit:     Math.round(
+                       assembledBaseline.outbound_transit_cost_gbp ?? 0),
+    ret_transit:     Math.round(
+                       assembledBaseline.return_transit_cost_gbp ?? 0),
+    dest_xfer:       Math.round(
+                       assembledBaseline.destination_transfer_cost_gbp ?? 0),
+    total:           Math.round(assembledBaseline.total_cost_gbp),
+  }, null, 2));
+
+  const debugScores = assembled
+    .filter(c => !c.requires_absence)
+    .slice(0, 8)
+    .map(c => {
+      const nights = Math.round(
+        (new Date(c.return_date + 'T00:00:00').getTime() -
+         new Date(c.outbound_date + 'T00:00:00').getTime()
+        ) / (1000 * 60 * 60 * 24)
+      );
+      const retPenalty =
+        c.return_departure_quality === 'very_early' ? 55 :
+        c.return_departure_quality === 'early' ? 25 :
+        c.return_departure_quality === 'good' ? 10 : 0;
+      const insetBonus = c.is_inset_day ? 30 : 0;
+      const effCost = c.total_cost_gbp
+        - (nights * 80)
+        - insetBonus
+        + retPenalty;
+      return {
+        out_date:    c.outbound_date,
+        ret_date:    c.return_date,
+        carrier:     `${c.outbound_carrier}+${c.return_carrier}`,
+        total:       Math.round(c.total_cost_gbp),
+        nights,
+        is_inset:    c.is_inset_day,
+        ret_qual:    c.return_departure_quality,
+        ret_penalty: retPenalty,
+        inset_bonus: insetBonus,
+        eff_cost:    Math.round(effCost),
+      };
+    })
+    .sort((a, b) => a.eff_cost - b.eff_cost);
+
+  console.log('DEBUG effective costs:',
+    JSON.stringify(debugScores, null, 2));
   // END TEMP DEBUG
 
   return {
