@@ -1,27 +1,7 @@
 import type { AssembledCombination } from './assembleRecommendation';
 import { NIGHT_VALUE } from './selectCombination';
-
-export interface ScenarioResult {
-  lever:              string;   // 'travel_light' | 'skip_seats' | 'transport_flip'
-  locked_headline:    string;
-  current_total:      number;
-  scenario_total:     number;
-  saving:             number;   // positive = scenario cheaper
-  flight_changes:     boolean;  // true if winner changes
-  scenario_winner: {
-    outbound_date:          string;
-    return_date:            string;
-    outbound_carrier:       string;
-    return_carrier:         string;
-    origin_iata:            string;
-    out_dest_iata:          string;
-    trip_nights:            number;
-  } | null;
-  // Pre-formatted facts for Sonnet to verbalise
-  facts: Record<string, string | number | boolean | null>;
-  // URL params to append for "Try this" link
-  url_params: Record<string, string>;
-}
+export type { ScenarioResult } from './buildScenarioResults';
+import type { ScenarioResult } from './buildScenarioResults';
 
 const round  = (n: number) => Math.round(n);
 const round5 = (n: number) => Math.round(n / 5) * 5;
@@ -134,17 +114,6 @@ function buildScenario(
     scenario_total:  round(scenarioAdjustedTotal),
     saving:          round(currentTotal - scenarioAdjustedTotal),
     flight_changes:  flightChanges,
-    scenario_winner: scenarioWinner ? {
-      outbound_date:    scenarioWinner.outbound_date,
-      return_date:      scenarioWinner.return_date,
-      outbound_carrier: scenarioWinner.outbound_carrier,
-      return_carrier:   scenarioWinner.return_carrier,
-      origin_iata:      scenarioWinner.origin_iata,
-      out_dest_iata:    scenarioWinner.out_dest_iata,
-      trip_nights:      tripNightsFromDates(
-        scenarioWinner.outbound_date, scenarioWinner.return_date
-      ),
-    } : null,
     facts,
     url_params: urlParams,
   };

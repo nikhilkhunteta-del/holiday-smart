@@ -1,6 +1,6 @@
 'use client';
 
-import type { ScenarioResult } from '@/lib/flights/computeScenarios';
+import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface ScenarioStripProps {
   scenarios:  ScenarioResult[];

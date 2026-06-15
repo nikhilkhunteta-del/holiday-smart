@@ -7,7 +7,8 @@ import { AIRecommendationClient } from '@/components/flight-insights/ai-recommen
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
-import { computeScenarios } from '@/lib/flights/computeScenarios';
+import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
+import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
 
 export const dynamic = 'force-dynamic';
@@ -114,6 +115,46 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       )
     : null;
 
+  // ── Scenario pre-computation (parallel) ────────────────────────────────
+  // Each scenario reruns full assembly with modified params so totals
+  // exactly match what the "Try this" link would show.
+  const [
+    scenarioLightResult,
+    scenarioCheckedResult,
+    scenarioUberResult,
+    scenarioSeatsResult,
+  ] = await Promise.all([
+    // Travel light: zero all bags
+    smartRaw ? assembleCombinationsOnly(
+      smartRaw, postcodeDistrict, adults, children, infants,
+      transitPreference, 0, 0, seatsTogether,
+    ) : null,
+    // Add 1 checked bag per adult
+    smartRaw ? assembleCombinationsOnly(
+      smartRaw, postcodeDistrict, adults, children, infants,
+      transitPreference, cabinBags, checkedBags + adults, seatsTogether,
+    ) : null,
+    // Flip transit mode
+    smartRaw && transitPreference !== 'uber'
+      ? assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          'uber', cabinBags, checkedBags, seatsTogether,
+        )
+      : smartRaw
+      ? assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          'auto', cabinBags, checkedBags, seatsTogether,
+        )
+      : null,
+    // Toggle seats together
+    smartRaw && !seatsTogether
+      ? assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, cabinBags, checkedBags, true,
+        )
+      : null,
+  ]);
+
   // ── Dates ─────────────────────────────────────────────────────────────────
   const smartOutboundDate = assembled?.baselineIsRecommended
     ? assembled.baseline.outbound_date
@@ -182,18 +223,13 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   const combinationCount = assembled?.combinations?.length ?? 0;
 
-  const scenarios = assembled?.combinations && recommendation
-    ? computeScenarios(
-        assembled.combinations,
-        recommendation,
-        transitPreference,
-        adults,
-        children,
-        cabinBags,
-        checkedBags,
-        seatsTogether,
-      )
-    : [];
+  const scenarios = buildScenarioResults(
+    recommendation,
+    assembled,
+    { light: scenarioLightResult, checked: scenarioCheckedResult,
+      uber:  scenarioUberResult,  seats: scenarioSeatsResult },
+    { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
+  );
 
   const currentPageUrl = `/results/flight-insights?urn=${urn}&start=${windowStart}&end=${windowEnd}&adults=${adults}&children=${children}&tripStyle=${tripStyle}&cabin_bags=${cabinBags}&checked_bags=${checkedBags}&seats=${seatsTogether}&transit=${transitPreference}`;
 

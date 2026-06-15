@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
-import type { ScenarioResult } from './computeScenarios';
+import type { ScenarioResult } from './buildScenarioResults';
 
 export interface AIRecommendationOutput {
   recommended_index: number;
@@ -57,6 +57,11 @@ export interface FamilyContext {
   scenarios?: ScenarioResult[];
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   combinationCount: number;
+  trueCheapest_total_cost?:  number;
+  trueCheapest_trip_nights?: number;
+  trueCheapest_outbound?:    string;
+  trueCheapest_return?:      string;
+  trueCheapest_carrier?:     string;
 }
 
 interface CardSpec {
@@ -248,9 +253,24 @@ export async function getAIRecommendation(
          c.trip_nights >= 1
   );
 
-  const cheapestOverall = viableCombos.reduce((best, c) =>
-    c.total_inc_fine < best.total_inc_fine ? c : best
-  , viableCombos[0]);
+  const cheapestOverall = context.trueCheapest_total_cost
+    ? {
+        total_cost_gbp:   context.trueCheapest_total_cost,
+        total_inc_fine:   context.trueCheapest_total_cost,
+        trip_nights:      context.trueCheapest_trip_nights ?? recommended.trip_nights,
+        outbound_date:    context.trueCheapest_outbound    ?? recommended.outbound_date,
+        return_date:      context.trueCheapest_return      ?? recommended.return_date,
+        outbound_carrier: context.trueCheapest_carrier     ?? recommended.outbound_carrier,
+        return_carrier:   recommended.return_carrier,
+        origin_iata:      recommended.origin_iata,
+        out_dest_iata:    recommended.out_dest_iata,
+        is_inset_day:     false,
+        requires_absence: false,
+        arrival_quality:  recommended.arrival_quality,
+      }
+    : viableCombos.reduce((best, c) =>
+        c.total_cost_gbp < best.total_cost_gbp ? c : best
+      , viableCombos[0]);
 
   const winnerIsCheapest =
     recommended.outbound_date === cheapestOverall?.outbound_date &&
@@ -310,7 +330,7 @@ export async function getAIRecommendation(
 
   // ── CARD 1 — value_tradeoff ───────────────────────────────────────────
   if (!winnerIsCheapest && cheapestOverall) {
-    const diff = round(recommended.total_inc_fine - cheapestOverall.total_inc_fine);
+    const diff = round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp);
     const nightsGained = recommended.trip_nights - cheapestOverall.trip_nights;
     const gains: string[] = [];
     if (nightsGained > 0)
@@ -343,7 +363,7 @@ Copy descriptions exactly. No airlines. No airports.`,
         locked_headline:      nightsGained > 0
           ? `An extra night for £${diff} more`
           : `Better timing for £${diff} more`,
-        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_inc_fine)}`,
+        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_cost_gbp)}`,
         cheapest_nights:      cheapestOverall.trip_nights,
         winner_description:   `${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)} at £${round(recommended.total_inc_fine)}`,
         winner_nights:        recommended.trip_nights,
@@ -523,38 +543,98 @@ One sentence. 25 words max.`,
     });
   }
 
-  if (allInTrap) {
+  // ── CARD — allin_education (always present) ──────
+  // Find the most striking fare vs all-in example
+  // from same-date combinations
+  const allExamples = combinationsForPrompt
+    .filter(c =>
+      c.outbound_date === recommended.outbound_date &&
+      c.return_date   === recommended.return_date &&
+      c.origin_iata   === recommended.origin_iata
+    )
+    .sort((a, b) =>
+      (a.outbound_fare_gbp ?? 0) -
+      (b.outbound_fare_gbp ?? 0)
+    );
+
+  const cheapestFareExample = allExamples[0];
+  const mostExpensiveFareExample =
+    allExamples[allExamples.length - 1];
+
+  // Use allInTrap if exists, otherwise use
+  // cheapest vs most expensive fare example
+  const educationExample = allInTrap ??
+    (cheapestFareExample && mostExpensiveFareExample &&
+     cheapestFareExample !== mostExpensiveFareExample
+      ? {
+          cheap_description:
+            `${cn(cheapestFareExample.outbound_carrier)} ` +
+            `from ${cheapestFareExample.origin_iata}`,
+          cheap_fare:  round(
+            cheapestFareExample.outbound_fare_gbp ?? 0
+          ),
+          cheap_allin: round(
+            cheapestFareExample.total_cost_gbp
+          ),
+          rec_description:
+            `${cn(recommended.outbound_carrier)} ` +
+            `from ${recommended.origin_iata}`,
+          rec_base_fare: round(
+            (recommended.outbound_fare_gbp ?? 0) +
+            (recommended.return_fare_gbp ?? 0)
+          ),
+          rec_allin:   round(recommended.total_cost_gbp),
+          allin_saving: round(
+            cheapestFareExample.total_cost_gbp -
+            recommended.total_cost_gbp
+          ),
+          has_expensive_transfer: false,
+          cheap_dest_transfer: 0,
+          cheap_dest_iata: cheapestFareExample.out_dest_iata,
+        }
+      : null
+    );
+
+  if (educationExample) {
     moneyCards.push({
       lever: 'allin_trap',
-      headline_hint: 'Google Flights shows fares — we show costs',
-      voice: `Copy cheap_description and rec_description VERBATIM from facts.
+      headline_hint:
+        'Google Flights shows fares — we show costs',
+      voice: `HEADLINE MUST BE EXACTLY: "Google Flights shows fares — we show costs"
+
+Use cheap_description and rec_description from facts VERBATIM.
 
 Write exactly three sentences:
+1. "[cheap_description]: fare £[cheap_fare] — but all-in (fare + bags + seats + transport to airport)${educationExample.has_expensive_transfer ? ` plus £${educationExample.cheap_dest_transfer} destination transfer` : ''} totals £[cheap_allin]."
+2. "[rec_description]: all-in £[rec_allin] — £[allin_saving] less${educationExample.allin_saving > 0 ? ' despite the higher base fare' : ''}."
+3. "That's what Google Flights won't show you."
 
-Sentence 1: "[cheap_description]: base fare £[cheap_fare] — but all-in${allInTrap.has_expensive_transfer ? ` (the destination airport adds £${allInTrap.cheap_dest_transfer} in transfers alone)` : ''} it totals £[cheap_allin]."
-
-Sentence 2: "[rec_description]: base fare £[rec_base_fare], all-in £[rec_allin] — £[allin_saving] less despite the higher fare."
-
-Sentence 3: "That's what Google Flights won't show you."
-
-Copy all descriptions and numbers from facts exactly.
-Include the transfer explanation from sentence 1 only if has_expensive_transfer is true.`,
+If allin_saving <= 0, skip sentence 2 and instead write: "We show the true all-in cost so there are no surprises at checkout."`,
       facts: {
-        locked_headline:        'Google Flights shows fares — we show costs',
-        cheap_description:      allInTrap.cheap_description,
-        cheap_fare:             allInTrap.cheap_fare,
-        cheap_allin:            allInTrap.cheap_allin,
-        cheap_dest_transfer:    allInTrap.cheap_dest_transfer,
-        has_expensive_transfer: allInTrap.has_expensive_transfer,
-        cheap_dest_iata:        allInTrap.cheap_dest_iata,
-        rec_description:        allInTrap.rec_description,
-        rec_base_fare:          allInTrap.rec_base_fare,
-        rec_allin:              allInTrap.rec_allin,
-        allin_saving:           allInTrap.allin_saving,
+        locked_headline:
+          'Google Flights shows fares — we show costs',
+        cheap_description:
+          educationExample.cheap_description,
+        cheap_fare:
+          educationExample.cheap_fare,
+        cheap_allin:
+          educationExample.cheap_allin,
+        rec_description:
+          educationExample.rec_description,
+        rec_base_fare:
+          educationExample.rec_base_fare,
+        rec_allin:
+          educationExample.rec_allin,
+        allin_saving:
+          educationExample.allin_saving,
+        has_expensive_transfer:
+          educationExample.has_expensive_transfer,
       },
-      verified_field: 'origin_iata',
-      verified_value:  allInTrap.rec_description,
-      saving_gbp:      allInTrap.allin_saving,
+      verified_field: 'total_cost_gbp',
+      verified_value:  round(recommended.total_cost_gbp),
+      saving_gbp: educationExample.allin_saving > 0
+        ? educationExample.allin_saving
+        : null,
     });
   }
 
@@ -728,13 +808,11 @@ Do not add, remove, or rephrase anything. Assembly only.`,
   cards.push(...moneyCards.slice(0, 3));
 
   // ── SELECTION STORY CARD — pushed after splitSaving/allInTrap resolved ─
-  // Only fires for genuine non-obvious routing tension: all-in trap or
-  // open-jaw routing. Split carrier saving is covered by its own card.
+  // Only fires for genuine routing tension: all-in trap or open-jaw.
+  // Split carrier saving is covered by the split_carrier card — never here.
   const hasSelectionStory =
-    allInTrap != null ||
-    (recommended.origin_iata !== recommended.ret_dest_iata &&
-     recommended.origin_iata !==
-     (recommended.ret_dest_iata ?? recommended.origin_iata));
+    allInTrap !== null ||
+    (recommended.out_dest_iata !== recommended.ret_dest_iata);
 
   if (hasSelectionStory) {
     const storyFacts: Record<string, string | number | boolean | null> = {
@@ -755,12 +833,18 @@ Do not add, remove, or rephrase anything. Assembly only.`,
     cards.push({
       lever: 'selection_story',
       headline_hint: 'Why this routing',
-      voice: `Explain specifically why this airport and carrier combination was chosen. Not generic process — specific tension.
-${recommended.split_carrier && splitSaving?.saving ? `\nBA outbound + VY return saves £${splitSaving.saving} vs cheapest single airline.` : ''}
-${recommended.origin_iata !== recommended.ret_dest_iata ? `\nDifferent airports each way (${recommended.origin_iata} out, ${recommended.ret_dest_iata} in) because all-in costs diverge once transport is included.` : ''}
-${allInTrap ? `\nThe cheapest fare airport (${allInTrap.cheap_dest_iata}) looks cheaper on the fare but costs more all-in.` : ''}
+      voice: `CRITICAL: Do NOT mention split carrier saving or the £[X] saving from mixing carriers. That is covered by the split_carrier card.
 
-One sentence. Specific to this result. No generic "we searched 5 airports" statements.`,
+The selection_story explains ONLY the airport or destination routing tension:
+- Why a secondary destination airport (like Reus) looks cheap on the fare but costs more all-in
+- Why different outbound and return airports were chosen
+
+If the only tension is split carrier (no all-in trap, no open jaw), do NOT fire this card — return null and skip it.
+
+${allInTrap ? `The cheapest fare airport (${allInTrap.cheap_dest_iata}) looks cheaper on the fare but costs more all-in.` : ''}
+${recommended.out_dest_iata !== recommended.ret_dest_iata ? `Different destination airports each way (${recommended.out_dest_iata} out, ${recommended.ret_dest_iata} in) because all-in costs diverge once transport is included.` : ''}
+
+One sentence. Specific. No carrier saving numbers.`,
       facts: storyFacts,
       verified_field: 'outbound_carrier',
       verified_value:  recommended.outbound_carrier,
@@ -887,14 +971,13 @@ Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton 
 
 PROBLEM STATEMENT
 Exactly 2 sentences.
-First: "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term from Heathrow pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — without checking every airport, date, and all-in cost combination."
-Second: "That's the obvious option. It's not always the optimal one."
+"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term search Google Flights, pick the cheapest Saturday departure from Heathrow, and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights. That's the first result. It's not always the best one."
 Rules:
-- Always use the borough from the first sentence — "Most Harrow families" not "Most families"
-- Always say "from Heathrow"
-- Always include the nights count (${cheapestOverall?.trip_nights ?? recommended.trip_nights}) — copy it exactly from this instruction
-- Never say "typical", "straightforward", or "standard booking"
-- Never describe the parent's behaviour — describe the market price
+- Always use the borough — "Most Harrow families" not "Most families"
+- baseline_nights comes from SELECTION CONTEXT field baseline_nights — use it exactly
+- "cheapest Saturday departure" is specific and honest — never "typical" or "straightforward"
+- "first result" is what Google Flights surfaces
+- Never say "obvious option"
 
 ──────────────────────────────────────────
 INSIGHT CARDS

@@ -27,7 +27,7 @@ const RET_DEP_PENALTY: Record<string, number> = {
   excellent:  0,
   good:       10,
   early:      25,
-  very_early: 35,
+  very_early: 55,
 };
 
 // ── Viability filter ─────────────────────────────────────────────────────
