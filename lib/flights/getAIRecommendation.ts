@@ -903,8 +903,8 @@ The reason: BA round-trip fares sometimes undercut the sum of two one-ways, and 
 One sentence. Specific numbers from facts. Never apologetic — this is a valid and trustworthy conclusion.`,
       facts: {
         locked_headline:   'The direct booking wins',
-        baseline_total:    context.benchmarkCost,
-        cheapest_two_leg:  context.trueCheapest_total_cost,
+        baseline_total:    context.benchmarkCost ?? null,
+        cheapest_two_leg:  context.trueCheapest_total_cost ?? null,
         diff: context.trueCheapest_total_cost && context.benchmarkCost
           ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
           : null,
