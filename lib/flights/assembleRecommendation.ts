@@ -681,9 +681,8 @@ export async function assembleRecommendation(
     trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
   });
 
-  // Override recommendation with AI pick
-  const recommendation =
-    base.combinations[aiRecommendation.recommended_index] ?? base.combinations[0];
+  // Use selectCombination winner directly — AI writes copy only, never selects.
+  const recommendation = base.recommendation;
 
   const baselineNights = Math.round(
     (new Date(base.baseline.return_date + 'T00:00:00').getTime() -

@@ -4,7 +4,6 @@ import { selectCombination, type SelectionContext } from './selectCombination';
 import type { ScenarioResult } from './buildScenarioResults';
 
 export interface AIRecommendationOutput {
-  recommended_index: number;
   problem_statement: string;
   headline: string;
   subheadline: string;
@@ -83,7 +82,6 @@ export async function getAIRecommendation(
 ): Promise<AIRecommendationOutput> {
 
   const FALLBACK: AIRecommendationOutput = {
-    recommended_index: 0,
     problem_statement: '',
     headline: 'We found the best value option for your dates.',
     subheadline: '',
@@ -177,18 +175,17 @@ export async function getAIRecommendation(
   const ctx = selectionContext ?? selectCombination(combinations);
   if (!ctx) return FALLBACK;
 
-  const recommendedIndex = combinations.findIndex(c =>
-    c.outbound_date === ctx.winner.outbound_date &&
-    c.return_date   === ctx.winner.return_date &&
-    c.origin_iata   === ctx.winner.origin_iata &&
-    c.outbound_carrier === ctx.winner.outbound_carrier &&
-    c.return_carrier   === ctx.winner.return_carrier
-  );
-
   const confidence: 'high' | 'medium' | 'low' = 'high';
 
-  // ── Call 2 — Generate headline + insights ─────────────────────────────────
-  const recommended = combinationsForPrompt[recommendedIndex];
+  // Winner is pre-determined by selectCombination.
+  // AI receives it as context and writes copy only — never re-derives winner.
+  const recommended = combinationsForPrompt.find(c =>
+    c.outbound_date    === ctx.winner.outbound_date &&
+    c.return_date      === ctx.winner.return_date &&
+    c.origin_iata      === ctx.winner.origin_iata &&
+    c.outbound_carrier === ctx.winner.outbound_carrier &&
+    c.return_carrier   === ctx.winner.return_carrier
+  ) ?? combinationsForPrompt[0];
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const round = (n: number) => Math.round(n);
@@ -1070,7 +1067,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
     if (!insightJsonMatch) {
       console.error('[getAIRecommendation] No JSON in insight response:', cleanInsightText.slice(0, 200));
       return {
-        recommended_index: recommendedIndex,
         problem_statement: '',
         headline: 'We found the best value option for your dates.',
         subheadline: '',
@@ -1112,7 +1108,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
     }).filter(c => c.insight);
 
     return {
-      recommended_index:       recommendedIndex,
       problem_statement:       insightParsed.problem_statement  ?? '',
       headline:                insightParsed.headline            ?? 'We found the best value option for your dates.',
       subheadline:             insightParsed.subheadline         ?? '',
@@ -1130,7 +1125,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
   } catch (err) {
     console.error('[getAIRecommendation] Insight call error:', err);
     return {
-      recommended_index: recommendedIndex,
       problem_statement: '',
       headline: 'We found the best value option for your dates.',
       subheadline: '',

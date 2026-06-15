@@ -369,9 +369,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             c.outbound_date    === winnerOutbound &&
             c.return_date      === winnerReturn &&
             c.outbound_carrier === winnerCarrier
-          ) ?? combinations?.[data.recommended_index ?? 0] ?? null;
+          ) ?? combinations?.[0] ?? null;
 
-          console.log('[client] recommended_index from API:', data.recommended_index ?? 0);
+          console.log('[client] winner lookup:', winnerOutbound, winnerCarrier);
           console.log('[client] combinations array length:', combinations?.length);
           console.log('[client] resolved combination:',
             JSON.stringify({
