@@ -65,6 +65,8 @@ export interface FamilyContext {
   baseline_out_dep_quality?: string;
   baseline_fare?:            number;
   baseline_allin?:           number;
+  baseline_ret_dep_time?:    string;
+  baseline_airport_name?:    string;
 }
 
 interface CardSpec {
@@ -303,7 +305,7 @@ export async function getAIRecommendation(
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? 'The Heathrow option turned out to be the best option — say this with confidence, not apology.' : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
+        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? `The ${context.baseline_airport_name ?? 'Heathrow'} option turned out to be the best option — say this with confidence, not apology.` : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
           combination_count:    combCount,
@@ -764,8 +766,20 @@ If allin_saving <= 0, skip sentence 2 and instead write: "We show the true all-i
   const qualitativeCards: CardSpec[] = [];
 
   // Early return heads-up
-  if (recommended.return_departure_quality === 'very_early') {
-    const retDep      = recommended.return_departure_time ?? '05:00';
+  // When baseline is recommended, use the derived return departure time from
+  // fare_snapshots rather than the recommended combination's quality field.
+  const earlyReturnFires = isBaselineCheapest
+    ? (() => {
+        const t = context.baseline_ret_dep_time;
+        if (!t || t === 'unknown') return false;
+        return parseInt(t.slice(0, 2)) < 9;
+      })()
+    : recommended.return_departure_quality === 'very_early';
+
+  if (earlyReturnFires) {
+    const retDep = isBaselineCheapest
+      ? (context.baseline_ret_dep_time ?? '05:00')
+      : (recommended.return_departure_time ?? '05:00');
     const tCostRet    = recommended.return_transit_cost_gbp ?? 0;
     const uLowRet     = recommended.return_uber_low_gbp;
     const uHighRet    = recommended.return_uber_high_gbp;
@@ -1032,7 +1046,7 @@ SELECTION CONTEXT:
 HEADLINE
 ──────────────────────────────────────────
 IF is_baseline_cheapest is true, write instead:
-  "The direct BA round-trip from Heathrow is the best option this window — £[baseline_total] all-in, bags included."
+  "The direct BA round-trip from ${context.baseline_airport_name ?? 'Heathrow'} is the best option this window — £[baseline_total] all-in, bags included."
   Do not use "We found". Lead with the conclusion.
 
 OTHERWISE, HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
@@ -1058,7 +1072,7 @@ RULES:
 - Never say "cheapest option" in the headline
 
 FORMAT E — inset day adds extra night:
-  "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from Heathrow."
+  "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from ${context.baseline_airport_name ?? 'Heathrow'}."
 
 RULES:
 - Never say "cheapest option" in the headline
@@ -1082,7 +1096,7 @@ Format (for ALL cases including is_baseline_cheapest):
 "Most ${context.borough ?? 'London'} families search Google Flights and see £[baseline_fare] for ${destinationName} this half-term. All-in — bags, transport to the airport, transfers — it's £[baseline_allin]. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations to see if we could beat it."
 
 IF is_baseline_cheapest is true, add a fourth sentence:
-"This time, the direct BA round-trip from Heathrow is the best answer."
+"This time, the direct BA round-trip from ${context.baseline_airport_name ?? 'Heathrow'} is the best answer."
 
 IF is_baseline_cheapest is false, add instead:
 "Here's what we found."

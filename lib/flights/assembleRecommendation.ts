@@ -2,6 +2,7 @@ import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
 import { NIGHT_VALUE, effectiveCost } from './selectCombination';
+import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -81,9 +82,10 @@ export type AssembledBaseline = {
   baseline_is_fallback: boolean;
   baseline_airport: string;
   family_seating_notes: string | null;
-  trip_nights:           number;
-  eff_cost:              number;
-  outbound_dep_quality:  string;
+  trip_nights:                    number;
+  eff_cost:                       number;
+  outbound_dep_quality:           string;
+  return_departure_time_derived:  string;
   // Transit-enriched fields
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
@@ -369,9 +371,10 @@ function buildAssembledBaseline(
     baseline_is_fallback: baseline.baseline_is_fallback,
     baseline_airport: nearestAirport,
     family_seating_notes: baseline.family_seating_notes ?? null,
-    trip_nights:          baselineNights,
-    eff_cost:             Math.round(baselineEffCost),
-    outbound_dep_quality: outDepQuality,
+    trip_nights:                   baselineNights,
+    eff_cost:                      Math.round(baselineEffCost),
+    outbound_dep_quality:          outDepQuality,
+    return_departure_time_derived: 'pending',
     outbound_transit_cost_gbp: blOutTransitGbp,
     return_transit_cost_gbp: blRetTransitGbp,
     transit_cost_gbp: blTransitCostGbp,
@@ -484,6 +487,79 @@ export async function assembleCombinationsOnly(
   const assembledBaseline = buildAssembledBaseline(
     baseline, nearestAirport, transitCache, baselineOutKey, baselineRetKey,
   );
+
+  // ── Derive baseline return departure time from fare_snapshots ─────────────
+  // baseline_snapshots only stores the outbound leg; we join fare_snapshots
+  // to find the return departure time so we can apply the correct penalty.
+
+  let baselineRetTime: string | null = null;
+
+  if (baseline.destination_iata && baseline.origin_iata && baseline.return_date) {
+    // Primary: same airline, nonstop, result_bucket='best'
+    const { data: retRows } = await supabase
+      .from('fare_snapshots')
+      .select('departure_time, airline_iata')
+      .eq('origin_iata',      baseline.destination_iata)
+      .eq('destination_iata', baseline.origin_iata)
+      .eq('departure_date',   baseline.return_date)
+      .eq('adults',           baseline.adults ?? 2)
+      .eq('children',         baseline.children ?? 0)
+      .eq('stops',            0)
+      .eq('airline_iata',     baseline.airline_iata ?? baseline.carrier)
+      .eq('result_bucket',    'best')
+      .order('result_rank', { ascending: true })
+      .limit(1);
+
+    if (retRows && retRows.length > 0) {
+      baselineRetTime = retRows[0].departure_time?.slice(0, 5) ?? null;
+    }
+
+    // Fallback: any nonstop return on that date
+    if (!baselineRetTime) {
+      const { data: fbRows } = await supabase
+        .from('fare_snapshots')
+        .select('departure_time, airline_iata')
+        .eq('origin_iata',      baseline.destination_iata)
+        .eq('destination_iata', baseline.origin_iata)
+        .eq('departure_date',   baseline.return_date)
+        .eq('stops',            0)
+        .eq('result_bucket',    'best')
+        .order('result_rank', { ascending: true })
+        .limit(1);
+
+      if (fbRows && fbRows.length > 0) {
+        baselineRetTime = fbRows[0].departure_time?.slice(0, 5) ?? null;
+      }
+    }
+  }
+
+  // Apply return penalty — zero if time unknown (conservative)
+  const baselineRetHour = baselineRetTime ? parseInt(baselineRetTime.slice(0, 2)) : null;
+  const baselineRetPenaltyDerived =
+    baselineRetHour === null ? 0
+    : baselineRetHour < 9   ? 55
+    : baselineRetHour < 13  ? 25
+    : baselineRetHour < 17  ? 10
+    : 0;
+
+  // The eff_cost from buildAssembledBaseline used returnDepTime='09:00' (penalty=25).
+  // Recompute: subtract the default 25 and add the derived penalty.
+  assembledBaseline.eff_cost = Math.round(
+    assembledBaseline.eff_cost - 25 + baselineRetPenaltyDerived
+  );
+  assembledBaseline.return_departure_time_derived = baselineRetTime ?? 'unknown';
+
+  console.log('[baseline-eff]', {
+    destination:  baseline.destination_iata,
+    return_date:  baseline.return_date,
+    airline:      baseline.airline_iata ?? baseline.carrier,
+    out_dep_time: baseline.outbound_departure_time,
+    ret_dep_time: baselineRetTime ?? 'not found',
+    ret_penalty:  baselineRetPenaltyDerived,
+    nights:       assembledBaseline.trip_nights,
+    total_cost:   Math.round(assembledBaseline.total_cost_gbp),
+    eff_cost:     assembledBaseline.eff_cost,
+  });
 
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
   const shortlist = buildCandidateShortlist(assembled);
@@ -762,6 +838,14 @@ export async function assembleRecommendation(
     baseline_out_dep_quality: base.baseline.outbound_dep_quality,
     baseline_fare:            base.baseline.baseline_fare_gbp,
     baseline_allin:           base.baseline.total_cost_gbp,
+    baseline_ret_dep_time:    base.baseline.return_departure_time_derived,
+    baseline_airport_name:    (() => {
+      const AIRPORT_NAMES: Record<string, string> = {
+        LHR: 'Heathrow', LGW: 'Gatwick', STN: 'Stansted',
+        LTN: 'Luton',    LCY: 'City',
+      };
+      return AIRPORT_NAMES[base.baseline.origin_iata] ?? base.baseline.origin_iata;
+    })(),
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],
@@ -779,11 +863,23 @@ export async function assembleRecommendation(
      new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
   );
   const nightsDiff = recNights - baselineNights;
-  const savingCategory = computeSavingCategory(
-    base.baseline.total_cost_gbp,
-    recommendation.total_cost_gbp,
-    nightsDiff,
+  const recEffCost2 = effectiveCost(
+    base.shortlist.find(c =>
+      c.outbound_date    === recommendation.outbound_date &&
+      c.return_date      === recommendation.return_date &&
+      c.outbound_carrier === recommendation.outbound_carrier
+    ) ?? base.shortlist[0]
   );
+  const savingCategory = computeSavingCategory(
+    base.baseline.eff_cost,
+    recEffCost2,
+    0, // nightsDiff already baked into eff_cost
+  );
+  console.log('[savingCategory-eff]', {
+    baseline_eff_cost:        base.baseline.eff_cost,
+    recommendation_eff_cost:  recEffCost2,
+    savingCategory,
+  });
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: base.baseline.outbound_date,
