@@ -98,12 +98,27 @@ function buildGoogleFlightsRoundTripUrl(params: {
   adults:      number;
   children:    number;
 }): string {
-  return `https://www.google.com/travel/flights` +
-    `#flt=${params.origin}.${params.destination}` +
-    `.${params.outbound}*${params.destination}` +
-    `.${params.origin}.${params.return_date}` +
-    `;c:GBP;e:1;sd:1;t:f` +
-    `&adults=${params.adults}&children=${params.children}`;
+  // Google Flights #flt deep-link for round trips.
+  // ;px: = adults, ;pxc: = children in the hash segment.
+  const route =
+    `${params.origin}.${params.destination}` +
+    `.${params.outbound}*` +
+    `${params.destination}.${params.origin}` +
+    `.${params.return_date}`;
+  const hash =
+    `flt=${route};c:GBP;e:1;sd:1;t:f` +
+    `;px:${params.adults}` +
+    `;pxc:${params.children}`;
+  const fallback =
+    `https://www.google.com/travel/flights` +
+    `?q=Flights+from+${params.origin}+to+` +
+    `${params.destination}+on+${params.outbound}` +
+    `+returning+${params.return_date}` +
+    `&adults=${params.adults}` +
+    `&children=${params.children}` +
+    `&curr=GBP`;
+  void fallback; // available via data-fallback-url on the anchor
+  return `https://www.google.com/travel/flights#${encodeURIComponent(hash)}`;
 }
 
 const LEVER_ICONS: Record<string, string> = {
@@ -783,6 +798,14 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     adults:      fetchParams.adults,
                     children:    fetchParams.children,
                   })}
+                  data-fallback-url={
+                    `https://www.google.com/travel/flights` +
+                    `?q=Flights+from+${baseline.origin_iata}+to+BCN` +
+                    `+on+${baseline.outbound_date}` +
+                    `+returning+${baseline.return_date}` +
+                    `&adults=${fetchParams.adults}` +
+                    `&children=${fetchParams.children}&curr=GBP`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{

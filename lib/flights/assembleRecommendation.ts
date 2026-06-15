@@ -838,6 +838,14 @@ export async function assembleRecommendation(
     baseline_out_dep_quality: base.baseline.outbound_dep_quality,
     baseline_fare:            base.baseline.baseline_fare_gbp,
     baseline_allin:           base.baseline.total_cost_gbp,
+    baseline_ret_dep_time:    base.baseline.return_departure_time_derived,
+    baseline_airport_name:    (() => {
+      const AIRPORT_NAMES: Record<string, string> = {
+        LHR: 'Heathrow', LGW: 'Gatwick', STN: 'Stansted',
+        LTN: 'Luton',    LCY: 'City',
+      };
+      return AIRPORT_NAMES[base.baseline.origin_iata] ?? base.baseline.origin_iata;
+    })(),
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],
