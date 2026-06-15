@@ -504,6 +504,7 @@ export async function assembleCombinationsOnly(
     recommendation.total_cost_gbp,
     nightsDiff,
   );
+  const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   console.log('[savingCategory]', {
     savingCategory,
     baseline_total: Math.round(assembledBaseline.total_cost_gbp),
