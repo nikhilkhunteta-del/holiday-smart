@@ -370,6 +370,7 @@ export type CombinationsOnlyResult = {
   shortlist: ScoredCombination[];
   benchmark: number | null;
   nearestAirport: string;
+  trueCheapest: AssembledCombination | null;
 };
 
 // Return type for assembleRecommendation
@@ -467,6 +468,13 @@ export async function assembleCombinationsOnly(
 
   const recommendation = assembled[0];
 
+  // True cheapest from ALL viable (absence-free) combinations by total_cost_gbp
+  const trueCheapest = noAbsenceCombinations.length > 0
+    ? noAbsenceCombinations.reduce((best, c) =>
+        c.total_cost_gbp < best.total_cost_gbp ? c : best
+      )
+    : null;
+
   const baselineNights = Math.round(
     (new Date(assembledBaseline.return_date + 'T00:00:00').getTime() -
      new Date(assembledBaseline.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
@@ -502,6 +510,7 @@ export async function assembleCombinationsOnly(
     shortlist,
     benchmark,
     nearestAirport,
+    trueCheapest,
   };
 }
 
@@ -550,6 +559,11 @@ export async function assembleRecommendation(
     benchmarkCost: base.benchmark,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
+    trueCheapest_total_cost:  base.trueCheapest?.total_cost_gbp,
+    trueCheapest_trip_nights: base.trueCheapest?.trip_nights,
+    trueCheapest_outbound:    base.trueCheapest?.outbound_date,
+    trueCheapest_return:      base.trueCheapest?.return_date,
+    trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
   });
 
   // Override recommendation with AI pick

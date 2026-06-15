@@ -57,6 +57,11 @@ export interface FamilyContext {
   scenarios?: ScenarioResult[];
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   combinationCount: number;
+  trueCheapest_total_cost?:  number;
+  trueCheapest_trip_nights?: number;
+  trueCheapest_outbound?:    string;
+  trueCheapest_return?:      string;
+  trueCheapest_carrier?:     string;
 }
 
 interface CardSpec {
@@ -248,9 +253,24 @@ export async function getAIRecommendation(
          c.trip_nights >= 1
   );
 
-  const cheapestOverall = viableCombos.reduce((best, c) =>
-    c.total_inc_fine < best.total_inc_fine ? c : best
-  , viableCombos[0]);
+  const cheapestOverall = context.trueCheapest_total_cost
+    ? {
+        total_cost_gbp:   context.trueCheapest_total_cost,
+        total_inc_fine:   context.trueCheapest_total_cost,
+        trip_nights:      context.trueCheapest_trip_nights ?? recommended.trip_nights,
+        outbound_date:    context.trueCheapest_outbound    ?? recommended.outbound_date,
+        return_date:      context.trueCheapest_return      ?? recommended.return_date,
+        outbound_carrier: context.trueCheapest_carrier     ?? recommended.outbound_carrier,
+        return_carrier:   recommended.return_carrier,
+        origin_iata:      recommended.origin_iata,
+        out_dest_iata:    recommended.out_dest_iata,
+        is_inset_day:     false,
+        requires_absence: false,
+        arrival_quality:  recommended.arrival_quality,
+      }
+    : viableCombos.reduce((best, c) =>
+        c.total_cost_gbp < best.total_cost_gbp ? c : best
+      , viableCombos[0]);
 
   const winnerIsCheapest =
     recommended.outbound_date === cheapestOverall?.outbound_date &&
@@ -310,7 +330,7 @@ export async function getAIRecommendation(
 
   // ── CARD 1 — value_tradeoff ───────────────────────────────────────────
   if (!winnerIsCheapest && cheapestOverall) {
-    const diff = round(recommended.total_inc_fine - cheapestOverall.total_inc_fine);
+    const diff = round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp);
     const nightsGained = recommended.trip_nights - cheapestOverall.trip_nights;
     const gains: string[] = [];
     if (nightsGained > 0)
@@ -343,7 +363,7 @@ Copy descriptions exactly. No airlines. No airports.`,
         locked_headline:      nightsGained > 0
           ? `An extra night for £${diff} more`
           : `Better timing for £${diff} more`,
-        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_inc_fine)}`,
+        cheapest_description: `${fmtD(cheapestOverall.outbound_date)}–${fmtD(cheapestOverall.return_date)} at £${round(cheapestOverall.total_cost_gbp)}`,
         cheapest_nights:      cheapestOverall.trip_nights,
         winner_description:   `${fmtD(recommended.outbound_date)}–${fmtD(recommended.return_date)} at £${round(recommended.total_inc_fine)}`,
         winner_nights:        recommended.trip_nights,
