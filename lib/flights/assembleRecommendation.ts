@@ -560,7 +560,13 @@ export async function assembleRecommendation(
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
     trueCheapest_total_cost:  base.trueCheapest?.total_cost_gbp,
-    trueCheapest_trip_nights: base.trueCheapest?.trip_nights,
+    trueCheapest_trip_nights: base.trueCheapest
+      ? Math.round(
+          (new Date(base.trueCheapest.return_date + 'T00:00:00').getTime() -
+           new Date(base.trueCheapest.outbound_date + 'T00:00:00').getTime()) /
+          (1000 * 60 * 60 * 24)
+        )
+      : undefined,
     trueCheapest_outbound:    base.trueCheapest?.outbound_date,
     trueCheapest_return:      base.trueCheapest?.return_date,
     trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
