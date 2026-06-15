@@ -470,9 +470,24 @@ export async function assembleCombinationsOnly(
 
   // True cheapest from ALL viable (absence-free) combinations by total_cost_gbp
   const trueCheapest = noAbsenceCombinations.length > 0
-    ? noAbsenceCombinations.reduce((best, c) =>
-        c.total_cost_gbp < best.total_cost_gbp ? c : best
-      )
+    ? noAbsenceCombinations.reduce((best, c) => {
+        if (c.total_cost_gbp < best.total_cost_gbp) return c;
+        if (c.total_cost_gbp === best.total_cost_gbp) {
+          const cNights = Math.round(
+            (new Date(c.return_date + 'T00:00:00').getTime() -
+             new Date(c.outbound_date + 'T00:00:00').getTime()
+            ) / (1000 * 60 * 60 * 24)
+          );
+          const bestNights = Math.round(
+            (new Date(best.return_date + 'T00:00:00').getTime() -
+             new Date(best.outbound_date + 'T00:00:00').getTime()
+            ) / (1000 * 60 * 60 * 24)
+          );
+          if (cNights > bestNights) return c;
+          if (c.is_inset_day && !best.is_inset_day) return c;
+        }
+        return best;
+      })
     : null;
 
   const baselineNights = Math.round(
