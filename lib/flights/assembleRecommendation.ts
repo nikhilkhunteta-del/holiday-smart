@@ -573,10 +573,17 @@ export async function assembleCombinationsOnly(
          new Date(c.outbound_date + 'T00:00:00').getTime()
         ) / (1000 * 60 * 60 * 24)
       );
+      const retHour = c.return_departure_time
+        ? parseInt(
+            c.return_departure_time.includes('T')
+              ? c.return_departure_time.split('T')[1].slice(0, 2)
+              : c.return_departure_time.slice(0, 2)
+          )
+        : 12;
       const retPenalty =
-        c.return_departure_quality === 'very_early' ? 55 :
-        c.return_departure_quality === 'early' ? 25 :
-        c.return_departure_quality === 'good' ? 10 : 0;
+        retHour < 7  ? 55 :
+        retHour < 10 ? 25 :
+        retHour < 14 ? 10 : 0;
       const insetBonus = c.is_inset_day ? 30 : 0;
       const effCost = c.total_cost_gbp
         - (nights * 80)
@@ -589,7 +596,8 @@ export async function assembleCombinationsOnly(
         total:       Math.round(c.total_cost_gbp),
         nights,
         is_inset:    c.is_inset_day,
-        ret_qual:    c.return_departure_quality,
+        ret_time:    c.return_departure_time?.slice(0, 5) ?? null,
+        ret_hour:    retHour,
         ret_penalty: retPenalty,
         inset_bonus: insetBonus,
         eff_cost:    Math.round(effCost),
