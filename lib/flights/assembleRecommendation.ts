@@ -500,6 +500,52 @@ export async function assembleCombinationsOnly(
     outbound_departure_time: assembledBaseline.outbound_departure_time,
   };
 
+  // TEMP DEBUG — remove after diagnosis
+  const debugCheapest = assembled
+    .filter(c => !c.requires_absence)
+    .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)
+    .slice(0, 5)
+    .map(c => ({
+      out_date:    c.outbound_date,
+      ret_date:    c.return_date,
+      carrier:     `${c.outbound_carrier}+${c.return_carrier}`,
+      origin:      c.origin_iata,
+      fare:        Math.round((c.outbound_fare_gbp ?? 0) +
+                   (c.return_fare_gbp ?? 0)),
+      bags:        Math.round(c.cabin_bag_cost_gbp +
+                   c.checked_bag_cost_gbp),
+      seats:       Math.round(c.seat_cost_gbp),
+      out_transit: Math.round(c.outbound_transit_cost_gbp),
+      ret_transit: Math.round(c.return_transit_cost_gbp),
+      dest_xfer:   Math.round(
+                   c.destination_transfer_cost_gbp ?? 0),
+      total:       Math.round(c.total_cost_gbp),
+      nights:      Math.round(
+        (new Date(c.return_date + 'T00:00:00').getTime() -
+         new Date(c.outbound_date + 'T00:00:00').getTime()
+        ) / (1000 * 60 * 60 * 24)
+      ),
+    }));
+
+  console.log('DEBUG cheapest 5 combinations:',
+    JSON.stringify(debugCheapest, null, 2));
+
+  const debugTrueCheapest = trueCheapest ? {
+    out_date:  trueCheapest.outbound_date,
+    ret_date:  trueCheapest.return_date,
+    carrier:   `${trueCheapest.outbound_carrier}+${trueCheapest.return_carrier}`,
+    total:     Math.round(trueCheapest.total_cost_gbp),
+    nights:    Math.round(
+      (new Date(trueCheapest.return_date + 'T00:00:00').getTime() -
+       new Date(trueCheapest.outbound_date + 'T00:00:00').getTime()
+      ) / (1000 * 60 * 60 * 24)
+    ),
+  } : null;
+
+  console.log('DEBUG trueCheapest passed to AI:',
+    JSON.stringify(debugTrueCheapest, null, 2));
+  // END TEMP DEBUG
+
   return {
     combinations: assembled,
     baseline: assembledBaseline,
