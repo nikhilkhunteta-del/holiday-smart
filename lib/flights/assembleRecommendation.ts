@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE } from './selectCombination';
+import { NIGHT_VALUE, effectiveCost } from './selectCombination';
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -76,9 +76,14 @@ export type AssembledBaseline = {
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
   outbound_departure_time: string | null;
+  outbound_departure_time_parsed: string; // HH:MM
+  return_departure_time_assumed:  string; // HH:MM
   baseline_is_fallback: boolean;
   baseline_airport: string;
   family_seating_notes: string | null;
+  trip_nights:           number;
+  eff_cost:              number;
+  outbound_dep_quality:  string;
   // Transit-enriched fields
   outbound_transit_cost_gbp: number;
   return_transit_cost_gbp: number;
@@ -284,6 +289,23 @@ async function resolveNearestAirport(postcodeDistrict: string): Promise<string> 
   }
 }
 
+// ── Departure time quality helpers ───────────────────────────────────────────
+
+function baselineDepPenalty(time: string): number {
+  const h = parseInt(time.slice(0, 2));
+  if (h < 6)  return 30;
+  if (h < 9)  return 20;
+  return 0;
+}
+
+function baselineRetPenalty(time: string): number {
+  const h = parseInt(time.slice(0, 2));
+  if (h < 9)  return 55;
+  if (h < 13) return 25;
+  if (h < 14) return 10;
+  return 0;
+}
+
 // ── Assembled baseline builder ────────────────────────────────────────────────
 
 function buildAssembledBaseline(
@@ -303,6 +325,31 @@ function buildAssembledBaseline(
     blTransitCostGbp +
     (baseline.destination_transfer_cost_gbp ?? 0);
 
+  // Parse outbound departure time from raw_json or fallback
+  const rawJson = baseline.raw_json ? JSON.parse(baseline.raw_json) : null;
+  const outboundDepTime =
+    rawJson?.result?.segments?.[0]?.departure?.slice(11, 16) ??
+    baseline.outbound_departure_time?.slice(0, 5) ??
+    '09:00';
+
+  // Return departure time unknown for round-trip baseline — conservative default
+  const returnDepTime = '09:00';
+
+  const baselineNights = Math.round(
+    (new Date(baseline.return_date + 'T00:00:00').getTime() -
+     new Date(baseline.outbound_date + 'T00:00:00').getTime()) /
+    (1000 * 60 * 60 * 24)
+  );
+
+  const baselineEffCost =
+    blTotalCostGbp
+    - (baselineNights * NIGHT_VALUE)
+    + baselineDepPenalty(outboundDepTime)
+    + baselineRetPenalty(returnDepTime);
+
+  const outDepHour = parseInt(outboundDepTime.slice(0, 2));
+  const outDepQuality = outDepHour < 9 ? 'very_early' : 'ideal';
+
   return {
     outbound_date: baseline.outbound_date,
     return_date: baseline.return_date,
@@ -317,9 +364,14 @@ function buildAssembledBaseline(
     destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
     destination_transfer_known: baseline.destination_transfer_known,
     outbound_departure_time: baseline.outbound_departure_time ?? null,
+    outbound_departure_time_parsed: outboundDepTime,
+    return_departure_time_assumed:  returnDepTime,
     baseline_is_fallback: baseline.baseline_is_fallback,
     baseline_airport: nearestAirport,
     family_seating_notes: baseline.family_seating_notes ?? null,
+    trip_nights:          baselineNights,
+    eff_cost:             Math.round(baselineEffCost),
+    outbound_dep_quality: outDepQuality,
     outbound_transit_cost_gbp: blOutTransitGbp,
     return_transit_cost_gbp: blRetTransitGbp,
     transit_cost_gbp: blTransitCostGbp,
@@ -499,10 +551,16 @@ export async function assembleCombinationsOnly(
      new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
   );
   const nightsDiff = recNights - baselineNights;
+  const recEffCost = effectiveCost(
+    base.shortlist.find(c =>
+      c.outbound_date === recommendation.outbound_date &&
+      c.return_date   === recommendation.return_date
+    ) ?? base.shortlist[0]
+  );
   const savingCategory = computeSavingCategory(
-    assembledBaseline.total_cost_gbp,
-    recommendation.total_cost_gbp,
-    nightsDiff,
+    assembledBaseline.eff_cost,
+    recEffCost,
+    0, // nightsDiff already baked into eff_cost
   );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   console.log('[savingCategory]', {
@@ -700,6 +758,13 @@ export async function assembleRecommendation(
     trueCheapest_outbound:    base.trueCheapest?.outbound_date,
     trueCheapest_return:      base.trueCheapest?.return_date,
     trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
+    baseline_eff_cost:        base.baseline.eff_cost,
+    baseline_out_dep_quality: base.baseline.outbound_dep_quality,
+    baseline_fare:            base.baseline.fare_gbp,
+    baseline_allin:           base.baseline.total_cost_gbp,
+    destinationName: 'Barcelona',
+    transitPreference,
+    scenarios: [],
   });
 
   // Use selectCombination winner directly — AI writes copy only, never selects.

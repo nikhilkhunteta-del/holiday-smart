@@ -61,6 +61,10 @@ export interface FamilyContext {
   trueCheapest_outbound?:    string;
   trueCheapest_return?:      string;
   trueCheapest_carrier?:     string;
+  baseline_eff_cost?:        number;
+  baseline_out_dep_quality?: string;
+  baseline_fare?:            number;
+  baseline_allin?:           number;
 }
 
 interface CardSpec {
@@ -1020,6 +1024,9 @@ SELECTION CONTEXT:
 - cheapest_vs_baseline_diff: £${context.trueCheapest_total_cost && context.benchmarkCost
     ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
     : 'unknown'} more than baseline
+- baseline_fare: £${context.baseline_fare ?? 'unknown'} (what Google Flights shows for the BA round-trip)
+- baseline_allin: £${context.baseline_allin ?? 'unknown'} (fare + bags + airport transport)
+- baseline_dep_quality: ${context.baseline_out_dep_quality ?? 'unknown'} (e.g. very_early = 06:10 departure)
 
 ──────────────────────────────────────────
 HEADLINE
@@ -1065,17 +1072,26 @@ Do not repeat the cost. No numbers.
 Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton Airport."
 
 PROBLEM STATEMENT
-IF is_baseline_cheapest is true, write instead:
-"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — and this time, that's exactly what we'd recommend too."
+The problem statement always leads with the Google Flights fare vs all-in reality — regardless of whether our pick wins or the baseline wins.
 
-OTHERWISE, exactly 2 sentences:
-"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term search Google Flights, pick the cheapest Saturday departure from Heathrow, and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights. That's the first result. It's not always the best one."
+Use these values from SELECTION CONTEXT:
+- baseline_fare = what Google Flights shows for the BA round-trip
+- baseline_allin = what it actually costs (fare + bags + transport)
+
+Format (for ALL cases including is_baseline_cheapest):
+"Most ${context.borough ?? 'London'} families search Google Flights and see £[baseline_fare] for ${destinationName} this half-term. All-in — bags, transport to the airport, transfers — it's £[baseline_allin]. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations to see if we could beat it."
+
+IF is_baseline_cheapest is true, add a fourth sentence:
+"This time, the direct BA round-trip from Heathrow is the best answer."
+
+IF is_baseline_cheapest is false, add instead:
+"Here's what we found."
+
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
-- baseline_nights comes from SELECTION CONTEXT field baseline_nights — use it exactly
-- "cheapest Saturday departure" is specific and honest — never "typical" or "straightforward"
-- "first result" is what Google Flights surfaces
-- Never say "obvious option"
+- Never say "typical booking" or "standard booking"
+- Never use decimal places
+- baseline_fare and baseline_allin come from SELECTION CONTEXT — never invent numbers
 
 ──────────────────────────────────────────
 INSIGHT CARDS
