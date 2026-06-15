@@ -260,6 +260,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     currentPageUrl,
     savingCategory,
     combinationCount,
+    baselineIsRecommended: assembled?.baselineIsRecommended ?? false,
   };
 
   return (
@@ -288,6 +289,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             hsSaving={hsSaving}
             benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
             scenarios={scenarios}
+            baseline={assembled?.baseline ? {
+              outbound_date:         assembled.baseline.outbound_date,
+              return_date:           assembled.baseline.return_date,
+              origin_iata:           assembled.baseline.origin_iata,
+              carrier:               assembled.baseline.carrier,
+              outbound_departure_time: assembled.baseline.outbound_departure_time,
+              total_cost_gbp:        assembled.baseline.total_cost_gbp,
+            } : null}
           >
 
             {/* 3. SavingsBreakdown */}
