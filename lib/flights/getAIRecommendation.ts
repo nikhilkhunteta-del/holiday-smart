@@ -882,7 +882,70 @@ One sentence. Specific. No carrier saving numbers.`,
   const orderedCards = insetCard
     ? [insetCard, ...otherCards]
     : filteredCards;
-  const finalCards = orderedCards.slice(0, 5);
+  let finalCards = orderedCards.slice(0, 5);
+
+  // ── Override card set when baseline is cheapest ───────────────────────────
+  if (isBaselineCheapest) {
+    const baselineCards: CardSpec[] = [];
+
+    // Card 1 — Research lead (reuse if exists)
+    const existingLead = finalCards.find(c => c.lever === 'lead_research');
+    if (existingLead) baselineCards.push(existingLead);
+
+    // Card 2 — Why baseline wins
+    baselineCards.push({
+      lever: 'baseline_wins',
+      headline_hint: 'The direct booking wins',
+      voice: `Explain why the BA round-trip (£${context.benchmarkCost}) beats every two-leg combination we found (cheapest two-leg: £${context.trueCheapest_total_cost}).
+
+The reason: BA round-trip fares sometimes undercut the sum of two one-ways, and bags are included in the BA fare whereas LCC two-leg combinations charge separately.
+
+One sentence. Specific numbers from facts. Never apologetic — this is a valid and trustworthy conclusion.`,
+      facts: {
+        locked_headline:   'The direct booking wins',
+        baseline_total:    context.benchmarkCost,
+        cheapest_two_leg:  context.trueCheapest_total_cost,
+        diff: context.trueCheapest_total_cost && context.benchmarkCost
+          ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
+          : null,
+      },
+      verified_field: 'total_cost_gbp',
+      verified_value:  context.benchmarkCost ?? 0,
+      saving_gbp: null,
+    });
+
+    // Card 3 — Inset day exists but wasn't recommended
+    const insetCombo = combinationsForPrompt.find(
+      c => c.is_inset_day && !c.requires_absence
+    );
+    if (insetCombo) {
+      const insetRetTime = insetCombo.return_departure_time?.slice(0, 5) ?? '05:20';
+      baselineCards.push({
+        lever: 'inset_day_not_picked',
+        headline_hint: 'Inset day option exists',
+        voice: `Your school has an inset day on ${fmtD(insetCombo.outbound_date)}. Flying that day gives ${insetCombo.trip_nights} nights with zero absence and costs £${round(insetCombo.total_cost_gbp)}.
+
+We didn't recommend it because the return departs Barcelona at ${insetRetTime} — meaning a 03:00–03:30 hotel checkout.
+
+One sentence. Mention the inset date, the cost, and the early return time. End with: "If you're comfortable with that, check the date matrix below."`,
+        facts: {
+          locked_headline: 'Inset day option exists',
+          inset_date:  fmtD(insetCombo.outbound_date),
+          inset_total: round(insetCombo.total_cost_gbp),
+          return_time: insetRetTime,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value:  round(insetCombo.total_cost_gbp),
+        saving_gbp: null,
+      });
+    }
+
+    // Card 4 — Google Flights education (permanent)
+    const educationCard = finalCards.find(c => c.lever === 'allin_trap');
+    if (educationCard) baselineCards.push(educationCard);
+
+    finalCards = baselineCards;
+  }
 
   console.log('[airport-debug] finalCards levers:',
     finalCards.map(c => c.lever));
@@ -949,11 +1012,23 @@ SELECTION CONTEXT:
        : `£${Math.abs(baselineDiff)} less than baseline`)
     : 'unknown'}
 - destination_name: ${destinationName}
+- is_baseline_cheapest: ${isBaselineCheapest}
+- baseline_total: £${context.benchmarkCost ?? 'unknown'}
+- baseline_carrier: British Airways round-trip
+- baseline_dates: ${context.trueCheapest_outbound ?? ''} to ${context.trueCheapest_return ?? ''}
+- cheapest_two_leg_total: £${context.trueCheapest_total_cost ?? 'unknown'}
+- cheapest_vs_baseline_diff: £${context.trueCheapest_total_cost && context.benchmarkCost
+    ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
+    : 'unknown'} more than baseline
 
 ──────────────────────────────────────────
 HEADLINE
 ──────────────────────────────────────────
-HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
+IF is_baseline_cheapest is true, write instead:
+  "The direct BA round-trip from Heathrow is the best option this window — £[baseline_total] all-in, bags included."
+  Do not use "We found". Lead with the conclusion.
+
+OTHERWISE, HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
 
 FORMAT A — recommended costs MORE than baseline but gets more nights than trueCheapest (baseline_diff > 0, nights_diff > 0):
   "We found [trip_nights] nights in [destinationName] for £[total] — £[baseline_diff] more than the typical booking, but one extra night."
@@ -990,7 +1065,10 @@ Do not repeat the cost. No numbers.
 Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton Airport."
 
 PROBLEM STATEMENT
-Exactly 2 sentences.
+IF is_baseline_cheapest is true, write instead:
+"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — and this time, that's exactly what we'd recommend too."
+
+OTHERWISE, exactly 2 sentences:
 "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term search Google Flights, pick the cheapest Saturday departure from Heathrow, and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights. That's the first result. It's not always the best one."
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
