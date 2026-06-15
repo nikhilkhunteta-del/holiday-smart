@@ -552,10 +552,10 @@ export async function assembleCombinationsOnly(
   );
   const nightsDiff = recNights - baselineNights;
   const recEffCost = effectiveCost(
-    base.shortlist.find(c =>
+    shortlist.find(c =>
       c.outbound_date === recommendation.outbound_date &&
       c.return_date   === recommendation.return_date
-    ) ?? base.shortlist[0]
+    ) ?? shortlist[0]
   );
   const savingCategory = computeSavingCategory(
     assembledBaseline.eff_cost,
