@@ -760,7 +760,7 @@ export async function assembleRecommendation(
     trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
     baseline_eff_cost:        base.baseline.eff_cost,
     baseline_out_dep_quality: base.baseline.outbound_dep_quality,
-    baseline_fare:            base.baseline.fare_gbp,
+    baseline_fare:            base.baseline.baseline_fare_gbp,
     baseline_allin:           base.baseline.total_cost_gbp,
     destinationName: 'Barcelona',
     transitPreference,
