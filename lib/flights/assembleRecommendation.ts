@@ -550,8 +550,7 @@ export async function assembleCombinationsOnly(
     return_date:     assembledBaseline.return_date,
     carrier:         assembledBaseline.carrier,
     origin:          assembledBaseline.origin_iata,
-    fare:            Math.round(assembledBaseline.outbound_fare_gbp
-                       ?? assembledBaseline.party_total_gbp ?? 0),
+    fare:            Math.round(assembledBaseline.baseline_fare_gbp ?? 0),
     bags:            Math.round(
                        assembledBaseline.cabin_bag_cost_gbp ?? 0),
     seats:           Math.round(
