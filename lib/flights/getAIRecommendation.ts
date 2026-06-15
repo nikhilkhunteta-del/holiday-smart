@@ -4,7 +4,6 @@ import { selectCombination, type SelectionContext } from './selectCombination';
 import type { ScenarioResult } from './buildScenarioResults';
 
 export interface AIRecommendationOutput {
-  recommended_index: number;
   problem_statement: string;
   headline: string;
   subheadline: string;
@@ -83,7 +82,6 @@ export async function getAIRecommendation(
 ): Promise<AIRecommendationOutput> {
 
   const FALLBACK: AIRecommendationOutput = {
-    recommended_index: 0,
     problem_statement: '',
     headline: 'We found the best value option for your dates.',
     subheadline: '',
@@ -177,18 +175,17 @@ export async function getAIRecommendation(
   const ctx = selectionContext ?? selectCombination(combinations);
   if (!ctx) return FALLBACK;
 
-  const recommendedIndex = combinations.findIndex(c =>
-    c.outbound_date === ctx.winner.outbound_date &&
-    c.return_date   === ctx.winner.return_date &&
-    c.origin_iata   === ctx.winner.origin_iata &&
-    c.outbound_carrier === ctx.winner.outbound_carrier &&
-    c.return_carrier   === ctx.winner.return_carrier
-  );
-
   const confidence: 'high' | 'medium' | 'low' = 'high';
 
-  // ── Call 2 — Generate headline + insights ─────────────────────────────────
-  const recommended = combinationsForPrompt[recommendedIndex];
+  // Winner is pre-determined by selectCombination.
+  // AI receives it as context and writes copy only — never re-derives winner.
+  const recommended = combinationsForPrompt.find(c =>
+    c.outbound_date    === ctx.winner.outbound_date &&
+    c.return_date      === ctx.winner.return_date &&
+    c.origin_iata      === ctx.winner.origin_iata &&
+    c.outbound_carrier === ctx.winner.outbound_carrier &&
+    c.return_carrier   === ctx.winner.return_carrier
+  ) ?? combinationsForPrompt[0];
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const round = (n: number) => Math.round(n);
@@ -275,6 +272,16 @@ export async function getAIRecommendation(
   const winnerIsCheapest =
     recommended.outbound_date === cheapestOverall?.outbound_date &&
     recommended.return_date   === cheapestOverall?.return_date;
+
+  // How much more/less than baseline (benchmark cost)?
+  const baselineDiff = context.benchmarkCost != null
+    ? round(recommended.total_cost_gbp - context.benchmarkCost)
+    : null;
+
+  // How much more than trueCheapest (for value_tradeoff card only)
+  const cheapestDiff = round(
+    recommended.total_cost_gbp - cheapestOverall.total_cost_gbp
+  );
 
   // ── Saving category helpers ───────────────────────────────────────────
   const isSigOrModest = context.savingCategory === 'significant' ||
@@ -875,7 +882,70 @@ One sentence. Specific. No carrier saving numbers.`,
   const orderedCards = insetCard
     ? [insetCard, ...otherCards]
     : filteredCards;
-  const finalCards = orderedCards.slice(0, 5);
+  let finalCards = orderedCards.slice(0, 5);
+
+  // ── Override card set when baseline is cheapest ───────────────────────────
+  if (isBaselineCheapest) {
+    const baselineCards: CardSpec[] = [];
+
+    // Card 1 — Research lead (reuse if exists)
+    const existingLead = finalCards.find(c => c.lever === 'lead_research');
+    if (existingLead) baselineCards.push(existingLead);
+
+    // Card 2 — Why baseline wins
+    baselineCards.push({
+      lever: 'baseline_wins',
+      headline_hint: 'The direct booking wins',
+      voice: `Explain why the BA round-trip (£${context.benchmarkCost}) beats every two-leg combination we found (cheapest two-leg: £${context.trueCheapest_total_cost}).
+
+The reason: BA round-trip fares sometimes undercut the sum of two one-ways, and bags are included in the BA fare whereas LCC two-leg combinations charge separately.
+
+One sentence. Specific numbers from facts. Never apologetic — this is a valid and trustworthy conclusion.`,
+      facts: {
+        locked_headline:   'The direct booking wins',
+        baseline_total:    context.benchmarkCost,
+        cheapest_two_leg:  context.trueCheapest_total_cost,
+        diff: context.trueCheapest_total_cost && context.benchmarkCost
+          ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
+          : null,
+      },
+      verified_field: 'total_cost_gbp',
+      verified_value:  context.benchmarkCost ?? 0,
+      saving_gbp: null,
+    });
+
+    // Card 3 — Inset day exists but wasn't recommended
+    const insetCombo = combinationsForPrompt.find(
+      c => c.is_inset_day && !c.requires_absence
+    );
+    if (insetCombo) {
+      const insetRetTime = insetCombo.return_departure_time?.slice(0, 5) ?? '05:20';
+      baselineCards.push({
+        lever: 'inset_day_not_picked',
+        headline_hint: 'Inset day option exists',
+        voice: `Your school has an inset day on ${fmtD(insetCombo.outbound_date)}. Flying that day gives ${insetCombo.trip_nights} nights with zero absence and costs £${round(insetCombo.total_cost_gbp)}.
+
+We didn't recommend it because the return departs Barcelona at ${insetRetTime} — meaning a 03:00–03:30 hotel checkout.
+
+One sentence. Mention the inset date, the cost, and the early return time. End with: "If you're comfortable with that, check the date matrix below."`,
+        facts: {
+          locked_headline: 'Inset day option exists',
+          inset_date:  fmtD(insetCombo.outbound_date),
+          inset_total: round(insetCombo.total_cost_gbp),
+          return_time: insetRetTime,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value:  round(insetCombo.total_cost_gbp),
+        saving_gbp: null,
+      });
+    }
+
+    // Card 4 — Google Flights education (permanent)
+    const educationCard = finalCards.find(c => c.lever === 'allin_trap');
+    if (educationCard) baselineCards.push(educationCard);
+
+    finalCards = baselineCards;
+  }
 
   console.log('[airport-debug] finalCards levers:',
     finalCards.map(c => c.lever));
@@ -934,26 +1004,51 @@ SELECTION CONTEXT:
 - cheapest_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
 - nights_diff: ${recommended.trip_nights - (cheapestOverall?.trip_nights ?? recommended.trip_nights)}
 - baseline_nights: ${cheapestOverall?.trip_nights ?? recommended.trip_nights}
-- extra_cost: ${cheapestOverall ? round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) : 0}
+- cheapest_diff: ${cheapestDiff}
+- baseline_cost: £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'unknown'}
+- baseline_diff: ${baselineDiff != null
+    ? (baselineDiff > 0
+       ? `£${baselineDiff} more than baseline`
+       : `£${Math.abs(baselineDiff)} less than baseline`)
+    : 'unknown'}
 - destination_name: ${destinationName}
+- is_baseline_cheapest: ${isBaselineCheapest}
+- baseline_total: £${context.benchmarkCost ?? 'unknown'}
+- baseline_carrier: British Airways round-trip
+- baseline_dates: ${context.trueCheapest_outbound ?? ''} to ${context.trueCheapest_return ?? ''}
+- cheapest_two_leg_total: £${context.trueCheapest_total_cost ?? 'unknown'}
+- cheapest_vs_baseline_diff: £${context.trueCheapest_total_cost && context.benchmarkCost
+    ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
+    : 'unknown'} more than baseline
 
 ──────────────────────────────────────────
 HEADLINE
 ──────────────────────────────────────────
-HEADLINE MUST follow one of these exact formats. Pick the best match — FORMAT A takes priority when winner has extra nights.
+IF is_baseline_cheapest is true, write instead:
+  "The direct BA round-trip from Heathrow is the best option this window — £[baseline_total] all-in, bags included."
+  Do not use "We found". Lead with the conclusion.
 
-FORMAT A — winner has MORE nights than cheapest AND costs more (nights_diff > 0, extra_cost > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — ${cheapestOverall && round(recommended.total_cost_gbp - cheapestOverall.total_cost_gbp) < 50 ? 'one extra night for just £[extra_cost] more.' : 'one extra night for £[extra_cost] more.'}"
-  Use "just" only if extra_cost < 50. Use "one extra night" not "1 more night".
+OTHERWISE, HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
 
-FORMAT B — winner has MORE nights AND costs less than benchmark (nights_diff > 0, benchmarkSaving > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — one extra night and £[benchmarkSaving] less than booking from Heathrow."
+FORMAT A — recommended costs MORE than baseline but gets more nights than trueCheapest (baseline_diff > 0, nights_diff > 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — £[baseline_diff] more than the typical booking, but one extra night."
+  Use "just £[baseline_diff] more" only if baseline_diff < 30.
 
-FORMAT C — same nights, meaningful saving vs benchmark (nights_diff = 0, benchmarkSaving > 20):
-  "We found [destinationName] for £[total] — £[benchmarkSaving] less than the Heathrow option."
+FORMAT B — recommended costs LESS than baseline (baseline_diff < 0):
+  "We found [trip_nights] nights in [destinationName] for £[total] — £[abs(baseline_diff)] less than the typical booking."
 
-FORMAT D — same nights, minimal or no saving (nights_diff = 0, benchmarkSaving ≤ 20):
-  "We found [trip_nights] nights in [destinationName] for £[total] — the optimal routing for your window."
+FORMAT C — recommended costs same as baseline (within £10 either way):
+  "We found [trip_nights] nights in [destinationName] for £[total] — same price as the typical booking, better routing."
+
+FORMAT D — minimal saving, no strong comparison:
+  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+
+RULES:
+- baseline_diff = recommended.total_cost_gbp − baseline_cost (positive = we cost more)
+- Always compare against baseline, never against trueCheapest
+- If baseline_diff > 0: explain what the extra money buys (extra night, better airport)
+- If baseline_diff < 0: lead with the saving
+- Never say "cheapest option" in the headline
 
 FORMAT E — inset day adds extra night:
   "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from Heathrow."
@@ -970,7 +1065,10 @@ Do not repeat the cost. No numbers.
 Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton Airport."
 
 PROBLEM STATEMENT
-Exactly 2 sentences.
+IF is_baseline_cheapest is true, write instead:
+"Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights — and this time, that's exactly what we'd recommend too."
+
+OTHERWISE, exactly 2 sentences:
 "Most ${context.borough ?? 'London'} families booking ${destinationName} this half-term search Google Flights, pick the cheapest Saturday departure from Heathrow, and pay around £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'X'} for ${cheapestOverall?.trip_nights ?? recommended.trip_nights} nights. That's the first result. It's not always the best one."
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
@@ -1070,7 +1168,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
     if (!insightJsonMatch) {
       console.error('[getAIRecommendation] No JSON in insight response:', cleanInsightText.slice(0, 200));
       return {
-        recommended_index: recommendedIndex,
         problem_statement: '',
         headline: 'We found the best value option for your dates.',
         subheadline: '',
@@ -1112,7 +1209,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
     }).filter(c => c.insight);
 
     return {
-      recommended_index:       recommendedIndex,
       problem_statement:       insightParsed.problem_statement  ?? '',
       headline:                insightParsed.headline            ?? 'We found the best value option for your dates.',
       subheadline:             insightParsed.subheadline         ?? '',
@@ -1130,7 +1226,6 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
   } catch (err) {
     console.error('[getAIRecommendation] Insight call error:', err);
     return {
-      recommended_index: recommendedIndex,
       problem_statement: '',
       headline: 'We found the best value option for your dates.',
       subheadline: '',

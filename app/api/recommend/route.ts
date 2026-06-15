@@ -142,22 +142,11 @@ export async function POST(request: NextRequest) {
       combinationCount: body.combinationCount ?? 0,
     }, selectionContext);
 
-    console.log('[route] recommended_index being returned:', aiResult.recommended_index);
-    console.log('[route] combination at that index:',
-      JSON.stringify({
-        out: combinations[aiResult.recommended_index]?.outbound_date,
-        ret: combinations[aiResult.recommended_index]?.return_date,
-        carrier: combinations[aiResult.recommended_index]?.outbound_carrier,
-      })
-    );
-
     return NextResponse.json({
       ...aiResult,
-      recommended_index:       aiResult.recommended_index,
       winner_outbound_date:    selectionContext.winner.outbound_date,
       winner_return_date:      selectionContext.winner.return_date,
       winner_outbound_carrier: selectionContext.winner.outbound_carrier,
-      recommendedCombination: assembled.shortlist[aiResult.recommended_index] ?? null,
     });
 
   } catch (err) {

@@ -24,6 +24,7 @@ interface FetchParams {
   currentPageUrl?: string;
   savingCategory: string;
   combinationCount: number;
+  baselineIsRecommended?: boolean;
 }
 
 interface AIRecommendationClientProps {
@@ -46,6 +47,14 @@ interface AIRecommendationClientProps {
   hsSaving?: number;
   benchmarkCost?: number | null;
   scenarios?: ScenarioResult[];
+  baseline?: {
+    outbound_date: string;
+    return_date: string;
+    origin_iata: string;
+    carrier: string;
+    outbound_departure_time: string | null;
+    total_cost_gbp: number;
+  } | null;
 }
 
 function fmtShortDate(iso: string): string {
@@ -79,6 +88,22 @@ function buildGoogleFlightsUrl(params: {
   children: number;
 }): string {
   return `https://www.google.com/travel/flights?q=One+way+flights+from+${params.origin}+to+${params.destination}+on+${params.date}&adults=${params.adults}&children=${params.children}&trip_type=one_way`;
+}
+
+function buildGoogleFlightsRoundTripUrl(params: {
+  origin:      string;
+  destination: string;
+  outbound:    string;
+  return_date: string;
+  adults:      number;
+  children:    number;
+}): string {
+  return `https://www.google.com/travel/flights` +
+    `#flt=${params.origin}.${params.destination}` +
+    `.${params.outbound}*${params.destination}` +
+    `.${params.origin}.${params.return_date}` +
+    `;c:GBP;e:1;sd:1;t:f` +
+    `&adults=${params.adults}&children=${params.children}`;
 }
 
 const LEVER_ICONS: Record<string, string> = {
@@ -327,7 +352,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, hsSaving, benchmarkCost, scenarios }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, hsSaving, benchmarkCost, scenarios, baseline }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -369,9 +394,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             c.outbound_date    === winnerOutbound &&
             c.return_date      === winnerReturn &&
             c.outbound_carrier === winnerCarrier
-          ) ?? combinations?.[data.recommended_index ?? 0] ?? null;
+          ) ?? combinations?.[0] ?? null;
 
-          console.log('[client] recommended_index from API:', data.recommended_index ?? 0);
+          console.log('[client] winner lookup:', winnerOutbound, winnerCarrier);
           console.log('[client] combinations array length:', combinations?.length);
           console.log('[client] resolved combination:',
             JSON.stringify({
@@ -696,6 +721,93 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               </div>
             </div>
 
+            {fetchParams.baselineIsRecommended && baseline ? (
+              /* ── Baseline sidebar (BA Heathrow round-trip) ── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#6f797a', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Best option found
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,67,73,0.06)', borderRadius: 20, padding: '4px 10px', border: '1px solid rgba(0,67,73,0.12)' }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#004349', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      Verified
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ fontFamily: 'Newsreader, serif', fontSize: 18, color: '#004349', fontWeight: 500 }}>
+                  {(() => {
+                    const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                    return `${fmt(baseline.outbound_date)} — ${fmt(baseline.return_date)}`;
+                  })()}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid #e1e3e3', paddingTop: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 15, fontWeight: 600, color: '#191c1d' }}>
+                      {baseline.carrier === 'BA' ? 'British Airways' : baseline.carrier}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
+                    {baseline.outbound_departure_time?.slice(0, 5) ?? '06:10'}
+                    <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
+                    09:20
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
+                    {baseline.origin_iata} → BCN &nbsp;·&nbsp; {baseline.outbound_date ? new Date(baseline.outbound_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', fontStyle: 'italic' }}>
+                    Round-trip — return {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''} included
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid #e1e3e3', paddingTop: 12 }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', marginBottom: 4 }}>
+                    All-in total
+                  </div>
+                  <div style={{ fontFamily: 'Newsreader, serif', fontSize: 28, fontWeight: 600, color: '#004349' }}>
+                    £{Math.round(baseline.total_cost_gbp)}
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', marginTop: 2 }}>
+                    Fare + bags + transport · bags included in BA fare
+                  </div>
+                </div>
+
+                <a
+                  href={buildGoogleFlightsRoundTripUrl({
+                    origin:      baseline.origin_iata,
+                    destination: 'BCN',
+                    outbound:    baseline.outbound_date,
+                    return_date: baseline.return_date,
+                    adults:      fetchParams.adults,
+                    children:    fetchParams.children,
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'block',
+                    background: '#004349',
+                    color: '#ffffff',
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    textAlign: 'center',
+                    textDecoration: 'none',
+                    padding: '14px 20px',
+                    borderRadius: 12,
+                  }}
+                >
+                  Book · British Airways
+                </a>
+
+                <div style={{ textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a' }}>
+                  Best all-in price found across 128+ combinations
+                </div>
+              </div>
+            ) : (
             <div className="space-y-xl">
 
               {/* Date summary */}
@@ -911,6 +1023,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               )}
 
             </div>
+            )} {/* end baseline ternary */}
           </div>
 
           {/* Right column notes */}

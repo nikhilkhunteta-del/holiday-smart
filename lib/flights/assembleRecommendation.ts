@@ -470,9 +470,24 @@ export async function assembleCombinationsOnly(
 
   // True cheapest from ALL viable (absence-free) combinations by total_cost_gbp
   const trueCheapest = noAbsenceCombinations.length > 0
-    ? noAbsenceCombinations.reduce((best, c) =>
-        c.total_cost_gbp < best.total_cost_gbp ? c : best
-      )
+    ? noAbsenceCombinations.reduce((best, c) => {
+        if (c.total_cost_gbp < best.total_cost_gbp) return c;
+        if (c.total_cost_gbp === best.total_cost_gbp) {
+          const cNights = Math.round(
+            (new Date(c.return_date + 'T00:00:00').getTime() -
+             new Date(c.outbound_date + 'T00:00:00').getTime()
+            ) / (1000 * 60 * 60 * 24)
+          );
+          const bestNights = Math.round(
+            (new Date(best.return_date + 'T00:00:00').getTime() -
+             new Date(best.outbound_date + 'T00:00:00').getTime()
+            ) / (1000 * 60 * 60 * 24)
+          );
+          if (cNights > bestNights) return c;
+          if (c.is_inset_day && !best.is_inset_day) return c;
+        }
+        return best;
+      })
     : null;
 
   const baselineNights = Math.round(
@@ -490,6 +505,12 @@ export async function assembleCombinationsOnly(
     nightsDiff,
   );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
+  console.log('[savingCategory]', {
+    savingCategory,
+    baseline_total: Math.round(assembledBaseline.total_cost_gbp),
+    recommendation_total: Math.round(recommendation.total_cost_gbp),
+    nightsDiff,
+  });
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
     return_date: assembledBaseline.return_date,
@@ -681,9 +702,8 @@ export async function assembleRecommendation(
     trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
   });
 
-  // Override recommendation with AI pick
-  const recommendation =
-    base.combinations[aiRecommendation.recommended_index] ?? base.combinations[0];
+  // Use selectCombination winner directly — AI writes copy only, never selects.
+  const recommendation = base.recommendation;
 
   const baselineNights = Math.round(
     (new Date(base.baseline.return_date + 'T00:00:00').getTime() -
