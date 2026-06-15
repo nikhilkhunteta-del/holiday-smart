@@ -9,21 +9,21 @@ export const INSET_BONUS    = 30;
 export const CHANGE_PENALTY = 10;
 
 // ── Penalty tables (£) ───────────────────────────────────────────────────
-const ARRIVAL_PENALTY: Record<string, number> = {
+export const ARRIVAL_PENALTY: Record<string, number> = {
   excellent:  0,
   good:       15,
   acceptable: 40,
   // 'poor' → excluded via viable()
 };
 
-const OUT_DEP_PENALTY: Record<string, number> = {
+export const OUT_DEP_PENALTY: Record<string, number> = {
   ideal:      0,
   good:       10,
   very_early: 35,
   // 'poor' → excluded via viable()
 };
 
-const RET_DEP_PENALTY: Record<string, number> = {
+export const RET_DEP_PENALTY: Record<string, number> = {
   excellent:  0,
   good:       10,
   early:      25,
@@ -91,6 +91,24 @@ export function selectCombination(
     effectiveCost(c) < effectiveCost(best) ? c : best
   );
   const winnerEffCost = effectiveCost(winner);
+
+  // Debug: top 3 candidates by effectiveCost
+  const top3 = [...viable_combos]
+    .sort((a, b) => effectiveCost(a) - effectiveCost(b))
+    .slice(0, 3)
+    .map(c => ({
+      out: c.outbound_date, ret: c.return_date,
+      carrier: c.outbound_carrier,
+      nights: c.trip_nights, inset: c.is_inset_day,
+      total: Math.round(c.total_cost_gbp),
+      eff: Math.round(effectiveCost(c)),
+      arr_q: c.arrival_quality,
+      out_dep_q: c.outbound_departure_quality,
+      ret_dep_q: c.return_departure_quality,
+    }));
+  console.log('[selectCombination] top3 by effCost:', JSON.stringify(top3, null, 2));
+  console.log('[selectCombination] winner:', winner.outbound_date, '→', winner.return_date,
+    'eff:', Math.round(winnerEffCost));
 
   // ── Context set ───────────────────────────────────────────────────────
   const cheapestOverall = viable_combos.reduce((best, c) =>

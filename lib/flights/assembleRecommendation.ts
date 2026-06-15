@@ -779,11 +779,23 @@ export async function assembleRecommendation(
      new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
   );
   const nightsDiff = recNights - baselineNights;
-  const savingCategory = computeSavingCategory(
-    base.baseline.total_cost_gbp,
-    recommendation.total_cost_gbp,
-    nightsDiff,
+  const recEffCost2 = effectiveCost(
+    base.shortlist.find(c =>
+      c.outbound_date    === recommendation.outbound_date &&
+      c.return_date      === recommendation.return_date &&
+      c.outbound_carrier === recommendation.outbound_carrier
+    ) ?? base.shortlist[0]
   );
+  const savingCategory = computeSavingCategory(
+    base.baseline.eff_cost,
+    recEffCost2,
+    0, // nightsDiff already baked into eff_cost
+  );
+  console.log('[savingCategory-eff]', {
+    baseline_eff_cost:        base.baseline.eff_cost,
+    recommendation_eff_cost:  recEffCost2,
+    savingCategory,
+  });
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: base.baseline.outbound_date,

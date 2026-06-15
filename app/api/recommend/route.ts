@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
-import { selectCombination } from '@/lib/flights/selectCombination';
+import { selectCombination, effectiveCost, viable } from '@/lib/flights/selectCombination';
 import { computeScenarios } from '@/lib/flights/computeScenarios';
 
 export async function POST(request: NextRequest) {
@@ -83,27 +83,20 @@ export async function POST(request: NextRequest) {
       JSON.stringify(
         combinations
           .filter(c => !c.requires_absence)
-          .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)
+          .sort((a, b) => effectiveCost(a) - effectiveCost(b))
           .slice(0, 10)
           .map(c => ({
             out: c.outbound_date,
             ret: c.return_date,
             nights: c.trip_nights,
             inset: c.is_inset_day,
+            viable: viable(c),
             cost: Math.round(c.total_cost_gbp),
             arr_q: c.arrival_quality,
             out_dep_q: c.outbound_departure_quality,
             ret_dep_q: c.return_departure_quality,
             transit_changes: c.outbound_transit?.transit?.changes ?? null,
-            eff_cost: Math.round(
-              c.total_cost_gbp
-              - (80 * c.trip_nights)
-              - (c.is_inset_day ? 30 : 0)
-              + (({excellent:0,good:15,acceptable:40} as Record<string,number>)[c.arrival_quality ?? ''] ?? 40)
-              + (({ideal:0,good:10,very_early:35} as Record<string,number>)[c.outbound_departure_quality ?? ''] ?? 35)
-              + (({excellent:0,good:10,early:25,very_early:35} as Record<string,number>)[c.return_departure_quality ?? ''] ?? 35)
-              + (10 * Math.max(0, (c.outbound_transit?.transit?.changes ?? 0) - 1))
-            ),
+            eff_cost: Math.round(effectiveCost(c)),
           })),
         null, 2
       )
