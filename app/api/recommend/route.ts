@@ -65,12 +65,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
 
-    // Compute what-if scenarios using full assembled combinations
-    const currentWinner = assembled.combinations.find(c =>
-      c.outbound_date    === selectionContext.winner.outbound_date &&
-      c.return_date      === selectionContext.winner.return_date   &&
-      c.outbound_carrier === selectionContext.winner.outbound_carrier,
-    ) ?? assembled.combinations[0];
+    // Compute what-if scenarios using full assembled combinations.
+    // When the baseline won (is_baseline: true), it's not in combinations[]
+    // — use baselineAsCombination as the anchor so scenario deltas are relative
+    // to the baseline rather than falling through to combinations[0].
+    const isBaselineWinner = (selectionContext.winner as any).is_baseline === true;
+    const currentWinner = isBaselineWinner
+      ? (assembled.baselineAsCombination ?? assembled.combinations[0])
+      : assembled.combinations.find(c =>
+          c.outbound_date    === selectionContext.winner.outbound_date &&
+          c.return_date      === selectionContext.winner.return_date   &&
+          c.outbound_carrier === selectionContext.winner.outbound_carrier,
+        ) ?? assembled.combinations[0];
 
     const scenarios = currentWinner
       ? computeScenarios(
