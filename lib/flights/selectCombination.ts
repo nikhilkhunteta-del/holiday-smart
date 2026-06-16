@@ -3,10 +3,8 @@ import type { ScoredCombination } from './buildCandidates';
 // ── Tuning constants ──────────────────────────────────────────────────────
 // NIGHT_VALUE: max flight premium we'll pay for one extra night (£)
 // INSET_BONUS: value of inset day *beyond* any extra night it provides (£)
-// CHANGE_PENALTY: per transit change beyond the first (£)
 export const NIGHT_VALUE    = 80;
 export const INSET_BONUS    = 30;
-export const CHANGE_PENALTY = 10;
 
 // ── Penalty tables (£) ───────────────────────────────────────────────────
 export const ARRIVAL_PENALTY: Record<string, number> = {
@@ -28,6 +26,31 @@ export const RET_DEP_PENALTY: Record<string, number> = {
   good:       10,
   early:      25,
   very_early: 55,
+};
+
+// Destination transfer penalties (each direction, applied × 2 for both
+// outbound arrival and return departure legs at the destination airport).
+export const DEST_TRANSFER_PENALTY = (
+  duration_mins: number | null,
+): number => {
+  if (duration_mins === null) return 15; // unknown — penalise, don't treat as free
+  if (duration_mins < 30)  return 0;
+  if (duration_mins < 60)  return 10;
+  if (duration_mins < 90)  return 20;
+  return 40; // REU/GRO level
+};
+
+// London transit penalties (each direction) — duration + extra-changes component.
+export const LONDON_TRANSIT_PENALTY = (
+  duration_mins: number,
+  changes: number,
+): number => {
+  let p = 0;
+  if (duration_mins > 105)     p += 35;
+  else if (duration_mins > 75) p += 20;
+  else if (duration_mins > 45) p += 10;
+  p += Math.max(0, changes - 1) * 10;
+  return p;
 };
 
 // ── Viability filter ─────────────────────────────────────────────────────
@@ -55,7 +78,21 @@ export function effectiveCost(c: ScoredCombination): number {
   cost += ARRIVAL_PENALTY[c.arrival_quality ?? '']              ?? 40;
   cost += OUT_DEP_PENALTY[c.outbound_departure_quality ?? '']   ?? 35;
   cost += RET_DEP_PENALTY[c.return_departure_quality ?? '']     ?? 35;
-  cost += CHANGE_PENALTY * Math.max(0, (c.outbound_transit?.transit?.changes ?? 0) - 1);
+
+  // London transit — outbound
+  const outTransit = c.outbound_transit?.transit;
+  if (outTransit && outTransit.confidence === 'ok') {
+    cost += LONDON_TRANSIT_PENALTY(outTransit.duration_mins, outTransit.changes);
+  }
+
+  // London transit — return
+  const retTransit = c.return_transit?.transit;
+  if (retTransit && retTransit.confidence === 'ok') {
+    cost += LONDON_TRANSIT_PENALTY(retTransit.duration_mins, retTransit.changes);
+  }
+
+  // Destination transfer — both directions (outbound arrival + return departure)
+  cost += DEST_TRANSFER_PENALTY(c.destination_transit_duration_mins) * 2;
 
   return cost;
 }
@@ -92,20 +129,45 @@ export function selectCombination(
   );
   const winnerEffCost = effectiveCost(winner);
 
-  // Debug: top 3 candidates by effectiveCost
+  // Debug: top 3 candidates by effectiveCost, with full penalty breakdown
   const top3 = [...viable_combos]
     .sort((a, b) => effectiveCost(a) - effectiveCost(b))
     .slice(0, 3)
-    .map(c => ({
-      out: c.outbound_date, ret: c.return_date,
-      carrier: c.outbound_carrier,
-      nights: c.trip_nights, inset: c.is_inset_day,
-      total: Math.round(c.total_cost_gbp),
-      eff: Math.round(effectiveCost(c)),
-      arr_q: c.arrival_quality,
-      out_dep_q: c.outbound_departure_quality,
-      ret_dep_q: c.return_departure_quality,
-    }));
+    .map(c => {
+      const outTransit = c.outbound_transit?.transit;
+      const retTransit = c.return_transit?.transit;
+      const outLondonPenalty =
+        outTransit && outTransit.confidence === 'ok'
+          ? LONDON_TRANSIT_PENALTY(outTransit.duration_mins, outTransit.changes)
+          : 0;
+      const retLondonPenalty =
+        retTransit && retTransit.confidence === 'ok'
+          ? LONDON_TRANSIT_PENALTY(retTransit.duration_mins, retTransit.changes)
+          : 0;
+      const destPenalty = DEST_TRANSFER_PENALTY(c.destination_transit_duration_mins);
+      return {
+        out: c.outbound_date, ret: c.return_date,
+        carrier: c.outbound_carrier,
+        nights: c.trip_nights, inset: c.is_inset_day,
+        total: Math.round(c.total_cost_gbp),
+        eff: Math.round(effectiveCost(c)),
+        arr_q: c.arrival_quality,
+        out_dep_q: c.outbound_departure_quality,
+        ret_dep_q: c.return_departure_quality,
+        eff_cost_breakdown: {
+          total: Math.round(c.total_cost_gbp),
+          night_credit: -(c.trip_nights * NIGHT_VALUE),
+          inset_credit: c.is_inset_day ? -INSET_BONUS : 0,
+          arrival_penalty: ARRIVAL_PENALTY[c.arrival_quality ?? ''] ?? 40,
+          out_dep_penalty: OUT_DEP_PENALTY[c.outbound_departure_quality ?? ''] ?? 35,
+          ret_dep_penalty: RET_DEP_PENALTY[c.return_departure_quality ?? ''] ?? 35,
+          out_london_penalty: outLondonPenalty,
+          ret_london_penalty: retLondonPenalty,
+          dest_transfer_penalty_x2: destPenalty * 2,
+          final_eff_cost: Math.round(effectiveCost(c)),
+        },
+      };
+    });
   console.log('[selectCombination] top3 by effCost:', JSON.stringify(top3, null, 2));
   console.log('[selectCombination] winner:', winner.outbound_date, '→', winner.return_date,
     'eff:', Math.round(winnerEffCost));

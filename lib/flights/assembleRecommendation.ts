@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost } from './selectCombination';
+import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -38,6 +38,10 @@ export type AssembledCombination = {
   checked_bag_cost_max_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transit_duration_mins: number | null;
+  destination_transit_changes:       number | null;
+  destination_taxi_duration_mins:    number | null;
+  destination_taxi_cost_gbp:         number | null;
   requires_absence: boolean;
   absence_days: number;
   fine_gbp: number | null;
@@ -76,6 +80,10 @@ export type AssembledBaseline = {
   fare_plus_ancillary_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transit_duration_mins: number | null;
+  destination_transit_changes:       number | null;
+  destination_taxi_duration_mins:    number | null;
+  destination_taxi_cost_gbp:         number | null;
   outbound_departure_time: string | null;
   outbound_departure_time_parsed: string; // HH:MM
   return_departure_time_assumed:  string; // HH:MM
@@ -155,6 +163,10 @@ function mapCombination(
     checked_bag_cost_max_gbp: c.checked_bag_cost_max_gbp ?? c.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     destination_transfer_known: c.destination_transfer_known,
+    destination_transit_duration_mins: c.destination_transit_duration_mins ?? null,
+    destination_transit_changes:       c.destination_transit_changes ?? null,
+    destination_taxi_duration_mins:    c.destination_taxi_duration_mins ?? null,
+    destination_taxi_cost_gbp:         c.destination_taxi_cost_gbp ?? null,
     requires_absence: c.requires_absence,
     absence_days: c.absence_days,
     fine_gbp: c.fine_gbp,
@@ -343,11 +355,31 @@ function buildAssembledBaseline(
     (1000 * 60 * 60 * 24)
   );
 
+  const outDepPenalty = baselineDepPenalty(outboundDepTime);
+  const retDepPenalty = baselineRetPenalty(returnDepTime);
+
+  const blOutLondonTransit = blOutTransit?.transit;
+  const outLondonPenalty =
+    blOutLondonTransit && blOutLondonTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blOutLondonTransit.duration_mins, blOutLondonTransit.changes)
+      : 0;
+
+  const blRetLondonTransit = blRetTransit?.transit;
+  const retLondonPenalty =
+    blRetLondonTransit && blRetLondonTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blRetLondonTransit.duration_mins, blRetLondonTransit.changes)
+      : 0;
+
+  const destPenalty = DEST_TRANSFER_PENALTY(baseline.destination_transit_duration_mins ?? null);
+
   const baselineEffCost =
     blTotalCostGbp
     - (baselineNights * NIGHT_VALUE)
-    + baselineDepPenalty(outboundDepTime)
-    + baselineRetPenalty(returnDepTime);
+    + outDepPenalty
+    + retDepPenalty
+    + outLondonPenalty
+    + retLondonPenalty
+    + (destPenalty * 2);
 
   const outDepHour = parseInt(outboundDepTime.slice(0, 2));
   const outDepQuality = outDepHour < 9 ? 'very_early' : 'ideal';
@@ -365,6 +397,10 @@ function buildAssembledBaseline(
     fare_plus_ancillary_gbp: baseline.fare_plus_ancillary_gbp,
     destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
     destination_transfer_known: baseline.destination_transfer_known,
+    destination_transit_duration_mins: baseline.destination_transit_duration_mins ?? null,
+    destination_transit_changes:       baseline.destination_transit_changes ?? null,
+    destination_taxi_duration_mins:    baseline.destination_taxi_duration_mins ?? null,
+    destination_taxi_cost_gbp:         baseline.destination_taxi_cost_gbp ?? null,
     outbound_departure_time: baseline.outbound_departure_time ?? null,
     outbound_departure_time_parsed: outboundDepTime,
     return_departure_time_assumed:  returnDepTime,
@@ -549,6 +585,26 @@ export async function assembleCombinationsOnly(
   );
   assembledBaseline.return_departure_time_derived = baselineRetTime ?? 'unknown';
 
+  // Breakdown components for logging — recomputed from assembledBaseline,
+  // identical to what buildAssembledBaseline applied (return penalty uses
+  // the just-derived value rather than the 09:00 default).
+  const outDepHourLog = parseInt(assembledBaseline.outbound_departure_time_parsed.slice(0, 2));
+  const outDepPenaltyLog = outDepHourLog < 6 ? 30 : outDepHourLog < 9 ? 20 : 0;
+
+  const blOutTransitLog = assembledBaseline.outbound_transit?.transit;
+  const outLondonPenaltyLog =
+    blOutTransitLog && blOutTransitLog.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blOutTransitLog.duration_mins, blOutTransitLog.changes)
+      : 0;
+
+  const blRetTransitLog = assembledBaseline.return_transit?.transit;
+  const retLondonPenaltyLog =
+    blRetTransitLog && blRetTransitLog.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blRetTransitLog.duration_mins, blRetTransitLog.changes)
+      : 0;
+
+  const destPenaltyLog = DEST_TRANSFER_PENALTY(assembledBaseline.destination_transit_duration_mins);
+
   console.log('[baseline-eff]', {
     destination:  baseline.destination_iata,
     return_date:  baseline.return_date,
@@ -559,6 +615,19 @@ export async function assembleCombinationsOnly(
     nights:       assembledBaseline.trip_nights,
     total_cost:   Math.round(assembledBaseline.total_cost_gbp),
     eff_cost:     assembledBaseline.eff_cost,
+    out_london_penalty:  outLondonPenaltyLog,
+    ret_london_penalty:  retLondonPenaltyLog,
+    dest_transfer_penalty: destPenaltyLog,
+    eff_cost_breakdown: {
+      total:               Math.round(assembledBaseline.total_cost_gbp),
+      night_credit:        -(assembledBaseline.trip_nights * NIGHT_VALUE),
+      out_dep_penalty:      outDepPenaltyLog,
+      ret_dep_penalty:      baselineRetPenaltyDerived,
+      out_london_penalty:   outLondonPenaltyLog,
+      ret_london_penalty:   retLondonPenaltyLog,
+      dest_penalty_x2:      destPenaltyLog * 2,
+      final_eff_cost:       assembledBaseline.eff_cost,
+    },
   });
 
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
