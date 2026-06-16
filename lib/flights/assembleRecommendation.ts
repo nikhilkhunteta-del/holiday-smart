@@ -485,19 +485,47 @@ async function buildBaselineAsCombination(
   nearestAirport: string,
   adults: number,
   children: number,
-): Promise<{ combination: BaselineAsCombination; eff_cost: number } | null> {
+): Promise<{ combination: BaselineAsCombination; scored: ScoredCombination; eff_cost: number } | null> {
   if (!baseline.outbound_date || !baseline.return_date || !baseline.origin_iata || !baseline.destination_iata) {
     return null;
   }
 
   const carrier = baseline.airline_iata ?? baseline.carrier;
-  const snapshotAdults = baseline.adults ?? adults;
-  const snapshotChildren = baseline.children ?? children;
 
-  const [outLeg, retLeg] = await Promise.all([
-    lookupFareLeg(baseline.origin_iata, baseline.destination_iata, baseline.outbound_date, carrier, snapshotAdults, snapshotChildren),
-    lookupFareLeg(baseline.destination_iata, baseline.origin_iata, baseline.return_date, carrier, snapshotAdults, snapshotChildren),
-  ]);
+  // Prefer raw_json segment timestamps — baseline departure date is outside
+  // fare_snapshots coverage (Saturday before the holiday window), so lookupFareLeg
+  // always returns null for both legs. raw_json segments[0/1] carry the full
+  // ISO datetime for outbound and return legs of the round-trip result.
+  const rawJson = baseline.raw_json ? JSON.parse(baseline.raw_json) : null;
+  const rawSegOut = rawJson?.result?.segments?.[0];
+  const rawSegRet = rawJson?.result?.segments?.[1];
+
+  function durationFromSegment(seg: any): number | null {
+    if (!seg) return null;
+    if (typeof seg.duration === 'number') return seg.duration;
+    if (seg.departure && seg.arrival) {
+      return Math.round(
+        (new Date(seg.arrival).getTime() - new Date(seg.departure).getTime()) / 60000,
+      );
+    }
+    return null;
+  }
+
+  // Fallback to fare_snapshots only if rawJson segments are absent.
+  const snapshotAdults   = baseline.adults   ?? adults;
+  const snapshotChildren = baseline.children ?? children;
+  const [outLeg, retLeg] = rawSegOut && rawSegRet
+    ? [null, null]
+    : await Promise.all([
+        lookupFareLeg(baseline.origin_iata, baseline.destination_iata, baseline.outbound_date, carrier, snapshotAdults, snapshotChildren),
+        lookupFareLeg(baseline.destination_iata, baseline.origin_iata, baseline.return_date, carrier, snapshotAdults, snapshotChildren),
+      ]);
+
+  const outArrTime    = rawSegOut?.arrival?.slice(11, 16)    ?? outLeg?.arrival_time?.slice(0, 5)   ?? null;
+  const outDurMins    = durationFromSegment(rawSegOut)       ?? outLeg?.duration_minutes            ?? null;
+  const retDepTime    = rawSegRet?.departure?.slice(11, 16)  ?? retLeg?.departure_time?.slice(0, 5) ?? null;
+  const retArrTime    = rawSegRet?.arrival?.slice(11, 16)    ?? retLeg?.arrival_time?.slice(0, 5)   ?? null;
+  const retDurMins    = durationFromSegment(rawSegRet)       ?? retLeg?.duration_minutes            ?? null;
 
   // Baseline ancillaries aren't split per leg the way combinations are —
   // approximate evenly across outbound/return for the per-leg fields that
@@ -547,11 +575,11 @@ async function buildBaselineAsCombination(
     absence_days: 0,
     fine_gbp: 0,
     outbound_departure_time: assembledBaseline.outbound_departure_time_parsed,
-    outbound_arrival_time:   outLeg?.arrival_time?.slice(0, 5) ?? null,
-    outbound_duration_mins:  outLeg?.duration_minutes ?? null,
-    return_departure_time:   retLeg?.departure_time?.slice(0, 5) ?? null,
-    return_arrival_time:     retLeg?.arrival_time?.slice(0, 5) ?? null,
-    return_duration_mins:    retLeg?.duration_minutes ?? null,
+    outbound_arrival_time:   outArrTime,
+    outbound_duration_mins:  outDurMins,
+    return_departure_time:   retDepTime,
+    return_arrival_time:     retArrTime,
+    return_duration_mins:    retDurMins,
     is_inset_day: false,
     baggage_is_estimate: true,
     family_split_risk: false,
@@ -618,7 +646,7 @@ async function buildBaselineAsCombination(
     },
   }));
 
-  return { combination, eff_cost: effCost };
+  return { combination, scored, eff_cost: effCost };
 }
 
 // ── Saving category ───────────────────────────────────────────────────────────
@@ -749,8 +777,17 @@ export async function assembleCombinationsOnly(
   // categories are drawn from. Dedup collapses same-flight-pair entries
   // (identical outbound+return+airports+carriers, different bag/seat
   // assumptions) to the cheapest representative.
-  const scoredPool = scoreAndDedupeCombinations(assembled);
-  console.log('[scoredPool] raw:', assembled.length, 'deduped:', scoredPool.length);
+  const dedupedPool = scoreAndDedupeCombinations(assembled);
+
+  // Fold the baseline into the scored pool so selectCombination() can pick it
+  // naturally if it has the lowest eff_cost. The baseline has a unique
+  // outbound_date (Saturday before the holiday window) so it can never collide
+  // with any holiday-window combination key.
+  const scoredPool: ScoredCombination[] = baselineNormalised
+    ? [...dedupedPool, baselineNormalised.scored]
+    : dedupedPool;
+  console.log('[scoredPool] raw:', assembled.length, 'deduped:', dedupedPool.length,
+    'with_baseline:', scoredPool.length);
 
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
   const shortlist = buildCandidateShortlist(scoredPool);
@@ -821,15 +858,17 @@ export async function assembleCombinationsOnly(
     ? withWinnerIncluded(shortlist, selectionResult.winner)
     : shortlist;
 
-  // Cheapest viable combination by raw total_cost_gbp (for "vs cheapest" copy) —
-  // sourced from selectionResult so there's a single source of truth.
-  const cheapestViable: AssembledCombination | null = selectionResult?.cheapestOverall
-    ? assembled.find(c =>
-        c.outbound_date    === selectionResult.cheapestOverall.outbound_date &&
-        c.return_date      === selectionResult.cheapestOverall.return_date &&
-        c.outbound_carrier === selectionResult.cheapestOverall.outbound_carrier
-      ) ?? null
-    : null;
+  // Cheapest viable combination by raw total_cost_gbp (for "vs cheapest" copy).
+  // cheapestOverall may now be the baseline (is_baseline: true) — in that case
+  // there is no meaningful "vs cheapest holiday-window option" comparison, so null.
+  const cheapestViable: AssembledCombination | null =
+    selectionResult?.cheapestOverall && !(selectionResult.cheapestOverall as any).is_baseline
+      ? assembled.find(c =>
+          c.outbound_date    === selectionResult.cheapestOverall.outbound_date &&
+          c.return_date      === selectionResult.cheapestOverall.return_date &&
+          c.outbound_carrier === selectionResult.cheapestOverall.outbound_carrier
+        ) ?? null
+      : null;
 
   // recommendation IS selectionResult.winner — effectiveCost already computed,
   // no need to re-find it in the shortlist (that's the bug this replaces).
@@ -842,11 +881,11 @@ export async function assembleCombinationsOnly(
     0,
   );
   console.log('[selection]', {
-    winner_out:   recommendation.outbound_date,
-    winner_ret:   recommendation.return_date,
-    winner_total: recommendation.total_cost_gbp,
-    winner_eff:   recEffCost,
-    baseline_eff: assembledBaseline.eff_cost,
+    winner_out:    recommendation.outbound_date,
+    winner_ret:    recommendation.return_date,
+    winner_total:  recommendation.total_cost_gbp,
+    winner_eff:    recEffCost,
+    winner_is_baseline: (recommendation as any).is_baseline === true,
     savingCategory,
   });
   console.log('[selectCombination-winner]', {
