@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY } from './selectCombination';
+import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY, selectCombination } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -460,7 +460,7 @@ export type CombinationsOnlyResult = {
   shortlist: ScoredCombination[];
   benchmark: number | null;
   nearestAirport: string;
-  trueCheapest: AssembledCombination | null;
+  cheapestViable: AssembledCombination | null;
 };
 
 // Return type for assembleRecommendation
@@ -508,18 +508,6 @@ export async function assembleCombinationsOnly(
   });
 
   assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
-
-  // Inset day promotion
-  const cheapest = assembled[0];
-  if (cheapest && !cheapest.is_inset_day) {
-    const insetAlt = assembled.find(
-      c => c.is_inset_day && !c.requires_absence && c.total_inc_fine - cheapest.total_inc_fine <= 20,
-    );
-    if (insetAlt) {
-      assembled.splice(assembled.indexOf(insetAlt), 1);
-      assembled.unshift(insetAlt);
-    }
-  }
 
   const assembledBaseline = buildAssembledBaseline(
     baseline, nearestAirport, transitCache, baselineOutKey, baselineRetKey,
@@ -620,50 +608,51 @@ export async function assembleCombinationsOnly(
       )
     : null;
 
-  const recommendation = assembled[0];
+  // Use effectiveCost() selection — this is the canonical winner across all
+  // downstream uses (nights, inset bonus, departure/arrival quality, London
+  // transit, destination transfer penalties all factored in).
+  const selectionResult = selectCombination(shortlist);
+  const recommendation: AssembledCombination = selectionResult?.winner ?? assembled[0];
 
-  // True cheapest from ALL viable (absence-free) combinations by total_cost_gbp
-  const trueCheapest = noAbsenceCombinations.length > 0
-    ? noAbsenceCombinations.reduce((best, c) => {
-        if (c.total_cost_gbp < best.total_cost_gbp) return c;
-        if (c.total_cost_gbp === best.total_cost_gbp) {
-          const cNights = Math.round(
-            (new Date(c.return_date + 'T00:00:00').getTime() -
-             new Date(c.outbound_date + 'T00:00:00').getTime()
-            ) / (1000 * 60 * 60 * 24)
-          );
-          const bestNights = Math.round(
-            (new Date(best.return_date + 'T00:00:00').getTime() -
-             new Date(best.outbound_date + 'T00:00:00').getTime()
-            ) / (1000 * 60 * 60 * 24)
-          );
-          if (cNights > bestNights) return c;
-          if (c.is_inset_day && !best.is_inset_day) return c;
-        }
-        return best;
-      })
+  // Cheapest viable combination by raw total_cost_gbp (for "vs cheapest" copy) —
+  // sourced from selectionResult so there's a single source of truth.
+  const cheapestViable: AssembledCombination | null = selectionResult?.cheapestOverall
+    ? assembled.find(c =>
+        c.outbound_date    === selectionResult.cheapestOverall.outbound_date &&
+        c.return_date      === selectionResult.cheapestOverall.return_date &&
+        c.outbound_carrier === selectionResult.cheapestOverall.outbound_carrier
+      ) ?? null
     : null;
 
-  const baselineNights = Math.round(
-    (new Date(assembledBaseline.return_date + 'T00:00:00').getTime() -
-     new Date(assembledBaseline.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const recNights = Math.round(
-    (new Date(recommendation.return_date + 'T00:00:00').getTime() -
-     new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const nightsDiff = recNights - baselineNights;
-  const recEffCost = effectiveCost(
-    shortlist.find(c =>
-      c.outbound_date === recommendation.outbound_date &&
-      c.return_date   === recommendation.return_date
-    ) ?? shortlist[0]
-  );
+  const recEffCost = selectionResult
+    ? effectiveCost(
+        shortlist.find(c =>
+          c.outbound_date === recommendation.outbound_date &&
+          c.return_date   === recommendation.return_date
+        ) ?? shortlist[0]
+      )
+    : recommendation.total_cost_gbp;
   const savingCategory = computeSavingCategory(
     assembledBaseline.eff_cost,
     recEffCost,
-    0, // nightsDiff already baked into eff_cost
+    0,
   );
+  console.log('[selection]', {
+    winner_out:   recommendation.outbound_date,
+    winner_ret:   recommendation.return_date,
+    winner_total: recommendation.total_cost_gbp,
+    winner_eff:   recEffCost,
+    baseline_eff: assembledBaseline.eff_cost,
+    savingCategory,
+  });
+  console.log('[selectCombination-winner]', {
+    out:     recommendation.outbound_date,
+    ret:     recommendation.return_date,
+    carrier: recommendation.outbound_carrier + '+' + recommendation.return_carrier,
+    nights:  selectionResult?.winner.trip_nights ?? null,
+    total:   recommendation.total_cost_gbp,
+    eff:     recEffCost,
+  });
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
@@ -685,7 +674,7 @@ export async function assembleCombinationsOnly(
     shortlist,
     benchmark,
     nearestAirport,
-    trueCheapest,
+    cheapestViable,
   };
 }
 
@@ -734,17 +723,17 @@ export async function assembleRecommendation(
     benchmarkCost: base.benchmark,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
-    trueCheapest_total_cost:  base.trueCheapest?.total_cost_gbp,
-    trueCheapest_trip_nights: base.trueCheapest
+    trueCheapest_total_cost:  base.cheapestViable?.total_cost_gbp,
+    trueCheapest_trip_nights: base.cheapestViable
       ? Math.round(
-          (new Date(base.trueCheapest.return_date + 'T00:00:00').getTime() -
-           new Date(base.trueCheapest.outbound_date + 'T00:00:00').getTime()) /
+          (new Date(base.cheapestViable.return_date + 'T00:00:00').getTime() -
+           new Date(base.cheapestViable.outbound_date + 'T00:00:00').getTime()) /
           (1000 * 60 * 60 * 24)
         )
       : undefined,
-    trueCheapest_outbound:    base.trueCheapest?.outbound_date,
-    trueCheapest_return:      base.trueCheapest?.return_date,
-    trueCheapest_carrier:     base.trueCheapest?.outbound_carrier,
+    trueCheapest_outbound:    base.cheapestViable?.outbound_date,
+    trueCheapest_return:      base.cheapestViable?.return_date,
+    trueCheapest_carrier:     base.cheapestViable?.outbound_carrier,
     baseline_eff_cost:        base.baseline.eff_cost,
     baseline_out_dep_quality: base.baseline.outbound_dep_quality,
     baseline_fare:            base.baseline.baseline_fare_gbp,
