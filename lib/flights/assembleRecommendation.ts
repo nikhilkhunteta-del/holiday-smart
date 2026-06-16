@@ -200,9 +200,9 @@ function mapCombination(
 
 // ── Shared transit enrichment ─────────────────────────────────────────────────
 // Collects all unique transit lookups needed for a combinations array + baseline,
-// fires them in parallel, returns a populated transit cache.
+// fires them in parallel, returns a raw cache with no preference override applied.
 
-async function buildTransitCache(
+async function buildRawTransitCache(
   combinations: any[],
   baseline: any,
   postcodeDistrict: string,
@@ -210,12 +210,7 @@ async function buildTransitCache(
   adults: number,
   children: number,
   infants: number,
-  transitPreference: 'auto' | 'uber',
-): Promise<{
-  transitCache: Map<string, AirportTransitCost>;
-  baselineOutKey: string;
-  baselineRetKey: string;
-}> {
+): Promise<Map<string, AirportTransitCost>> {
   const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
 
   const transitMap = new Map<
@@ -278,17 +273,51 @@ async function buildTransitCache(
     transitCache.set(keys[i], results[i]);
   }
 
-  if (transitPreference === 'uber') {
-    for (const [key, t] of transitCache) {
-      transitCache.set(key, {
-        ...t,
-        recommended_mode: 'uber',
-        recommended_cost_pence: t.uber.mean_pence,
-      });
-    }
-  }
+  return transitCache;
+}
 
-  return { transitCache, baselineOutKey, baselineRetKey };
+// Pure in-memory step — forces recommended_mode/cost to uber for every entry.
+// 'auto' returns the raw cache as-is (getTransitCost already chose the best mode).
+// Each assembleCombinationsOnly call applies this independently so transport_flip
+// and the main call get the right override without sharing mutable state.
+function applyTransitPreference(
+  rawCache: Map<string, AirportTransitCost>,
+  transitPreference: 'auto' | 'uber',
+): Map<string, AirportTransitCost> {
+  if (transitPreference !== 'uber') return rawCache;
+  const result = new Map<string, AirportTransitCost>();
+  for (const [key, t] of rawCache) {
+    result.set(key, {
+      ...t,
+      recommended_mode: 'uber',
+      recommended_cost_pence: t.uber.mean_pence,
+    });
+  }
+  return result;
+}
+
+// ── Precomputed cache for shared-across-scenarios use ─────────────────────────
+// Call once per request; pass to each assembleCombinationsOnly scenario call
+// to avoid repeating resolveNearestAirport + transit DB lookups.
+
+export interface AssemblyPrecomputed {
+  nearestAirport: string;
+  rawTransitCache: Map<string, AirportTransitCost>;
+}
+
+export async function buildAssemblyPrecomputed(
+  combinations: any[],
+  baseline: any,
+  postcodeDistrict: string,
+  adults: number,
+  children: number,
+  infants: number,
+): Promise<AssemblyPrecomputed> {
+  const nearestAirport = await resolveNearestAirport(postcodeDistrict);
+  const rawTransitCache = await buildRawTransitCache(
+    combinations, baseline, postcodeDistrict, nearestAirport, adults, children, infants,
+  );
+  return { nearestAirport, rawTransitCache };
 }
 
 // ── Nearest airport lookup ────────────────────────────────────────────────────
@@ -607,24 +636,31 @@ export async function assembleCombinationsOnly(
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
+  precomputed?: AssemblyPrecomputed,
 ): Promise<CombinationsOnlyResult> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
 
   console.log('[assembly] called, combinations count:', combinations.length);
 
-  const nearestAirport = await resolveNearestAirport(postcodeDistrict);
+  const nearestAirport = precomputed?.nearestAirport
+    ?? await resolveNearestAirport(postcodeDistrict);
 
-  const { transitCache, baselineOutKey, baselineRetKey } = await buildTransitCache(
-    combinations,
-    baseline,
-    postcodeDistrict,
-    nearestAirport,
-    adults,
-    children,
-    infants,
-    transitPreference,
+  const rawTransitCache = precomputed?.rawTransitCache
+    ?? await buildRawTransitCache(
+        combinations, baseline, postcodeDistrict, nearestAirport, adults, children, infants,
+      );
+
+  // Apply per-call preference override in-memory — must not be shared across
+  // scenario calls since transport_flip uses a different transitPreference.
+  const transitCache = applyTransitPreference(rawTransitCache, transitPreference);
+
+  // Derive baseline cache lookup keys locally — they depend only on nearestAirport
+  // and baseline fields, both available here without needing them in precomputed.
+  const baselineOutKey = cacheKey(
+    nearestAirport, baseline.outbound_date ?? '', baseline.outbound_departure_time ?? '09:00',
   );
+  const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
 
   const assembled: AssembledCombination[] = combinations.map((c: any) => {
     const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');

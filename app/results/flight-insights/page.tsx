@@ -6,7 +6,7 @@ import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
-import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
@@ -162,6 +162,20 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   // ── Assemble combinations (fast, no AI) ──────────────────────────────────
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
+
+  // Resolve nearest airport + fetch all transit rows once; share across main
+  // assembly and all scenario calls to avoid 4× repeated DB round trips.
+  const precomputed = smartRaw
+    ? await buildAssemblyPrecomputed(
+        smartRaw.combinations ?? [],
+        smartRaw.baseline ?? {},
+        postcodeDistrict,
+        adults,
+        children,
+        infants,
+      )
+    : null;
+
   const assembled = smartRaw
     ? await assembleCombinationsOnly(
         smartRaw,
@@ -170,12 +184,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         children,
         infants,
         transitPreference,
+        cabinBags,
+        checkedBags,
+        seatsTogether,
+        precomputed ?? undefined,
       )
     : null;
 
   // ── Scenario pre-computation (parallel) ────────────────────────────────
-  // Each scenario reruns full assembly with modified params so totals
-  // exactly match what the "Try this" link would show.
+  // Each scenario uses the shared precomputed cache; only the per-call
+  // transitPreference override is applied independently in-memory.
   const [
     scenarioLightResult,
     scenarioCheckedResult,
@@ -187,25 +205,26 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     // Scenario saving figures do not reflect true bag cost differences. Fix separately.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, 0, 0, seatsTogether,
+      transitPreference, 0, 0, seatsTogether, precomputed ?? undefined,
     ) : null,
     // Add 1 checked bag per adult
     // TODO(correctness): checkedBags+adults here is ignored — same bag-cost baking
     // issue as travel_light above. Extra bag cost delta is not reflected in scenario total.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, cabinBags, checkedBags + adults, seatsTogether,
+      transitPreference, cabinBags, checkedBags + adults, seatsTogether, precomputed ?? undefined,
     ) : null,
-    // Flip transit mode
+    // Flip transit mode — passes different transitPreference; applyTransitPreference
+    // runs independently inside each call so the override is never shared.
     smartRaw && transitPreference !== 'uber'
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
-          'uber', cabinBags, checkedBags, seatsTogether,
+          'uber', cabinBags, checkedBags, seatsTogether, precomputed ?? undefined,
         )
       : smartRaw
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
-          'auto', cabinBags, checkedBags, seatsTogether,
+          'auto', cabinBags, checkedBags, seatsTogether, precomputed ?? undefined,
         )
       : null,
   ]);
