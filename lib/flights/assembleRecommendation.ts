@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost } from './selectCombination';
+import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -38,6 +38,10 @@ export type AssembledCombination = {
   checked_bag_cost_max_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transit_duration_mins: number | null;
+  destination_transit_changes:       number | null;
+  destination_taxi_duration_mins:    number | null;
+  destination_taxi_cost_gbp:         number | null;
   requires_absence: boolean;
   absence_days: number;
   fine_gbp: number | null;
@@ -76,6 +80,10 @@ export type AssembledBaseline = {
   fare_plus_ancillary_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transit_duration_mins: number | null;
+  destination_transit_changes:       number | null;
+  destination_taxi_duration_mins:    number | null;
+  destination_taxi_cost_gbp:         number | null;
   outbound_departure_time: string | null;
   outbound_departure_time_parsed: string; // HH:MM
   return_departure_time_assumed:  string; // HH:MM
@@ -155,6 +163,10 @@ function mapCombination(
     checked_bag_cost_max_gbp: c.checked_bag_cost_max_gbp ?? c.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     destination_transfer_known: c.destination_transfer_known,
+    destination_transit_duration_mins: c.destination_transit_duration_mins ?? null,
+    destination_transit_changes:       c.destination_transit_changes ?? null,
+    destination_taxi_duration_mins:    c.destination_taxi_duration_mins ?? null,
+    destination_taxi_cost_gbp:         c.destination_taxi_cost_gbp ?? null,
     requires_absence: c.requires_absence,
     absence_days: c.absence_days,
     fine_gbp: c.fine_gbp,
@@ -293,13 +305,6 @@ async function resolveNearestAirport(postcodeDistrict: string): Promise<string> 
 
 // ── Departure time quality helpers ───────────────────────────────────────────
 
-function baselineDepPenalty(time: string): number {
-  const h = parseInt(time.slice(0, 2));
-  if (h < 6)  return 30;
-  if (h < 9)  return 20;
-  return 0;
-}
-
 function baselineRetPenalty(time: string): number {
   const h = parseInt(time.slice(0, 2));
   if (h < 9)  return 55;
@@ -343,14 +348,40 @@ function buildAssembledBaseline(
     (1000 * 60 * 60 * 24)
   );
 
+  // Map departure hour to OUT_DEP_PENALTY key using same thresholds as
+  // buildCandidates.ts's computeQualityFields (before 09:00 = very_early).
+  const outDepHour = parseInt(outboundDepTime.slice(0, 2));
+  const outDepQuality =
+    outDepHour < 6  ? 'very_early' :   // before 06:00
+    outDepHour < 9  ? 'very_early' :   // 06:00-09:00
+    outDepHour < 14 ? 'ideal' :        // 09:00-14:00
+    'good';                            // 14:00+
+
+  const outDepPenalty = OUT_DEP_PENALTY[outDepQuality] ?? 35;
+  const retDepPenalty = baselineRetPenalty(returnDepTime);
+
+  const blOutLondonTransit = blOutTransit?.transit;
+  const outLondonPenalty =
+    blOutLondonTransit && blOutLondonTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blOutLondonTransit.duration_mins, blOutLondonTransit.changes)
+      : 0;
+
+  const blRetLondonTransit = blRetTransit?.transit;
+  const retLondonPenalty =
+    blRetLondonTransit && blRetLondonTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(blRetLondonTransit.duration_mins, blRetLondonTransit.changes)
+      : 0;
+
+  const destPenalty = DEST_TRANSFER_PENALTY(baseline.destination_transit_duration_mins ?? null);
+
   const baselineEffCost =
     blTotalCostGbp
     - (baselineNights * NIGHT_VALUE)
-    + baselineDepPenalty(outboundDepTime)
-    + baselineRetPenalty(returnDepTime);
-
-  const outDepHour = parseInt(outboundDepTime.slice(0, 2));
-  const outDepQuality = outDepHour < 9 ? 'very_early' : 'ideal';
+    + outDepPenalty
+    + retDepPenalty
+    + outLondonPenalty
+    + retLondonPenalty
+    + (destPenalty * 2);
 
   return {
     outbound_date: baseline.outbound_date,
@@ -365,6 +396,10 @@ function buildAssembledBaseline(
     fare_plus_ancillary_gbp: baseline.fare_plus_ancillary_gbp,
     destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
     destination_transfer_known: baseline.destination_transfer_known,
+    destination_transit_duration_mins: baseline.destination_transit_duration_mins ?? null,
+    destination_transit_changes:       baseline.destination_transit_changes ?? null,
+    destination_taxi_duration_mins:    baseline.destination_taxi_duration_mins ?? null,
+    destination_taxi_cost_gbp:         baseline.destination_taxi_cost_gbp ?? null,
     outbound_departure_time: baseline.outbound_departure_time ?? null,
     outbound_departure_time_parsed: outboundDepTime,
     return_departure_time_assumed:  returnDepTime,
@@ -549,18 +584,6 @@ export async function assembleCombinationsOnly(
   );
   assembledBaseline.return_departure_time_derived = baselineRetTime ?? 'unknown';
 
-  console.log('[baseline-eff]', {
-    destination:  baseline.destination_iata,
-    return_date:  baseline.return_date,
-    airline:      baseline.airline_iata ?? baseline.carrier,
-    out_dep_time: baseline.outbound_departure_time,
-    ret_dep_time: baselineRetTime ?? 'not found',
-    ret_penalty:  baselineRetPenaltyDerived,
-    nights:       assembledBaseline.trip_nights,
-    total_cost:   Math.round(assembledBaseline.total_cost_gbp),
-    eff_cost:     assembledBaseline.eff_cost,
-  });
-
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
   const shortlist = buildCandidateShortlist(assembled);
 
@@ -639,12 +662,6 @@ export async function assembleCombinationsOnly(
     0, // nightsDiff already baked into eff_cost
   );
   const baselineIsRecommended = savingCategory === 'baseline_cheapest';
-  console.log('[savingCategory]', {
-    savingCategory,
-    baseline_total: Math.round(assembledBaseline.total_cost_gbp),
-    recommendation_total: Math.round(recommendation.total_cost_gbp),
-    nightsDiff,
-  });
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
     return_date: assembledBaseline.return_date,
@@ -654,115 +671,6 @@ export async function assembleCombinationsOnly(
     total_cost_gbp: assembledBaseline.total_cost_gbp,
     outbound_departure_time: assembledBaseline.outbound_departure_time,
   };
-
-  // TEMP DEBUG — remove after diagnosis
-  const debugCheapest = assembled
-    .filter(c => !c.requires_absence)
-    .sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)
-    .slice(0, 5)
-    .map(c => ({
-      out_date:    c.outbound_date,
-      ret_date:    c.return_date,
-      carrier:     `${c.outbound_carrier}+${c.return_carrier}`,
-      origin:      c.origin_iata,
-      fare:        Math.round((c.outbound_fare_gbp ?? 0) +
-                   (c.return_fare_gbp ?? 0)),
-      bags:        Math.round(c.cabin_bag_cost_gbp +
-                   c.checked_bag_cost_gbp),
-      seats:       Math.round(c.seat_cost_gbp),
-      out_transit: Math.round(c.outbound_transit_cost_gbp),
-      ret_transit: Math.round(c.return_transit_cost_gbp),
-      dest_xfer:   Math.round(
-                   c.destination_transfer_cost_gbp ?? 0),
-      total:       Math.round(c.total_cost_gbp),
-      nights:      Math.round(
-        (new Date(c.return_date + 'T00:00:00').getTime() -
-         new Date(c.outbound_date + 'T00:00:00').getTime()
-        ) / (1000 * 60 * 60 * 24)
-      ),
-    }));
-
-  console.log('DEBUG cheapest 5 combinations:',
-    JSON.stringify(debugCheapest, null, 2));
-
-  const debugTrueCheapest = trueCheapest ? {
-    out_date:  trueCheapest.outbound_date,
-    ret_date:  trueCheapest.return_date,
-    carrier:   `${trueCheapest.outbound_carrier}+${trueCheapest.return_carrier}`,
-    total:     Math.round(trueCheapest.total_cost_gbp),
-    nights:    Math.round(
-      (new Date(trueCheapest.return_date + 'T00:00:00').getTime() -
-       new Date(trueCheapest.outbound_date + 'T00:00:00').getTime()
-      ) / (1000 * 60 * 60 * 24)
-    ),
-  } : null;
-
-  console.log('DEBUG trueCheapest passed to AI:',
-    JSON.stringify(debugTrueCheapest, null, 2));
-
-  console.log('DEBUG baseline all-in:', JSON.stringify({
-    outbound_date:   assembledBaseline.outbound_date,
-    return_date:     assembledBaseline.return_date,
-    carrier:         assembledBaseline.carrier,
-    origin:          assembledBaseline.origin_iata,
-    fare:            Math.round(assembledBaseline.baseline_fare_gbp ?? 0),
-    bags:            Math.round(
-                       assembledBaseline.cabin_bag_cost_gbp ?? 0),
-    seats:           Math.round(
-                       assembledBaseline.seat_cost_gbp ?? 0),
-    out_transit:     Math.round(
-                       assembledBaseline.outbound_transit_cost_gbp ?? 0),
-    ret_transit:     Math.round(
-                       assembledBaseline.return_transit_cost_gbp ?? 0),
-    dest_xfer:       Math.round(
-                       assembledBaseline.destination_transfer_cost_gbp ?? 0),
-    total:           Math.round(assembledBaseline.total_cost_gbp),
-  }, null, 2));
-
-  const debugScores = assembled
-    .filter(c => !c.requires_absence)
-    .slice(0, 8)
-    .map(c => {
-      const nights = Math.round(
-        (new Date(c.return_date + 'T00:00:00').getTime() -
-         new Date(c.outbound_date + 'T00:00:00').getTime()
-        ) / (1000 * 60 * 60 * 24)
-      );
-      const retHour = c.return_departure_time
-        ? parseInt(
-            c.return_departure_time.includes('T')
-              ? c.return_departure_time.split('T')[1].slice(0, 2)
-              : c.return_departure_time.slice(0, 2)
-          )
-        : 12;
-      const retPenalty =
-        retHour < 7  ? 55 :
-        retHour < 10 ? 25 :
-        retHour < 14 ? 10 : 0;
-      const insetBonus = c.is_inset_day ? 30 : 0;
-      const effCost = c.total_cost_gbp
-        - (nights * 80)
-        - insetBonus
-        + retPenalty;
-      return {
-        out_date:    c.outbound_date,
-        ret_date:    c.return_date,
-        carrier:     `${c.outbound_carrier}+${c.return_carrier}`,
-        total:       Math.round(c.total_cost_gbp),
-        nights,
-        is_inset:    c.is_inset_day,
-        ret_time:    c.return_departure_time?.slice(0, 5) ?? null,
-        ret_hour:    retHour,
-        ret_penalty: retPenalty,
-        inset_bonus: insetBonus,
-        eff_cost:    Math.round(effCost),
-      };
-    })
-    .sort((a, b) => a.eff_cost - b.eff_cost);
-
-  console.log('DEBUG effective costs:',
-    JSON.stringify(debugScores, null, 2));
-  // END TEMP DEBUG
 
   return {
     combinations: assembled,
