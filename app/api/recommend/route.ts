@@ -54,9 +54,6 @@ export async function POST(request: NextRequest) {
       cabinBags,
       checkedBags,
       seatsTogether,
-      schoolUrn ?? null,
-      windowStart ?? null,
-      windowEnd ?? null,
     );
 
     // Canonical winner — computed once inside assembleCombinationsOnly over the

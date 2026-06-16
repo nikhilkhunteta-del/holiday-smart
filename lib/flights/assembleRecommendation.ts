@@ -398,15 +398,13 @@ function buildAssembledBaseline(
 // Builds an AssembledCombination-shaped object from the baseline so
 // effectiveCost() can score it with the exact same formula as every other
 // combination, instead of duplicating the penalty math. Looks up the pieces
-// AssembledBaseline doesn't carry: return leg arrival/duration (outbound
-// arrival/duration too — baseline only stores departure time from raw_json),
-// and the absence/inset flags, which need schoolUrn + window dates that
-// AssembledBaseline has no reason to know about.
+// AssembledBaseline doesn't carry: outbound/return leg arrival time and
+// duration — baseline only stores departure time from raw_json.
 //
-// Returns null if there's no baseline, or if schoolUrn/window dates aren't
-// supplied — in which case requires_absence/is_inset_day default to
-// false/0, which is the same "assume compliant" stance the rest of the
-// pipeline takes when absence data is unavailable.
+// The baseline is, by definition, the cheapest return ticket departing the
+// Saturday immediately before the holiday week — so it can never require
+// school absence and can never be an inset-day departure. Those fields are
+// hardcoded rather than looked up.
 
 async function lookupFareLeg(
   originIata: string,
@@ -451,9 +449,6 @@ async function buildBaselineAsCombination(
   baseline: any,
   assembledBaseline: AssembledBaseline,
   nearestAirport: string,
-  schoolUrn: string | null,
-  windowStart: string | null,
-  windowEnd: string | null,
   adults: number,
   children: number,
 ): Promise<{ combination: BaselineAsCombination; eff_cost: number } | null> {
@@ -469,38 +464,6 @@ async function buildBaselineAsCombination(
     lookupFareLeg(baseline.origin_iata, baseline.destination_iata, baseline.outbound_date, carrier, snapshotAdults, snapshotChildren),
     lookupFareLeg(baseline.destination_iata, baseline.origin_iata, baseline.return_date, carrier, snapshotAdults, snapshotChildren),
   ]);
-
-  let requiresAbsence = false;
-  let absenceDays = 0;
-  let fineGbp: number | null = null;
-
-  if (schoolUrn && windowStart && windowEnd) {
-    const { data: absence } = await supabase.rpc('calculate_absence_fine', {
-      p_dep_date:     baseline.outbound_date,
-      p_ret_date:     baseline.return_date,
-      p_window_start: windowStart,
-      p_window_end:   windowEnd,
-      p_school_urn:   schoolUrn,
-      p_adults:       adults,
-      p_children:     children,
-    });
-    if (absence) {
-      requiresAbsence = absence.requires_absence ?? false;
-      absenceDays      = absence.total_absence_days ?? 0;
-      fineGbp          = absence.fine_gbp ?? null;
-    }
-  }
-
-  let isInsetDay = false;
-  if (schoolUrn) {
-    const { data: insetRows } = await supabase
-      .from('school_inset_days')
-      .select('date')
-      .eq('urn', schoolUrn)
-      .eq('date', baseline.outbound_date)
-      .limit(1);
-    isInsetDay = (insetRows?.length ?? 0) > 0;
-  }
 
   // Baseline ancillaries aren't split per leg the way combinations are —
   // approximate evenly across outbound/return for the per-leg fields that
@@ -544,16 +507,18 @@ async function buildBaselineAsCombination(
     destination_transit_changes:       assembledBaseline.destination_transit_changes,
     destination_taxi_duration_mins:    assembledBaseline.destination_taxi_duration_mins,
     destination_taxi_cost_gbp:         assembledBaseline.destination_taxi_cost_gbp,
-    requires_absence: requiresAbsence,
-    absence_days: absenceDays,
-    fine_gbp: fineGbp,
+    // The baseline departs the Saturday before the holiday week — by
+    // definition never requires absence and is never an inset-day departure.
+    requires_absence: false,
+    absence_days: 0,
+    fine_gbp: 0,
     outbound_departure_time: assembledBaseline.outbound_departure_time_parsed,
     outbound_arrival_time:   outLeg?.arrival_time?.slice(0, 5) ?? null,
     outbound_duration_mins:  outLeg?.duration_minutes ?? null,
     return_departure_time:   retLeg?.departure_time?.slice(0, 5) ?? null,
     return_arrival_time:     retLeg?.arrival_time?.slice(0, 5) ?? null,
     return_duration_mins:    retLeg?.duration_minutes ?? null,
-    is_inset_day: isInsetDay,
+    is_inset_day: false,
     baggage_is_estimate: true,
     family_split_risk: false,
     split_risk_carriers: null,
@@ -563,7 +528,7 @@ async function buildBaselineAsCombination(
     return_transit_cost_gbp:   assembledBaseline.return_transit_cost_gbp,
     transit_cost_gbp: assembledBaseline.transit_cost_gbp,
     total_cost_gbp:   assembledBaseline.total_cost_gbp,
-    total_inc_fine:   assembledBaseline.total_cost_gbp + (fineGbp ?? 0),
+    total_inc_fine:   assembledBaseline.total_cost_gbp,
     // Always populated when the baseline resolved at all — buildTransitCache
     // runs both legs for every baseline with outbound/return dates.
     outbound_transit: assembledBaseline.outbound_transit!,
@@ -642,9 +607,6 @@ export async function assembleCombinationsOnly(
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
-  schoolUrn: string | null = null,
-  windowStart: string | null = null,
-  windowEnd: string | null = null,
 ): Promise<CombinationsOnlyResult> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -677,12 +639,12 @@ export async function assembleCombinationsOnly(
   );
 
   // ── Normalise the baseline into an AssembledCombination shape ─────────────
-  // baseline_snapshots only stores the outbound leg fare; everything else
-  // (return arrival/duration, absence/inset flags) is looked up here so the
-  // baseline can be scored with the same effectiveCost() formula as every
-  // other combination, instead of a duplicated penalty calculation.
+  // baseline_snapshots only stores the outbound leg fare; the return leg's
+  // arrival/duration is looked up here so the baseline can be scored with
+  // the same effectiveCost() formula as every other combination, instead
+  // of a duplicated penalty calculation.
   const baselineNormalised = await buildBaselineAsCombination(
-    baseline, assembledBaseline, nearestAirport, schoolUrn, windowStart, windowEnd, adults, children,
+    baseline, assembledBaseline, nearestAirport, adults, children,
   );
 
   if (baselineNormalised) {
@@ -861,9 +823,6 @@ export async function assembleRecommendation(
     cabinBags,
     checkedBags,
     seatsTogether,
-    null,
-    windowStart || null,
-    windowEnd || null,
   );
 
   // AI receives shortlist — not all 128 combinations
