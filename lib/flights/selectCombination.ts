@@ -146,12 +146,12 @@ export function selectCombination(
     );
   }
 
-  // Debug: top 3 candidates by effectiveCost, with full penalty breakdown —
+  // Debug: top 10 candidates by effectiveCost, with full penalty breakdown —
   // computed and logged BEFORE the winner is picked, so Vercel logs show the
   // reasoning that determines the winner, not just the outcome.
-  const top3 = [...viable_combos]
+  const top10 = [...viable_combos]
     .sort((a, b) => effectiveCost(a) - effectiveCost(b))
-    .slice(0, 3)
+    .slice(0, 10)
     .map(c => {
       const outTransit = c.outbound_transit?.transit;
       const retTransit = c.return_transit?.transit;
@@ -164,12 +164,21 @@ export function selectCombination(
           ? LONDON_TRANSIT_PENALTY(retTransit.duration_mins, retTransit.changes)
           : 0;
       const destPenalty = DEST_TRANSFER_PENALTY(c.destination_transit_duration_mins);
+      const baseFare = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
       return {
         out: c.outbound_date, ret: c.return_date,
-        carrier: c.outbound_carrier,
+        outbound_carrier: c.outbound_carrier, return_carrier: c.return_carrier,
         nights: c.trip_nights, inset: c.is_inset_day,
+        out_dep_time:  c.outbound_departure_time,
+        out_arr_time:  c.outbound_arrival_time,
+        ret_dep_time:  c.return_departure_time,
+        ret_arr_time:  c.return_arrival_time,
+        base_fare_gbp: Math.round(baseFare),
+        bags_cost_gbp: Math.round((c.fare_plus_ancillary_gbp ?? 0) - baseFare),
+        out_transit_cost_gbp: Math.round(c.outbound_transit_cost_gbp * 100) / 100,
+        ret_transit_cost_gbp: Math.round(c.return_transit_cost_gbp * 100) / 100,
+        dest_transfer_gbp:   Math.round(c.destination_transfer_cost_gbp * 100) / 100,
         total: Math.round(c.total_cost_gbp),
-        eff: Math.round(effectiveCost(c)),
         arr_q: c.arrival_quality,
         out_dep_q: c.outbound_departure_quality,
         ret_dep_q: c.return_departure_quality,
@@ -187,7 +196,7 @@ export function selectCombination(
         },
       };
     });
-  console.log('[selectCombination] top3 by effCost:', JSON.stringify(top3, null, 2));
+  console.log('[selectCombination] top10 by effCost:', JSON.stringify(top10, null, 2));
 
   // ── Pick winner: minimum effective cost ──────────────────────────────
   const winner = viable_combos.reduce((best, c) =>

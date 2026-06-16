@@ -19,12 +19,13 @@ export interface LegOption {
   cabin_bag_cost_gbp: number;
   checked_bag_cost_gbp: number;
   seat_cost_gbp: number;
-  // Raw pence values from RPC — used to compute transit_cost_gbp in TypeScript
+  // Raw pence values from RPC — kept for display only, not used for cost math
   transit_offpeak_fare_pence: number | null;
   transit_peak_fare_pence: number | null;
   uber_low_pence: number | null;
   uber_high_pence: number | null;
-  // Computed in TypeScript after receiving RPC data
+  // Family-adjusted transit cost — computed server-side via the canonical
+  // lib/flights/transitCost.ts and attached to each option before reaching this component.
   transit_cost_gbp: number | null;
   transit_method: string | null;
   transit_duration_mins: number | null;
@@ -115,72 +116,6 @@ function extractTransitMode(method: string | null, durationMins: number | null):
     ? segments.join(' → ')
     : method.split('→')[0].trim().slice(0, 30);
   return durationMins ? `${route} · ${durationMins} min` : route;
-}
-
-// ── Transit cost computation ──────────────────────────────────────────────────
-
-function computeTransitCost(
-  option: LegOption,
-  adults: number,
-  children: number,
-  transitPreference: 'auto' | 'uber',
-  isEarlyMorning: boolean,
-  direction: 'outbound' | 'return',
-): number {
-  const totalPax     = adults + children;
-  const xlMultiplier = totalPax >= 4 ? 1.5 : 1.0;
-
-  const uberMid = option.uber_low_pence != null && option.uber_high_pence != null
-    ? (option.uber_low_pence + option.uber_high_pence) / 200.0
-    : null;
-  const uberCost = uberMid != null ? uberMid * xlMultiplier : null;
-
-  if (transitPreference === 'uber') {
-    return uberCost ?? 0;
-  }
-
-  // Use pre-computed family transit cost from RPC when available (auto mode only)
-  if (option.transit_cost_gbp != null) {
-    return option.transit_cost_gbp;
-  }
-
-  const transitFare = option.transit_offpeak_fare_pence != null
-    ? option.transit_offpeak_fare_pence / 100.0
-    : null;
-
-  if (isEarlyMorning) {
-    const uberHigh = option.uber_high_pence != null
-      ? (option.uber_high_pence / 100.0) * xlMultiplier
-      : null;
-    return uberHigh ?? transitFare ?? 0;
-  }
-
-  if (transitFare === null) {
-    return uberCost ?? 0;
-  }
-
-  if (
-    (option.transit_changes ?? 0) >= 2 &&
-    uberCost != null &&
-    Math.abs(uberCost - transitFare) <= 50
-  ) {
-    return uberCost;
-  }
-
-  const londonAirport = direction === 'outbound' ? option.origin_iata : option.destination_iata;
-  const adultFarePerPerson = adults > 0 ? transitFare / adults : transitFare;
-  const method = option.transit_method ?? '';
-
-  let childFare = 0;
-  if (londonAirport === 'LHR' || londonAirport === 'LCY') {
-    childFare = children * 1.05;
-  } else if (londonAirport === 'LTN' || method.includes('National Express')) {
-    childFare = children * adultFarePerPerson * 0.75;
-  } else {
-    childFare = children * adultFarePerPerson * 0.5;
-  }
-
-  return adults * adultFarePerPerson + childFare;
 }
 
 // ── Expandable row detail ─────────────────────────────────────────────────────
@@ -625,13 +560,10 @@ export function LegOptions({
 
   const direction = data?.direction ?? 'outbound';
 
-  // Apply party-size-aware transit cost computation and re-sort
+  // transit_cost_gbp arrives pre-computed (via the canonical lib/flights/transitCost.ts,
+  // server-side) — just total and re-sort.
   const processedOptions: ProcessedOption[] = (data?.options ?? []).map((opt) => {
-    const isEarlyMorning =
-      direction === 'outbound' && fmt(opt.departure_time) < '07:00';
-    const transitCost = computeTransitCost(
-      opt, adults, children, transitPreference, isEarlyMorning, direction,
-    );
+    const transitCost = opt.transit_cost_gbp ?? 0;
     const totalGbp =
       opt.fare_gbp +
       ancillaryGbp(opt) +

@@ -6,12 +6,70 @@ import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
-import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
+import { computeTransitCost, type TransitRow } from '@/lib/flights/transitCost';
 
 export const dynamic = 'force-dynamic';
+
+// ── Attach canonical transit cost to leg options ────────────────────────────
+// get_leg_options.sql returns raw district_airport_transit fields per option;
+// the family-adjusted cost (age-tiered child fares, early-flight/Uber rules,
+// transitPreference override) is computed here via the same lib/flights/
+// transitCost.ts logic the main combination pipeline uses — not duplicated
+// in SQL or in the leg-options UI component.
+function attachTransitCost(
+  legResult: { data?: any; error?: any } | null,
+  direction: 'outbound' | 'return',
+  date: string,
+  postcodeDistrict: string,
+  adults: number,
+  children: number,
+  infants: number,
+  checkedBags: number,
+  transitPreference: 'auto' | 'uber',
+): any {
+  if (!legResult || legResult.error || !legResult.data) return legResult?.data ?? null;
+
+  const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
+
+  const options = (legResult.data.options ?? []).map((opt: any) => {
+    const timeStr = direction === 'outbound' ? opt.departure_time : opt.arrival_time;
+    const departureTime = new Date(`${date}T${(timeStr ?? '09:00').slice(0, 5)}:00`);
+
+    const row: TransitRow = {
+      transit_offpeak_fare_pence:    opt.transit_offpeak_fare_pence,
+      transit_offpeak_duration_mins: opt.transit_duration_mins,
+      transit_offpeak_route_summary: opt.transit_method,
+      transit_changes:               opt.transit_changes,
+      uber_low_pence:                opt.uber_low_pence,
+      uber_high_pence:                opt.uber_high_pence,
+      uber_duration_offpeak_mins:    opt.uber_duration_offpeak_mins,
+    };
+
+    const airportIata = direction === 'outbound' ? opt.origin_iata : opt.destination_iata;
+    const transit = computeTransitCost(
+      {
+        postcode_district: postcodeDistrict,
+        airport_iata: airportIata,
+        departure_time: departureTime,
+        adults,
+        children: childrenArr,
+        infants,
+        checkedBags,
+      },
+      row,
+    );
+
+    const cost = transitPreference === 'uber' ? transit.uber.mean_pence : transit.recommended_cost_pence;
+
+    return { ...opt, transit_cost_gbp: Math.round(cost) / 100 };
+  });
+
+  return { ...legResult.data, options };
+}
 
 interface PageProps {
   searchParams: {
@@ -104,6 +162,27 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
   // ── Assemble combinations (fast, no AI) ──────────────────────────────────
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
+
+  // Resolve nearest airport + fetch all transit rows once; share across main
+  // assembly and all scenario calls to avoid 4× repeated DB round trips.
+  const precomputed = smartRaw
+    ? await buildAssemblyPrecomputed(
+        smartRaw.combinations ?? [],
+        smartRaw.baseline ?? {},
+        postcodeDistrict,
+        adults,
+        children,
+        infants,
+        checkedBags,
+      )
+    : null;
+
+  // Scenarios that change checkedBags must build their own transit cache so the
+  // Uber-XL multiplier (isXL when checkedBags >= 2) fires with the correct count.
+  // Pass only nearestAirport from precomputed — skips the airport DB lookup but
+  // triggers a fresh buildRawTransitCache with the scenario's own checkedBags.
+  const airportOnly = precomputed ? { nearestAirport: precomputed.nearestAirport } : undefined;
+
   const assembled = smartRaw
     ? await assembleCombinationsOnly(
         smartRaw,
@@ -112,45 +191,48 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         children,
         infants,
         transitPreference,
+        cabinBags,
+        checkedBags,
+        seatsTogether,
+        precomputed ?? undefined,
       )
     : null;
 
   // ── Scenario pre-computation (parallel) ────────────────────────────────
-  // Each scenario reruns full assembly with modified params so totals
-  // exactly match what the "Try this" link would show.
+  // Each scenario uses the shared precomputed cache; only the per-call
+  // transitPreference override is applied independently in-memory.
   const [
     scenarioLightResult,
     scenarioCheckedResult,
     scenarioUberResult,
-    scenarioSeatsResult,
   ] = await Promise.all([
-    // Travel light: zero all bags
+    // Travel light: zero all bags — own transit cache (isXL must use checkedBags=0)
+    // TODO(correctness): cabinBags=0/checkedBags=0 here are ignored — bag costs
+    // are baked into the SQL row from the original get_smart_recommendation call.
+    // Scenario saving figures do not reflect true bag cost differences. Fix separately.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, 0, 0, seatsTogether,
+      transitPreference, 0, 0, seatsTogether, airportOnly,
     ) : null,
-    // Add 1 checked bag per adult
+    // Add 1 checked bag per adult — own transit cache (isXL must use checkedBags+adults)
+    // TODO(correctness): fare-side bag costs are baked into the SQL row from the original
+    // get_smart_recommendation call. Only transit XL-adjustment reflects the bag change.
+    // Full fare-side correctness is a separate fix.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, cabinBags, checkedBags + adults, seatsTogether,
+      transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
     ) : null,
-    // Flip transit mode
+    // Flip transit mode — same bags as main call; shares full precomputed transit cache.
+    // applyTransitPreference runs independently per call so the override is never shared.
     smartRaw && transitPreference !== 'uber'
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
-          'uber', cabinBags, checkedBags, seatsTogether,
+          'uber', cabinBags, checkedBags, seatsTogether, precomputed ?? undefined,
         )
       : smartRaw
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
-          'auto', cabinBags, checkedBags, seatsTogether,
-        )
-      : null,
-    // Toggle seats together
-    smartRaw && !seatsTogether
-      ? assembleCombinationsOnly(
-          smartRaw, postcodeDistrict, adults, children, infants,
-          transitPreference, cabinBags, checkedBags, true,
+          'auto', cabinBags, checkedBags, seatsTogether, precomputed ?? undefined,
         )
       : null,
   ]);
@@ -204,6 +286,15 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
   ]);
 
+  const outboundLegData = attachTransitCost(
+    outboundLegResult, 'outbound', selectedOutbound, postcodeDistrict,
+    adults, children, infants, checkedBags, transitPreference,
+  );
+  const returnLegData = attachTransitCost(
+    returnLegResult, 'return', selectedReturn, postcodeDistrict,
+    adults, children, infants, checkedBags, transitPreference,
+  );
+
   function formatDate(iso: string): string {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const d = new Date(iso + 'T00:00:00');
@@ -227,7 +318,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     recommendation,
     assembled,
     { light: scenarioLightResult, checked: scenarioCheckedResult,
-      uber:  scenarioUberResult,  seats: scenarioSeatsResult },
+      uber:  scenarioUberResult,  seats: null },
     { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
   );
 
@@ -345,7 +436,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             {/* 5. LegOptions outbound */}
             <div id="leg-options">
               <LegOptions
-                data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
+                data={outboundLegData}
                 title={`Outbound options · ${formatDate(smartOutboundDate)}`}
                 adults={adults}
                 children={children}
@@ -365,7 +456,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
             {/* 6. LegOptions return */}
             <LegOptions
-              data={returnLegResult?.error ? null : returnLegResult?.data as any}
+              data={returnLegData}
               title={`Return options · ${formatDate(smartReturnDate)}`}
               adults={adults}
               children={children}

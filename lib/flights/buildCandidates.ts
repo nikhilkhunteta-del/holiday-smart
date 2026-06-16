@@ -190,8 +190,12 @@ export function buildCandidateShortlist(
 ): ScoredCombination[] {
   if (!scored.length) return [];
 
+  // Exclude baseline from shortlist — it's passed to the AI via a separate field
+  // and must not occupy diversity slots (it would confuse cheapest/best comparisons).
+  const nonBaseline = scored.filter(c => !(c as any).is_baseline);
+
   // Sort by pre_score descending for selection
-  const byScore = [...scored].sort((a, b) => b.pre_score - a.pre_score);
+  const byScore = [...nonBaseline].sort((a, b) => b.pre_score - a.pre_score);
 
   // Track selected combinations by a stable key to avoid duplicates
   const selected = new Map<string, ScoredCombination>();
@@ -206,7 +210,7 @@ export function buildCandidateShortlist(
   add(byScore[0], 'best_overall');
 
   // ── Category 2: Cheapest ────────────────────────────────────────────────────
-  const cheapest = [...scored].sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
+  const cheapest = [...nonBaseline].sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
   add(cheapest, 'cheapest');
 
   // ── Category 3: Best inset day outbound + good/excellent arrival ────────────
@@ -285,13 +289,13 @@ export function buildCandidateShortlist(
   retDestMap.forEach(c => add(c, `ret_dest_${c.ret_dest_iata}`));
 
   // Always include cheapest inset day combination
-  const cheapestInset = [...scored]
+  const cheapestInset = [...nonBaseline]
     .filter(c => c.is_inset_day)
     .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
   if (cheapestInset) add(cheapestInset, 'cheapest_inset_guarantee');
 
   // Always include cheapest overall combination
-  const cheapestOverall = [...scored]
+  const cheapestOverall = [...nonBaseline]
     .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
   if (cheapestOverall) add(cheapestOverall, 'cheapest_overall_guarantee');
 
