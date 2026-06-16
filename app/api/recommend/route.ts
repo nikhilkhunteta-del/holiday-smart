@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         )
       : [];
 
-    const combinations = assembled.shortlist;
+    const combinations = assembled.scoredPool;
     console.log('[validate] top combinations:',
       JSON.stringify(
         combinations

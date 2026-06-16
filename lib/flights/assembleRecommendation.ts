@@ -654,6 +654,7 @@ export type BaselineAsItinerary = {
 // Return type for assembleCombinationsOnly
 export type CombinationsOnlyResult = {
   combinations: AssembledCombination[];
+  scoredPool: ScoredCombination[];
   baseline: AssembledBaseline;
   recommendation: AssembledCombination;
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
@@ -869,6 +870,7 @@ export async function assembleCombinationsOnly(
 
   return {
     combinations: assembled,
+    scoredPool,
     baseline: assembledBaseline,
     recommendation,
     savingCategory,
