@@ -123,15 +123,11 @@ export function selectCombination(
   const viable_combos = combinations.filter(viable);
   if (!viable_combos.length) return null;
 
-  // ── Pick winner: minimum effective cost ──────────────────────────────
-  const winner = viable_combos.reduce((best, c) =>
-    effectiveCost(c) < effectiveCost(best) ? c : best
-  );
-  const winnerEffCost = effectiveCost(winner);
-
   console.log('[selectCombination] entered, viable count:', viable_combos.length);
 
-  // Debug: top 3 candidates by effectiveCost, with full penalty breakdown
+  // Debug: top 3 candidates by effectiveCost, with full penalty breakdown —
+  // computed and logged BEFORE the winner is picked, so Vercel logs show the
+  // reasoning that determines the winner, not just the outcome.
   const top3 = [...viable_combos]
     .sort((a, b) => effectiveCost(a) - effectiveCost(b))
     .slice(0, 3)
@@ -171,6 +167,13 @@ export function selectCombination(
       };
     });
   console.log('[selectCombination] top3 by effCost:', JSON.stringify(top3, null, 2));
+
+  // ── Pick winner: minimum effective cost ──────────────────────────────
+  const winner = viable_combos.reduce((best, c) =>
+    effectiveCost(c) < effectiveCost(best) ? c : best
+  );
+  const winnerEffCost = effectiveCost(winner);
+
   console.log('[selectCombination] winner:', winner.outbound_date, '→', winner.return_date,
     'eff:', Math.round(winnerEffCost));
 
@@ -203,6 +206,46 @@ export function selectCombination(
     nights_diff:     winner.trip_nights - cheapestInset.trip_nights,
     winner_is_inset: winner.is_inset_day,
   } : null;
+
+  console.log('[selectCombination-winner]', {
+    out:     winner.outbound_date,
+    ret:     winner.return_date,
+    carrier: winner.outbound_carrier + '+' +
+             winner.return_carrier,
+    nights:  winner.trip_nights,
+    total:   winner.total_cost_gbp,
+    eff:     effectiveCost(winner),
+    breakdown: {
+      night_credit: -(NIGHT_VALUE * winner.trip_nights),
+      inset_bonus:  winner.is_inset_day
+                    ? -INSET_BONUS : 0,
+      arrival_pen:  ARRIVAL_PENALTY[
+                    winner.arrival_quality ?? ''] ?? 40,
+      out_dep_pen:  OUT_DEP_PENALTY[
+                    winner.outbound_departure_quality
+                    ?? ''] ?? 35,
+      ret_dep_pen:  RET_DEP_PENALTY[
+                    winner.return_departure_quality
+                    ?? ''] ?? 35,
+      out_london_pen: (() => {
+        const t = winner.outbound_transit?.transit;
+        return t && t.confidence === 'ok'
+          ? LONDON_TRANSIT_PENALTY(
+              t.duration_mins, t.changes)
+          : 0;
+      })(),
+      ret_london_pen: (() => {
+        const t = winner.return_transit?.transit;
+        return t && t.confidence === 'ok'
+          ? LONDON_TRANSIT_PENALTY(
+              t.duration_mins, t.changes)
+          : 0;
+      })(),
+      dest_pen_x2: DEST_TRANSFER_PENALTY(
+        winner.destination_transit_duration_mins
+      ) * 2,
+    }
+  });
 
   return {
     winner,
