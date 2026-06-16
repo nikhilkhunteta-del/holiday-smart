@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
-import { buildCandidateShortlist, computeBenchmark, computeCostRange, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY, selectCombination, type SelectionContext } from './selectCombination';
+import { buildCandidateShortlist, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
+import { NIGHT_VALUE, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -102,6 +102,12 @@ export type AssembledBaseline = {
   outbound_transit: AirportTransitCost | null;
   return_transit: AirportTransitCost | null;
 };
+
+// Baseline normalised into the same shape as a combination, so effectiveCost()
+// can run on it directly instead of duplicating the penalty formula. Carries
+// is_baseline: true so callers can tell it apart, but it is NOT folded into the
+// scored combination pool yet — that's a deliberate follow-up, not done here.
+export type BaselineAsCombination = AssembledCombination & { is_baseline: true };
 
 // ── Transit cache key ─────────────────────────────────────────────────────────
 
@@ -303,16 +309,6 @@ async function resolveNearestAirport(postcodeDistrict: string): Promise<string> 
   }
 }
 
-// ── Departure time quality helpers ───────────────────────────────────────────
-
-function baselineRetPenalty(time: string): number {
-  const h = parseInt(time.slice(0, 2));
-  if (h < 9)  return 55;
-  if (h < 13) return 25;
-  if (h < 14) return 10;
-  return 0;
-}
-
 // ── Assembled baseline builder ────────────────────────────────────────────────
 
 function buildAssembledBaseline(
@@ -340,6 +336,8 @@ function buildAssembledBaseline(
     '09:00';
 
   // Return departure time unknown for round-trip baseline — conservative default
+  // until the assembleCombinationsOnly caller derives the real one from
+  // fare_snapshots and recomputes eff_cost via effectiveCost().
   const returnDepTime = '09:00';
 
   const baselineNights = Math.round(
@@ -348,40 +346,17 @@ function buildAssembledBaseline(
     (1000 * 60 * 60 * 24)
   );
 
-  // Map departure hour to OUT_DEP_PENALTY key using same thresholds as
-  // buildCandidates.ts's computeQualityFields (before 09:00 = very_early).
+  // outbound_dep_quality is display-only (AI prompt narrative) — kept here
+  // using the same thresholds as buildCandidates.ts's computeQualityFields.
+  // The real eff_cost is computed downstream via effectiveCost() on a properly
+  // constructed AssembledCombination-shaped baseline (see
+  // buildBaselineAsCombination), not duplicated here.
   const outDepHour = parseInt(outboundDepTime.slice(0, 2));
   const outDepQuality =
     outDepHour < 6  ? 'very_early' :   // before 06:00
     outDepHour < 9  ? 'very_early' :   // 06:00-09:00
     outDepHour < 14 ? 'ideal' :        // 09:00-14:00
     'good';                            // 14:00+
-
-  const outDepPenalty = OUT_DEP_PENALTY[outDepQuality] ?? 35;
-  const retDepPenalty = baselineRetPenalty(returnDepTime);
-
-  const blOutLondonTransit = blOutTransit?.transit;
-  const outLondonPenalty =
-    blOutLondonTransit && blOutLondonTransit.confidence === 'ok'
-      ? LONDON_TRANSIT_PENALTY(blOutLondonTransit.duration_mins, blOutLondonTransit.changes)
-      : 0;
-
-  const blRetLondonTransit = blRetTransit?.transit;
-  const retLondonPenalty =
-    blRetLondonTransit && blRetLondonTransit.confidence === 'ok'
-      ? LONDON_TRANSIT_PENALTY(blRetLondonTransit.duration_mins, blRetLondonTransit.changes)
-      : 0;
-
-  const destPenalty = DEST_TRANSFER_PENALTY(baseline.destination_transit_duration_mins ?? null);
-
-  const baselineEffCost =
-    blTotalCostGbp
-    - (baselineNights * NIGHT_VALUE)
-    + outDepPenalty
-    + retDepPenalty
-    + outLondonPenalty
-    + retLondonPenalty
-    + (destPenalty * 2);
 
   return {
     outbound_date: baseline.outbound_date,
@@ -407,7 +382,7 @@ function buildAssembledBaseline(
     baseline_airport: nearestAirport,
     family_seating_notes: baseline.family_seating_notes ?? null,
     trip_nights:                   baselineNights,
-    eff_cost:                      Math.round(baselineEffCost),
+    eff_cost:                      0, // placeholder — overwritten by buildBaselineAsCombination()
     outbound_dep_quality:          outDepQuality,
     return_departure_time_derived: 'pending',
     outbound_transit_cost_gbp: blOutTransitGbp,
@@ -417,6 +392,189 @@ function buildAssembledBaseline(
     outbound_transit: blOutTransit,
     return_transit: blRetTransit,
   };
+}
+
+// ── Baseline normalisation ────────────────────────────────────────────────────
+// Builds an AssembledCombination-shaped object from the baseline so
+// effectiveCost() can score it with the exact same formula as every other
+// combination, instead of duplicating the penalty math. Looks up the pieces
+// AssembledBaseline doesn't carry: return leg arrival/duration (outbound
+// arrival/duration too — baseline only stores departure time from raw_json),
+// and the absence/inset flags, which need schoolUrn + window dates that
+// AssembledBaseline has no reason to know about.
+//
+// Returns null if there's no baseline, or if schoolUrn/window dates aren't
+// supplied — in which case requires_absence/is_inset_day default to
+// false/0, which is the same "assume compliant" stance the rest of the
+// pipeline takes when absence data is unavailable.
+
+async function lookupFareLeg(
+  originIata: string,
+  destIata: string,
+  date: string,
+  carrier: string,
+  adults: number,
+  children: number,
+): Promise<{ departure_time: string | null; arrival_time: string | null; duration_minutes: number | null } | null> {
+  const { data: primary } = await supabase
+    .from('fare_snapshots')
+    .select('departure_time, arrival_time, duration_minutes')
+    .eq('origin_iata', originIata)
+    .eq('destination_iata', destIata)
+    .eq('departure_date', date)
+    .eq('adults', adults)
+    .eq('children', children)
+    .eq('stops', 0)
+    .eq('airline_iata', carrier)
+    .eq('result_bucket', 'best')
+    .order('result_rank', { ascending: true })
+    .limit(1);
+
+  if (primary && primary.length > 0) return primary[0];
+
+  // Fallback: any nonstop on that route/date (carrier may not have matched).
+  const { data: fallback } = await supabase
+    .from('fare_snapshots')
+    .select('departure_time, arrival_time, duration_minutes')
+    .eq('origin_iata', originIata)
+    .eq('destination_iata', destIata)
+    .eq('departure_date', date)
+    .eq('stops', 0)
+    .eq('result_bucket', 'best')
+    .order('result_rank', { ascending: true })
+    .limit(1);
+
+  return fallback?.[0] ?? null;
+}
+
+async function buildBaselineAsCombination(
+  baseline: any,
+  assembledBaseline: AssembledBaseline,
+  nearestAirport: string,
+  schoolUrn: string | null,
+  windowStart: string | null,
+  windowEnd: string | null,
+  adults: number,
+  children: number,
+): Promise<{ combination: BaselineAsCombination; eff_cost: number } | null> {
+  if (!baseline.outbound_date || !baseline.return_date || !baseline.origin_iata || !baseline.destination_iata) {
+    return null;
+  }
+
+  const carrier = baseline.airline_iata ?? baseline.carrier;
+  const snapshotAdults = baseline.adults ?? adults;
+  const snapshotChildren = baseline.children ?? children;
+
+  const [outLeg, retLeg] = await Promise.all([
+    lookupFareLeg(baseline.origin_iata, baseline.destination_iata, baseline.outbound_date, carrier, snapshotAdults, snapshotChildren),
+    lookupFareLeg(baseline.destination_iata, baseline.origin_iata, baseline.return_date, carrier, snapshotAdults, snapshotChildren),
+  ]);
+
+  let requiresAbsence = false;
+  let absenceDays = 0;
+  let fineGbp: number | null = null;
+
+  if (schoolUrn && windowStart && windowEnd) {
+    const { data: absence } = await supabase.rpc('calculate_absence_fine', {
+      p_dep_date:     baseline.outbound_date,
+      p_ret_date:     baseline.return_date,
+      p_window_start: windowStart,
+      p_window_end:   windowEnd,
+      p_school_urn:   schoolUrn,
+      p_adults:       adults,
+      p_children:     children,
+    });
+    if (absence) {
+      requiresAbsence = absence.requires_absence ?? false;
+      absenceDays      = absence.total_absence_days ?? 0;
+      fineGbp          = absence.fine_gbp ?? null;
+    }
+  }
+
+  let isInsetDay = false;
+  if (schoolUrn) {
+    const { data: insetRows } = await supabase
+      .from('school_inset_days')
+      .select('date')
+      .eq('urn', schoolUrn)
+      .eq('date', baseline.outbound_date)
+      .limit(1);
+    isInsetDay = (insetRows?.length ?? 0) > 0;
+  }
+
+  // Baseline ancillaries aren't split per leg the way combinations are —
+  // approximate evenly across outbound/return for the per-leg fields that
+  // exist purely for UI breakdowns; the totals effectiveCost() reads
+  // (fare_plus_ancillary_gbp, total_cost_gbp) come straight from the baseline.
+  const halfFare    = (baseline.baseline_fare_gbp ?? 0) / 2;
+  const halfCabin   = assembledBaseline.cabin_bag_cost_gbp / 2;
+  const halfChecked = assembledBaseline.checked_bag_cost_gbp / 2;
+  const halfSeat     = assembledBaseline.seat_cost_gbp / 2;
+
+  const combination: BaselineAsCombination = {
+    outbound_date: assembledBaseline.outbound_date,
+    return_date:   assembledBaseline.return_date,
+    origin_iata:   assembledBaseline.origin_iata,
+    out_dest_iata: assembledBaseline.destination_iata,
+    ret_dest_iata: assembledBaseline.origin_iata, // symmetric round-trip — same London airport both ways
+    outbound_carrier: assembledBaseline.carrier,
+    return_carrier:   assembledBaseline.carrier,
+    split_carrier: false,
+    outbound_fare_gbp: halfFare,
+    return_fare_gbp:   halfFare,
+    cabin_bag_cost_gbp:   assembledBaseline.cabin_bag_cost_gbp,
+    checked_bag_cost_gbp: assembledBaseline.checked_bag_cost_gbp,
+    seat_cost_gbp:        assembledBaseline.seat_cost_gbp,
+    fare_plus_ancillary_gbp: assembledBaseline.fare_plus_ancillary_gbp,
+    outbound_cabin_bag_cost_gbp:   halfCabin,
+    return_cabin_bag_cost_gbp:     halfCabin,
+    outbound_checked_bag_cost_gbp: halfChecked,
+    return_checked_bag_cost_gbp:   halfChecked,
+    outbound_seat_cost_gbp: halfSeat,
+    return_seat_cost_gbp:   halfSeat,
+    outbound_ancillary_gbp: halfCabin + halfChecked + halfSeat,
+    return_ancillary_gbp:   halfCabin + halfChecked + halfSeat,
+    cabin_bag_cost_min_gbp:   assembledBaseline.cabin_bag_cost_gbp,
+    cabin_bag_cost_max_gbp:   assembledBaseline.cabin_bag_cost_gbp,
+    checked_bag_cost_min_gbp: assembledBaseline.checked_bag_cost_gbp,
+    checked_bag_cost_max_gbp: assembledBaseline.checked_bag_cost_gbp,
+    destination_transfer_cost_gbp: assembledBaseline.destination_transfer_cost_gbp,
+    destination_transfer_known:    assembledBaseline.destination_transfer_known,
+    destination_transit_duration_mins: assembledBaseline.destination_transit_duration_mins,
+    destination_transit_changes:       assembledBaseline.destination_transit_changes,
+    destination_taxi_duration_mins:    assembledBaseline.destination_taxi_duration_mins,
+    destination_taxi_cost_gbp:         assembledBaseline.destination_taxi_cost_gbp,
+    requires_absence: requiresAbsence,
+    absence_days: absenceDays,
+    fine_gbp: fineGbp,
+    outbound_departure_time: assembledBaseline.outbound_departure_time_parsed,
+    outbound_arrival_time:   outLeg?.arrival_time?.slice(0, 5) ?? null,
+    outbound_duration_mins:  outLeg?.duration_minutes ?? null,
+    return_departure_time:   retLeg?.departure_time?.slice(0, 5) ?? null,
+    return_arrival_time:     retLeg?.arrival_time?.slice(0, 5) ?? null,
+    return_duration_mins:    retLeg?.duration_minutes ?? null,
+    is_inset_day: isInsetDay,
+    baggage_is_estimate: true,
+    family_split_risk: false,
+    split_risk_carriers: null,
+    outbound_seating_notes: assembledBaseline.family_seating_notes,
+    return_seating_notes:   assembledBaseline.family_seating_notes,
+    outbound_transit_cost_gbp: assembledBaseline.outbound_transit_cost_gbp,
+    return_transit_cost_gbp:   assembledBaseline.return_transit_cost_gbp,
+    transit_cost_gbp: assembledBaseline.transit_cost_gbp,
+    total_cost_gbp:   assembledBaseline.total_cost_gbp,
+    total_inc_fine:   assembledBaseline.total_cost_gbp + (fineGbp ?? 0),
+    // Always populated when the baseline resolved at all — buildTransitCache
+    // runs both legs for every baseline with outbound/return dates.
+    outbound_transit: assembledBaseline.outbound_transit!,
+    return_transit:   assembledBaseline.return_transit!,
+    is_baseline: true,
+  };
+
+  const quality = computeQualityFields(combination);
+  const scored: ScoredCombination = { ...combination, ...quality, pre_score: 0 };
+
+  return { combination, eff_cost: effectiveCost(scored) };
 }
 
 // ── Saving category ───────────────────────────────────────────────────────────
@@ -462,6 +620,7 @@ export type CombinationsOnlyResult = {
   nearestAirport: string;
   cheapestViable: AssembledCombination | null;
   selection: SelectionContext | null;
+  baselineAsCombination: BaselineAsCombination | null;
 };
 
 // Return type for assembleRecommendation
@@ -483,6 +642,9 @@ export async function assembleCombinationsOnly(
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
+  schoolUrn: string | null = null,
+  windowStart: string | null = null,
+  windowEnd: string | null = null,
 ): Promise<CombinationsOnlyResult> {
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
@@ -514,66 +676,20 @@ export async function assembleCombinationsOnly(
     baseline, nearestAirport, transitCache, baselineOutKey, baselineRetKey,
   );
 
-  // ── Derive baseline return departure time from fare_snapshots ─────────────
-  // baseline_snapshots only stores the outbound leg; we join fare_snapshots
-  // to find the return departure time so we can apply the correct penalty.
-
-  let baselineRetTime: string | null = null;
-
-  if (baseline.destination_iata && baseline.origin_iata && baseline.return_date) {
-    // Primary: same airline, nonstop, result_bucket='best'
-    const { data: retRows } = await supabase
-      .from('fare_snapshots')
-      .select('departure_time, airline_iata')
-      .eq('origin_iata',      baseline.destination_iata)
-      .eq('destination_iata', baseline.origin_iata)
-      .eq('departure_date',   baseline.return_date)
-      .eq('adults',           baseline.adults ?? 2)
-      .eq('children',         baseline.children ?? 0)
-      .eq('stops',            0)
-      .eq('airline_iata',     baseline.airline_iata ?? baseline.carrier)
-      .eq('result_bucket',    'best')
-      .order('result_rank', { ascending: true })
-      .limit(1);
-
-    if (retRows && retRows.length > 0) {
-      baselineRetTime = retRows[0].departure_time?.slice(0, 5) ?? null;
-    }
-
-    // Fallback: any nonstop return on that date
-    if (!baselineRetTime) {
-      const { data: fbRows } = await supabase
-        .from('fare_snapshots')
-        .select('departure_time, airline_iata')
-        .eq('origin_iata',      baseline.destination_iata)
-        .eq('destination_iata', baseline.origin_iata)
-        .eq('departure_date',   baseline.return_date)
-        .eq('stops',            0)
-        .eq('result_bucket',    'best')
-        .order('result_rank', { ascending: true })
-        .limit(1);
-
-      if (fbRows && fbRows.length > 0) {
-        baselineRetTime = fbRows[0].departure_time?.slice(0, 5) ?? null;
-      }
-    }
-  }
-
-  // Apply return penalty — zero if time unknown (conservative)
-  const baselineRetHour = baselineRetTime ? parseInt(baselineRetTime.slice(0, 2)) : null;
-  const baselineRetPenaltyDerived =
-    baselineRetHour === null ? 0
-    : baselineRetHour < 9   ? 55
-    : baselineRetHour < 13  ? 25
-    : baselineRetHour < 17  ? 10
-    : 0;
-
-  // The eff_cost from buildAssembledBaseline used returnDepTime='09:00' (penalty=25).
-  // Recompute: subtract the default 25 and add the derived penalty.
-  assembledBaseline.eff_cost = Math.round(
-    assembledBaseline.eff_cost - 25 + baselineRetPenaltyDerived
+  // ── Normalise the baseline into an AssembledCombination shape ─────────────
+  // baseline_snapshots only stores the outbound leg fare; everything else
+  // (return arrival/duration, absence/inset flags) is looked up here so the
+  // baseline can be scored with the same effectiveCost() formula as every
+  // other combination, instead of a duplicated penalty calculation.
+  const baselineNormalised = await buildBaselineAsCombination(
+    baseline, assembledBaseline, nearestAirport, schoolUrn, windowStart, windowEnd, adults, children,
   );
-  assembledBaseline.return_departure_time_derived = baselineRetTime ?? 'unknown';
+
+  if (baselineNormalised) {
+    assembledBaseline.eff_cost = Math.round(baselineNormalised.eff_cost);
+    assembledBaseline.return_departure_time_derived =
+      baselineNormalised.combination.return_departure_time ?? 'unknown';
+  }
 
   // Score + dedupe the full pool once — this is what effectiveCost()/
   // selectCombination() run over, and what the shortlist's diversity
@@ -711,6 +827,7 @@ export async function assembleCombinationsOnly(
     nearestAirport,
     cheapestViable,
     selection: selectionResult,
+    baselineAsCombination: baselineNormalised?.combination ?? null,
   };
 }
 
@@ -741,6 +858,12 @@ export async function assembleRecommendation(
     children,
     infants,
     transitPreference,
+    cabinBags,
+    checkedBags,
+    seatsTogether,
+    null,
+    windowStart || null,
+    windowEnd || null,
   );
 
   // AI receives shortlist — not all 128 combinations
