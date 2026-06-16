@@ -129,6 +129,8 @@ export function selectCombination(
   );
   const winnerEffCost = effectiveCost(winner);
 
+  console.log('[selectCombination] entered, viable count:', viable_combos.length);
+
   // Debug: top 3 candidates by effectiveCost, with full penalty breakdown
   const top3 = [...viable_combos]
     .sort((a, b) => effectiveCost(a) - effectiveCost(b))

@@ -489,8 +489,12 @@ BEGIN
         wf.*,
         -- Use transit cost for transfer (public transit is what most
         -- families use for short transfers; taxi used for long transfers
-        -- like REU/GRO). Apply the same cost × 2 for round trip.
-        COALESCE(da.transit_cost_gbp * 2, 0)                             AS destination_transfer_cost_gbp,
+        -- like REU/GRO). Transit fares are per person — multiply by
+        -- party size as well as × 2 for round trip.
+        COALESCE(
+          da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants),
+          0
+        )                                                                 AS destination_transfer_cost_gbp,
         da.transit_cost_gbp IS NOT NULL                                  AS destination_transfer_known,
         da.transit_duration_mins                                        AS destination_transit_duration_mins,
         da.transit_changes                                              AS destination_transit_changes,
@@ -688,7 +692,10 @@ BEGIN
           a.family_seating_notes                                          AS family_seating_notes,
           a.bundle_price_delta_gbp                                        AS bundle_delta,
           a.bundle_includes_checked                                       AS bundle_inc_checked,
-          COALESCE(da.transit_cost_gbp * 2, 0)                           AS dest_transfer_cost,
+          COALESCE(
+            da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants),
+            0
+          )                                                               AS dest_transfer_cost,
           da.transit_cost_gbp IS NOT NULL                                AS dest_transfer_known,
           da.transit_duration_mins                                       AS dest_transit_duration_mins,
           da.transit_changes                                             AS dest_transit_changes,

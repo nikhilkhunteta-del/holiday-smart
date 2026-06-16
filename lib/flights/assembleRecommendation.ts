@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY } from './selectCombination';
+import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -305,13 +305,6 @@ async function resolveNearestAirport(postcodeDistrict: string): Promise<string> 
 
 // ── Departure time quality helpers ───────────────────────────────────────────
 
-function baselineDepPenalty(time: string): number {
-  const h = parseInt(time.slice(0, 2));
-  if (h < 6)  return 30;
-  if (h < 9)  return 20;
-  return 0;
-}
-
 function baselineRetPenalty(time: string): number {
   const h = parseInt(time.slice(0, 2));
   if (h < 9)  return 55;
@@ -355,7 +348,16 @@ function buildAssembledBaseline(
     (1000 * 60 * 60 * 24)
   );
 
-  const outDepPenalty = baselineDepPenalty(outboundDepTime);
+  // Map departure hour to OUT_DEP_PENALTY key using same thresholds as
+  // buildCandidates.ts's computeQualityFields (before 09:00 = very_early).
+  const outDepHour = parseInt(outboundDepTime.slice(0, 2));
+  const outDepQuality =
+    outDepHour < 6  ? 'very_early' :   // before 06:00
+    outDepHour < 9  ? 'very_early' :   // 06:00-09:00
+    outDepHour < 14 ? 'ideal' :        // 09:00-14:00
+    'good';                            // 14:00+
+
+  const outDepPenalty = OUT_DEP_PENALTY[outDepQuality] ?? 35;
   const retDepPenalty = baselineRetPenalty(returnDepTime);
 
   const blOutLondonTransit = blOutTransit?.transit;
@@ -380,9 +382,6 @@ function buildAssembledBaseline(
     + outLondonPenalty
     + retLondonPenalty
     + (destPenalty * 2);
-
-  const outDepHour = parseInt(outboundDepTime.slice(0, 2));
-  const outDepQuality = outDepHour < 9 ? 'very_early' : 'ideal';
 
   return {
     outbound_date: baseline.outbound_date,
@@ -588,8 +587,7 @@ export async function assembleCombinationsOnly(
   // Breakdown components for logging — recomputed from assembledBaseline,
   // identical to what buildAssembledBaseline applied (return penalty uses
   // the just-derived value rather than the 09:00 default).
-  const outDepHourLog = parseInt(assembledBaseline.outbound_departure_time_parsed.slice(0, 2));
-  const outDepPenaltyLog = outDepHourLog < 6 ? 30 : outDepHourLog < 9 ? 20 : 0;
+  const outDepPenaltyLog = OUT_DEP_PENALTY[assembledBaseline.outbound_dep_quality] ?? 35;
 
   const blOutTransitLog = assembledBaseline.outbound_transit?.transit;
   const outLondonPenaltyLog =
