@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
 import { buildCandidateShortlist, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
+import { NIGHT_VALUE, ARRIVAL_PENALTY, OUT_DEP_PENALTY, RET_DEP_PENALTY, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -572,8 +572,53 @@ async function buildBaselineAsCombination(
 
   const quality = computeQualityFields(combination);
   const scored: ScoredCombination = { ...combination, ...quality, pre_score: 0 };
+  const effCost = effectiveCost(scored);
 
-  return { combination, eff_cost: effectiveCost(scored) };
+  const outTransit = scored.outbound_transit?.transit;
+  const retTransit = scored.return_transit?.transit;
+  const outLondonPenalty =
+    outTransit && outTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(outTransit.duration_mins, outTransit.changes)
+      : 0;
+  const retLondonPenalty =
+    retTransit && retTransit.confidence === 'ok'
+      ? LONDON_TRANSIT_PENALTY(retTransit.duration_mins, retTransit.changes)
+      : 0;
+  const destPenalty = DEST_TRANSFER_PENALTY(scored.destination_transit_duration_mins);
+  const baseFare = (scored.outbound_fare_gbp ?? 0) + (scored.return_fare_gbp ?? 0);
+  console.log('[baseline-breakdown]', JSON.stringify({
+    out: scored.outbound_date,
+    ret: scored.return_date,
+    carrier: scored.outbound_carrier,
+    nights: quality.trip_nights,
+    out_dep_time:        scored.outbound_departure_time,
+    out_arr_time:        scored.outbound_arrival_time,
+    ret_dep_time:        scored.return_departure_time,
+    ret_arr_time:        scored.return_arrival_time,
+    base_fare_gbp:       Math.round(baseFare),
+    bags_cost_gbp:       Math.round((scored.fare_plus_ancillary_gbp ?? 0) - baseFare),
+    out_transit_cost_gbp: Math.round(scored.outbound_transit_cost_gbp * 100) / 100,
+    ret_transit_cost_gbp: Math.round(scored.return_transit_cost_gbp * 100) / 100,
+    dest_transfer_gbp:   Math.round(scored.destination_transfer_cost_gbp * 100) / 100,
+    total_cost_gbp:      Math.round(scored.total_cost_gbp),
+    arr_q:     quality.arrival_quality,
+    out_dep_q: quality.outbound_departure_quality,
+    ret_dep_q: quality.return_departure_quality,
+    eff_cost_breakdown: {
+      total:                    Math.round(scored.total_cost_gbp),
+      night_credit:             -(quality.trip_nights * NIGHT_VALUE),
+      inset_credit:             0,
+      arrival_penalty:          ARRIVAL_PENALTY[quality.arrival_quality ?? ''] ?? 40,
+      out_dep_penalty:          OUT_DEP_PENALTY[quality.outbound_departure_quality ?? ''] ?? 35,
+      ret_dep_penalty:          RET_DEP_PENALTY[quality.return_departure_quality ?? ''] ?? 35,
+      out_london_penalty:       outLondonPenalty,
+      ret_london_penalty:       retLondonPenalty,
+      dest_transfer_penalty_x2: destPenalty * 2,
+      final_eff_cost:           Math.round(effCost),
+    },
+  }));
+
+  return { combination, eff_cost: effCost };
 }
 
 // ── Saving category ───────────────────────────────────────────────────────────
