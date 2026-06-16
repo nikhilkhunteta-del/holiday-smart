@@ -497,6 +497,11 @@ async function buildBaselineAsCombination(
   // always returns null for both legs. raw_json segments[0/1] carry the full
   // ISO datetime for outbound and return legs of the round-trip result.
   const rawJson = baseline.raw_json ? JSON.parse(baseline.raw_json) : null;
+  // Brief 2 diagnostic: log raw_json top-level structure so we can confirm the
+  // correct path to outbound arrival time. Remove once Brief 2 is resolved.
+  console.log('[baseline-raw_json-keys] top-level keys:', rawJson ? Object.keys(rawJson) : null);
+  console.log('[baseline-raw_json-result] result keys:', rawJson?.result ? Object.keys(rawJson.result) : null);
+  console.log('[baseline-raw_json-seg0]', JSON.stringify(rawJson?.result?.segments?.[0] ?? rawJson?.best_flights?.[0] ?? null));
   const rawSegOut = rawJson?.result?.segments?.[0];
   const rawSegRet = rawJson?.result?.segments?.[1];
 

@@ -405,11 +405,13 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           const winnerReturn   = data.winner_return_date;
           const winnerCarrier  = data.winner_outbound_carrier;
 
-          const resolvedCombination = combinations?.find(c =>
-            c.outbound_date    === winnerOutbound &&
-            c.return_date      === winnerReturn &&
-            c.outbound_carrier === winnerCarrier
-          ) ?? combinations?.[0] ?? null;
+          const resolvedCombination = fetchParams.baselineIsRecommended
+            ? null
+            : combinations?.find(c =>
+                c.outbound_date    === winnerOutbound &&
+                c.return_date      === winnerReturn &&
+                c.outbound_carrier === winnerCarrier
+              ) ?? combinations?.[0] ?? null;
 
           console.log('[client] winner lookup:', winnerOutbound, winnerCarrier);
           console.log('[client] combinations array length:', combinations?.length);
