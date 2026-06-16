@@ -10,8 +10,66 @@ import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
+import { computeTransitCost, type TransitRow } from '@/lib/flights/transitCost';
 
 export const dynamic = 'force-dynamic';
+
+// ── Attach canonical transit cost to leg options ────────────────────────────
+// get_leg_options.sql returns raw district_airport_transit fields per option;
+// the family-adjusted cost (age-tiered child fares, early-flight/Uber rules,
+// transitPreference override) is computed here via the same lib/flights/
+// transitCost.ts logic the main combination pipeline uses — not duplicated
+// in SQL or in the leg-options UI component.
+function attachTransitCost(
+  legResult: { data?: any; error?: any } | null,
+  direction: 'outbound' | 'return',
+  date: string,
+  postcodeDistrict: string,
+  adults: number,
+  children: number,
+  infants: number,
+  checkedBags: number,
+  transitPreference: 'auto' | 'uber',
+): any {
+  if (!legResult || legResult.error || !legResult.data) return legResult?.data ?? null;
+
+  const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
+
+  const options = (legResult.data.options ?? []).map((opt: any) => {
+    const timeStr = direction === 'outbound' ? opt.departure_time : opt.arrival_time;
+    const departureTime = new Date(`${date}T${(timeStr ?? '09:00').slice(0, 5)}:00`);
+
+    const row: TransitRow = {
+      transit_offpeak_fare_pence:    opt.transit_offpeak_fare_pence,
+      transit_offpeak_duration_mins: opt.transit_duration_mins,
+      transit_offpeak_route_summary: opt.transit_method,
+      transit_changes:               opt.transit_changes,
+      uber_low_pence:                opt.uber_low_pence,
+      uber_high_pence:                opt.uber_high_pence,
+      uber_duration_offpeak_mins:    opt.uber_duration_offpeak_mins,
+    };
+
+    const airportIata = direction === 'outbound' ? opt.origin_iata : opt.destination_iata;
+    const transit = computeTransitCost(
+      {
+        postcode_district: postcodeDistrict,
+        airport_iata: airportIata,
+        departure_time: departureTime,
+        adults,
+        children: childrenArr,
+        infants,
+        checkedBags,
+      },
+      row,
+    );
+
+    const cost = transitPreference === 'uber' ? transit.uber.mean_pence : transit.recommended_cost_pence;
+
+    return { ...opt, transit_cost_gbp: Math.round(cost) / 100 };
+  });
+
+  return { ...legResult.data, options };
+}
 
 interface PageProps {
   searchParams: {
@@ -204,6 +262,15 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     }),
   ]);
 
+  const outboundLegData = attachTransitCost(
+    outboundLegResult, 'outbound', selectedOutbound, postcodeDistrict,
+    adults, children, infants, checkedBags, transitPreference,
+  );
+  const returnLegData = attachTransitCost(
+    returnLegResult, 'return', selectedReturn, postcodeDistrict,
+    adults, children, infants, checkedBags, transitPreference,
+  );
+
   function formatDate(iso: string): string {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const d = new Date(iso + 'T00:00:00');
@@ -345,7 +412,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             {/* 5. LegOptions outbound */}
             <div id="leg-options">
               <LegOptions
-                data={outboundLegResult?.error ? null : outboundLegResult?.data as any}
+                data={outboundLegData}
                 title={`Outbound options · ${formatDate(smartOutboundDate)}`}
                 adults={adults}
                 children={children}
@@ -365,7 +432,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
 
             {/* 6. LegOptions return */}
             <LegOptions
-              data={returnLegResult?.error ? null : returnLegResult?.data as any}
+              data={returnLegData}
               title={`Return options · ${formatDate(smartReturnDate)}`}
               adults={adults}
               children={children}
