@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
-import { selectCombination, effectiveCost, viable } from '@/lib/flights/selectCombination';
+import { effectiveCost, viable } from '@/lib/flights/selectCombination';
 import { computeScenarios } from '@/lib/flights/computeScenarios';
 
 export async function POST(request: NextRequest) {
@@ -51,9 +51,16 @@ export async function POST(request: NextRequest) {
       children,
       infants,
       transitPreference,
+      cabinBags,
+      checkedBags,
+      seatsTogether,
     );
 
-    const selectionContext = selectCombination(assembled.shortlist);
+    // Canonical winner — computed once inside assembleCombinationsOnly over the
+    // full deduped pool, not the AI-facing shortlist. Do not recompute here:
+    // a second selectCombination(assembled.shortlist) call would silently
+    // diverge from assembled.recommendation once the pools differ.
+    const selectionContext = assembled.selection;
     if (!selectionContext) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
