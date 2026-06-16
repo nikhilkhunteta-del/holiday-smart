@@ -120,6 +120,9 @@ export interface SelectionContext {
 export function selectCombination(
   combinations: ScoredCombination[],
 ): SelectionContext | null {
+  console.log('[selectCombination] called, input count:', combinations.length,
+    'viable:', combinations.filter(c => !c.requires_absence).length);
+
   const viable_combos = combinations.filter(viable);
   if (!viable_combos.length) return null;
 

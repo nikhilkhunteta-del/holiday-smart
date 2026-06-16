@@ -486,6 +486,8 @@ export async function assembleCombinationsOnly(
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
 
+  console.log('[assembly] called, combinations count:', combinations.length);
+
   const nearestAirport = await resolveNearestAirport(postcodeDistrict);
 
   const { transitCache, baselineOutKey, baselineRetKey } = await buildTransitCache(
@@ -586,6 +588,7 @@ export async function assembleCombinationsOnly(
 
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
   const shortlist = buildCandidateShortlist(assembled);
+  console.log('[shortlist] size:', shortlist.length);
 
   // Primary destination airport = most frequent out_dest_iata in no-absence combinations
   const noAbsenceCombinations = assembled.filter(c => !c.requires_absence);
