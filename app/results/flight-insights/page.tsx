@@ -180,14 +180,18 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     scenarioLightResult,
     scenarioCheckedResult,
     scenarioUberResult,
-    scenarioSeatsResult,
   ] = await Promise.all([
     // Travel light: zero all bags
+    // TODO(correctness): cabinBags=0/checkedBags=0 here are ignored — bag costs
+    // are baked into the SQL row from the original get_smart_recommendation call.
+    // Scenario saving figures do not reflect true bag cost differences. Fix separately.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
       transitPreference, 0, 0, seatsTogether,
     ) : null,
     // Add 1 checked bag per adult
+    // TODO(correctness): checkedBags+adults here is ignored — same bag-cost baking
+    // issue as travel_light above. Extra bag cost delta is not reflected in scenario total.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
       transitPreference, cabinBags, checkedBags + adults, seatsTogether,
@@ -202,13 +206,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
           'auto', cabinBags, checkedBags, seatsTogether,
-        )
-      : null,
-    // Toggle seats together
-    smartRaw && !seatsTogether
-      ? assembleCombinationsOnly(
-          smartRaw, postcodeDistrict, adults, children, infants,
-          transitPreference, cabinBags, checkedBags, true,
         )
       : null,
   ]);
@@ -294,7 +291,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     recommendation,
     assembled,
     { light: scenarioLightResult, checked: scenarioCheckedResult,
-      uber:  scenarioUberResult,  seats: scenarioSeatsResult },
+      uber:  scenarioUberResult,  seats: null },
     { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
   );
 
