@@ -11,14 +11,14 @@ export const ARRIVAL_PENALTY: Record<string, number> = {
   excellent:  0,
   good:       15,
   acceptable: 40,
-  // 'poor' → excluded via viable()
+  poor:       60,
 };
 
 export const OUT_DEP_PENALTY: Record<string, number> = {
   ideal:      0,
   good:       10,
   very_early: 35,
-  // 'poor' → excluded via viable()
+  poor:       50,
 };
 
 export const RET_DEP_PENALTY: Record<string, number> = {
@@ -55,12 +55,13 @@ export const LONDON_TRANSIT_PENALTY = (
 
 // ── Viability filter ─────────────────────────────────────────────────────
 // Absence combinations are never recommended (shown in matrix only).
-// Poor arrival/departure quality means first or last day is wasted.
+// Quality issues (poor arrival/departure) are handled as penalties in
+// effectiveCost(), not hard exclusions — a poor outbound on an inset day
+// is still a legitimate option the parent may have already chosen to take.
+// Hard exclusions are reserved for genuinely unbookable/impossible cases.
 export function viable(c: ScoredCombination): boolean {
   return (
     !c.requires_absence &&
-    c.arrival_quality !== 'poor' &&
-    c.outbound_departure_quality !== 'poor' &&
     c.trip_nights >= 1
   );
 }
@@ -127,6 +128,23 @@ export function selectCombination(
   if (!viable_combos.length) return null;
 
   console.log('[selectCombination] entered, viable count:', viable_combos.length);
+
+  const previouslyExcluded = viable_combos.filter(
+    c => c.arrival_quality === 'poor' ||
+         c.outbound_departure_quality === 'poor'
+  );
+  if (previouslyExcluded.length > 0) {
+    console.log('[previously-excluded-now-included]',
+      previouslyExcluded.map(c => ({
+        out:      c.outbound_date,
+        ret:      c.return_date,
+        carrier:  c.outbound_carrier,
+        out_dep_q: c.outbound_departure_quality,
+        arr_q:    c.arrival_quality,
+        eff:      effectiveCost(c),
+      }))
+    );
+  }
 
   // Debug: top 3 candidates by effectiveCost, with full penalty breakdown —
   // computed and logged BEFORE the winner is picked, so Vercel logs show the

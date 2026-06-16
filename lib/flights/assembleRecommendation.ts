@@ -624,13 +624,14 @@ export async function assembleCombinationsOnly(
       ) ?? null
     : null;
 
+  const recShortlistEntry = shortlist.find(c =>
+    c.outbound_date    === recommendation.outbound_date &&
+    c.return_date      === recommendation.return_date &&
+    c.outbound_carrier === recommendation.outbound_carrier
+  ) ?? shortlist[0];
+
   const recEffCost = selectionResult
-    ? effectiveCost(
-        shortlist.find(c =>
-          c.outbound_date === recommendation.outbound_date &&
-          c.return_date   === recommendation.return_date
-        ) ?? shortlist[0]
-      )
+    ? effectiveCost(recShortlistEntry)
     : recommendation.total_cost_gbp;
   const savingCategory = computeSavingCategory(
     assembledBaseline.eff_cost,
