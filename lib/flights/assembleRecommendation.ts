@@ -1,7 +1,7 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
-import { buildCandidateShortlist, computeBenchmark, computeCostRange, type ScoredCombination, type CostRange } from './buildCandidates';
-import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY, selectCombination } from './selectCombination';
+import { buildCandidateShortlist, computeBenchmark, computeCostRange, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
+import { NIGHT_VALUE, effectiveCost, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, OUT_DEP_PENALTY, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -461,6 +461,7 @@ export type CombinationsOnlyResult = {
   benchmark: number | null;
   nearestAirport: string;
   cheapestViable: AssembledCombination | null;
+  selection: SelectionContext | null;
 };
 
 // Return type for assembleRecommendation
@@ -574,8 +575,16 @@ export async function assembleCombinationsOnly(
   );
   assembledBaseline.return_departure_time_derived = baselineRetTime ?? 'unknown';
 
+  // Score + dedupe the full pool once — this is what effectiveCost()/
+  // selectCombination() run over, and what the shortlist's diversity
+  // categories are drawn from. Dedup collapses same-flight-pair entries
+  // (identical outbound+return+airports+carriers, different bag/seat
+  // assumptions) to the cheapest representative.
+  const scoredPool = scoreAndDedupeCombinations(assembled);
+  console.log('[scoredPool] raw:', assembled.length, 'deduped:', scoredPool.length);
+
   // Build shortlist for AI (also returned so assembleRecommendation can reuse)
-  const shortlist = buildCandidateShortlist(assembled);
+  const shortlist = buildCandidateShortlist(scoredPool);
   console.log('[shortlist] size:', shortlist.length);
 
   // Primary destination airport = most frequent out_dest_iata in no-absence combinations
@@ -608,11 +617,40 @@ export async function assembleCombinationsOnly(
       )
     : null;
 
-  // Use effectiveCost() selection — this is the canonical winner across all
-  // downstream uses (nights, inset bonus, departure/arrival quality, London
-  // transit, destination transfer penalties all factored in).
-  const selectionResult = selectCombination(shortlist);
+  // Use effectiveCost() selection over the FULL deduped pool — not just the
+  // shortlist. The shortlist is a diversity sample for the AI prompt; scoring
+  // only that sample was the original bug (winner could only ever be one of
+  // 10-15 hand-picked items, never anything the 11 categories happened to miss).
+  // This is the single canonical winner — route.ts must not recompute its own.
+  const selectionResult = selectCombination(scoredPool);
   const recommendation: AssembledCombination = selectionResult?.winner ?? assembled[0];
+
+  // Live tie-band visibility: spread of effectiveCost() across the viable pool,
+  // and how many fall within £25 of the winner. Logged on every request so the
+  // distribution can be read straight from prod/dev logs without a DB query.
+  if (selectionResult) {
+    const viablePool = scoredPool.filter(c => !c.requires_absence && c.trip_nights >= 1);
+    const effCosts = viablePool.map(c => effectiveCost(c)).sort((a, b) => a - b);
+    const n = effCosts.length;
+    const median = n % 2 === 1
+      ? effCosts[(n - 1) / 2]
+      : (effCosts[n / 2 - 1] + effCosts[n / 2]) / 2;
+    const withinTieBand = effCosts.filter(c => c - effCosts[0] <= 25).length;
+    console.log('[tie-band]', {
+      pool_size: n,
+      min_eff_cost: Math.round(effCosts[0]),
+      max_eff_cost: Math.round(effCosts[n - 1]),
+      median_eff_cost: Math.round(median),
+      within_25_of_winner: withinTieBand,
+    });
+  }
+
+  // Guarantee the winner is present in whatever array is sent to the AI/
+  // downstream .find() lookups — otherwise those silently fall back to
+  // shortlist[0] when the true winner came from outside the 11 categories.
+  const shortlistWithWinner = selectionResult
+    ? withWinnerIncluded(shortlist, selectionResult.winner)
+    : shortlist;
 
   // Cheapest viable combination by raw total_cost_gbp (for "vs cheapest" copy) —
   // sourced from selectionResult so there's a single source of truth.
@@ -624,14 +662,10 @@ export async function assembleCombinationsOnly(
       ) ?? null
     : null;
 
-  const recShortlistEntry = shortlist.find(c =>
-    c.outbound_date    === recommendation.outbound_date &&
-    c.return_date      === recommendation.return_date &&
-    c.outbound_carrier === recommendation.outbound_carrier
-  ) ?? shortlist[0];
-
+  // recommendation IS selectionResult.winner — effectiveCost already computed,
+  // no need to re-find it in the shortlist (that's the bug this replaces).
   const recEffCost = selectionResult
-    ? effectiveCost(recShortlistEntry)
+    ? selectionResult.winnerEffCost
     : recommendation.total_cost_gbp;
   const savingCategory = computeSavingCategory(
     assembledBaseline.eff_cost,
@@ -672,10 +706,11 @@ export async function assembleCombinationsOnly(
     savingCategory,
     baselineIsRecommended,
     baselineAsItinerary,
-    shortlist,
+    shortlist: shortlistWithWinner,
     benchmark,
     nearestAirport,
     cheapestViable,
+    selection: selectionResult,
   };
 }
 
@@ -764,13 +799,9 @@ export async function assembleRecommendation(
      new Date(recommendation.outbound_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
   );
   const nightsDiff = recNights - baselineNights;
-  const recEffCost2 = effectiveCost(
-    base.shortlist.find(c =>
-      c.outbound_date    === recommendation.outbound_date &&
-      c.return_date      === recommendation.return_date &&
-      c.outbound_carrier === recommendation.outbound_carrier
-    ) ?? base.shortlist[0]
-  );
+  // recommendation IS base.selection.winner — reuse its already-computed
+  // effectiveCost rather than re-finding it via a shortlist .find().
+  const recEffCost2 = base.selection?.winnerEffCost ?? recommendation.total_cost_gbp;
   const savingCategory = computeSavingCategory(
     base.baseline.eff_cost,
     recEffCost2,

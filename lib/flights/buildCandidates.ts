@@ -136,19 +136,41 @@ export interface ScoredCombination extends AssembledCombination, QualityFields {
   pre_score: number;
 }
 
-// ── Build candidate shortlist ─────────────────────────────────────────────────
-// Selects 10–15 diverse combinations for the AI to reason across.
-// Deduplicates by combination index — same combination never appears twice.
+// ── Combination identity ──────────────────────────────────────────────────────
+// Two combinations are the same trip if they share outbound date, return date,
+// origin airport, destination airport, and both carriers. Different baggage/
+// seat assumptions on the same flight pair do not make it a distinct trip.
 
-export function buildCandidateShortlist(
+export function combinationKey(
+  c: Pick<AssembledCombination, 'outbound_date' | 'return_date' | 'origin_iata' | 'out_dest_iata' | 'outbound_carrier' | 'return_carrier'>,
+): string {
+  return `${c.outbound_date}_${c.return_date}_${c.origin_iata}_${c.out_dest_iata}_${c.outbound_carrier}_${c.return_carrier}`;
+}
+
+// ── Score and dedupe the full pool ────────────────────────────────────────────
+// Canonical entry point for turning raw SQL combinations into the scored set
+// that effectiveCost()/selectCombination() and the shortlist both draw from.
+// Dedup keeps the cheapest (by total_inc_fine) representative per trip — same
+// flight pair under different baggage/seat assumptions collapses to one entry.
+
+export function scoreAndDedupeCombinations(
   combinations: AssembledCombination[],
 ): ScoredCombination[] {
   if (!combinations.length) return [];
 
-  const cheapestCost = Math.min(...combinations.map(c => c.total_inc_fine));
+  const cheapestPerKey = new Map<string, AssembledCombination>();
+  for (const c of combinations) {
+    const key = combinationKey(c);
+    const existing = cheapestPerKey.get(key);
+    if (!existing || c.total_inc_fine < existing.total_inc_fine) {
+      cheapestPerKey.set(key, c);
+    }
+  }
+  const deduped = Array.from(cheapestPerKey.values());
 
-  // Score every combination
-  const scored: ScoredCombination[] = combinations.map(c => {
+  const cheapestCost = Math.min(...deduped.map(c => c.total_inc_fine));
+
+  return deduped.map(c => {
     const quality = computeQualityFields(c);
     return {
       ...c,
@@ -156,6 +178,17 @@ export function buildCandidateShortlist(
       pre_score: preScore(c, quality, cheapestCost),
     };
   });
+}
+
+// ── Build candidate shortlist ─────────────────────────────────────────────────
+// Selects 10–15 diverse combinations for the AI to reason across, as labelled
+// post-scoring views over an already scored+deduped pool (see
+// scoreAndDedupeCombinations) — not a prefilter the winner is chosen from.
+
+export function buildCandidateShortlist(
+  scored: ScoredCombination[],
+): ScoredCombination[] {
+  if (!scored.length) return [];
 
   // Sort by pre_score descending for selection
   const byScore = [...scored].sort((a, b) => b.pre_score - a.pre_score);
@@ -165,7 +198,7 @@ export function buildCandidateShortlist(
 
   function add(c: ScoredCombination | undefined, _label: string) {
     if (!c) return;
-    const key = `${c.outbound_date}_${c.return_date}_${c.origin_iata}_${c.out_dest_iata}_${c.outbound_carrier}_${c.return_carrier}`;
+    const key = combinationKey(c);
     if (!selected.has(key)) selected.set(key, c);
   }
 
@@ -265,6 +298,20 @@ export function buildCandidateShortlist(
   // Return as array sorted by pre_score descending
   return Array.from(selected.values())
     .sort((a, b) => b.pre_score - a.pre_score);
+}
+
+// ── Guarantee winner membership ───────────────────────────────────────────────
+// The winner is chosen by minimum effectiveCost() over the full scored pool and
+// may not land in any of the 11 diversity categories above. Anything sent
+// downstream that does a shortlist.find(winner) (AI prompt assembly, recEffCost
+// lookups) needs the winner present or it silently falls back to shortlist[0].
+export function withWinnerIncluded(
+  shortlist: ScoredCombination[],
+  winner: ScoredCombination,
+): ScoredCombination[] {
+  const winnerKey = combinationKey(winner);
+  if (shortlist.some(c => combinationKey(c) === winnerKey)) return shortlist;
+  return [winner, ...shortlist];
 }
 
 // ── Benchmark cost computation ────────────────────────────────────────────────
