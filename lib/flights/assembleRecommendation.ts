@@ -210,6 +210,7 @@ async function buildRawTransitCache(
   adults: number,
   children: number,
   infants: number,
+  checkedBags: number = 0,
 ): Promise<Map<string, AirportTransitCost>> {
   const childrenArr = Array.from({ length: children }, () => ({ age: 10 }));
 
@@ -265,7 +266,7 @@ async function buildRawTransitCache(
   const keys = [...transitMap.keys()];
   const inputs = keys.map(k => transitMap.get(k)!);
   const results = await Promise.all(
-    inputs.map(input => getTransitCost({ ...input, adults, children: childrenArr, infants })),
+    inputs.map(input => getTransitCost({ ...input, adults, children: childrenArr, infants, checkedBags })),
   );
 
   const transitCache = new Map<string, AirportTransitCost>();
@@ -302,7 +303,9 @@ function applyTransitPreference(
 
 export interface AssemblyPrecomputed {
   nearestAirport: string;
-  rawTransitCache: Map<string, AirportTransitCost>;
+  // Optional — absent when the caller only wants to share the airport lookup
+  // but needs to build its own transit cache (e.g. bag-varying scenarios).
+  rawTransitCache?: Map<string, AirportTransitCost>;
 }
 
 export async function buildAssemblyPrecomputed(
@@ -312,10 +315,12 @@ export async function buildAssemblyPrecomputed(
   adults: number,
   children: number,
   infants: number,
+  checkedBags: number = 0,
 ): Promise<AssemblyPrecomputed> {
   const nearestAirport = await resolveNearestAirport(postcodeDistrict);
   const rawTransitCache = await buildRawTransitCache(
-    combinations, baseline, postcodeDistrict, nearestAirport, adults, children, infants,
+    combinations, baseline, postcodeDistrict, nearestAirport,
+    adults, children, infants, checkedBags,
   );
   return { nearestAirport, rawTransitCache };
 }
@@ -646,9 +651,13 @@ export async function assembleCombinationsOnly(
   const nearestAirport = precomputed?.nearestAirport
     ?? await resolveNearestAirport(postcodeDistrict);
 
+  // Use the precomputed transit cache when available (same bags as this call);
+  // otherwise build fresh — passing this call's own checkedBags so the Uber-XL
+  // multiplier fires correctly for bag-varying scenarios (travel_light, add_checked_bag).
   const rawTransitCache = precomputed?.rawTransitCache
     ?? await buildRawTransitCache(
-        combinations, baseline, postcodeDistrict, nearestAirport, adults, children, infants,
+        combinations, baseline, postcodeDistrict, nearestAirport,
+        adults, children, infants, checkedBags,
       );
 
   // Apply per-call preference override in-memory — must not be shared across

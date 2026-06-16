@@ -173,8 +173,15 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         adults,
         children,
         infants,
+        checkedBags,
       )
     : null;
+
+  // Scenarios that change checkedBags must build their own transit cache so the
+  // Uber-XL multiplier (isXL when checkedBags >= 2) fires with the correct count.
+  // Pass only nearestAirport from precomputed — skips the airport DB lookup but
+  // triggers a fresh buildRawTransitCache with the scenario's own checkedBags.
+  const airportOnly = precomputed ? { nearestAirport: precomputed.nearestAirport } : undefined;
 
   const assembled = smartRaw
     ? await assembleCombinationsOnly(
@@ -199,23 +206,24 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     scenarioCheckedResult,
     scenarioUberResult,
   ] = await Promise.all([
-    // Travel light: zero all bags
+    // Travel light: zero all bags — own transit cache (isXL must use checkedBags=0)
     // TODO(correctness): cabinBags=0/checkedBags=0 here are ignored — bag costs
     // are baked into the SQL row from the original get_smart_recommendation call.
     // Scenario saving figures do not reflect true bag cost differences. Fix separately.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, 0, 0, seatsTogether, precomputed ?? undefined,
+      transitPreference, 0, 0, seatsTogether, airportOnly,
     ) : null,
-    // Add 1 checked bag per adult
-    // TODO(correctness): checkedBags+adults here is ignored — same bag-cost baking
-    // issue as travel_light above. Extra bag cost delta is not reflected in scenario total.
+    // Add 1 checked bag per adult — own transit cache (isXL must use checkedBags+adults)
+    // TODO(correctness): fare-side bag costs are baked into the SQL row from the original
+    // get_smart_recommendation call. Only transit XL-adjustment reflects the bag change.
+    // Full fare-side correctness is a separate fix.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, cabinBags, checkedBags + adults, seatsTogether, precomputed ?? undefined,
+      transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
     ) : null,
-    // Flip transit mode — passes different transitPreference; applyTransitPreference
-    // runs independently inside each call so the override is never shared.
+    // Flip transit mode — same bags as main call; shares full precomputed transit cache.
+    // applyTransitPreference runs independently per call so the override is never shared.
     smartRaw && transitPreference !== 'uber'
       ? assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
