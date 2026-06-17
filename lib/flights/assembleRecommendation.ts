@@ -1221,6 +1221,7 @@ export async function assembleRecommendation(
         origin_iata: best.origin_iata,
       };
     })(),
+    lcc_cabin_bag_cost: undefined,
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],

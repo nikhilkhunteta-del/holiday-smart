@@ -545,34 +545,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
       {/* ── Full-width header ─────────────────────────────── */}
       <div className="mb-lg">
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          background: 'rgba(0,67,73,0.06)',
-          border: '1px solid rgba(0,67,73,0.12)',
-          borderRadius: 20,
-          padding: '4px 12px',
-          marginBottom: 16,
-        }}>
-          <span style={{
-            fontFamily: 'Inter, sans-serif',
-            fontSize: 11,
-            fontWeight: 600,
-            color: '#004349',
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
-          }}>
-            All prices all-in
-          </span>
-          <span style={{
-            fontFamily: 'Inter, sans-serif',
-            fontSize: 11,
-            color: '#6f797a',
-          }}>
-            fare · bags · seats · transport
-          </span>
-        </div>
         {aiResult?.problem_statement && (
           <p style={{
             fontFamily: 'Newsreader, serif',
@@ -762,12 +734,12 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             className="bg-white rounded-xl border border-outline-variant relative overflow-hidden"
             style={{ padding: 32, boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)' }}
           >
-            {/* Smart Trip badge */}
+            {/* Badge — context-dependent */}
             <div className="absolute top-0 right-0 p-lg">
               <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
                 <span className="material-symbols-outlined text-[18px]">verified</span>
                 <span className="font-label-sm text-label-sm font-bold uppercase tracking-tighter">
-                  Smart Trip
+                  {fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip'}
                 </span>
               </div>
             </div>

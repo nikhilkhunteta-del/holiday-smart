@@ -90,6 +90,7 @@ export interface FamilyContext {
     return_carrier: string;
     origin_iata: string;
   } | null;
+  lcc_cabin_bag_cost?: number;
 }
 
 interface CardSpec {
@@ -1085,6 +1086,23 @@ One sentence. Specific. No carrier saving numbers.`,
       });
     }
 
+    // Card 4 — Cabin bags included (when BA includes bags and LCCs charge)
+    if ((recommended.cabin_bag_cost_gbp ?? 0) === 0 && context.lcc_cabin_bag_cost && context.lcc_cabin_bag_cost > 0) {
+      const lccCost = context.lcc_cabin_bag_cost;
+      baselineCards.push({
+        lever: 'cabin_bags_included',
+        headline_hint: 'Cabin bags included',
+        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        facts: {
+          locked_headline: 'Cabin bags included',
+          sentence_1: `${cn(blCarrier)} includes a full cabin bag in this fare. Budget carriers on the same route charge £25–£47 per person each way — for your party, that's an extra £${lccCost} not shown in their fare.`,
+        },
+        verified_field: 'cabin_bag_cost_gbp',
+        verified_value: 0,
+        saving_gbp: lccCost,
+      });
+    }
+
     finalCards = baselineCards;
   }
 
@@ -1265,8 +1283,8 @@ values in facts. Copy numbers exactly — never calculate.
 Rules:
 - travel_light: lead with the saving and action
 - skip_seats: mention the caveat (may not sit together)
-- transport_flip (costs more): frame as convenience
-  upgrade, mention Uber range from facts
+- add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
+- transport_flip (costs more): mention both London and destination transport (e.g. "Uber to Heathrow + taxi from BCN airport")
 - transport_flip (saves money): lead with the saving
 - If flight_changes is true: mention "different flight"
 

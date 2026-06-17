@@ -94,7 +94,10 @@ export async function POST(request: NextRequest) {
       recommendation, assembled,
       { light: scenarioLightResult, checked: scenarioCheckedResult,
         uber: scenarioUberResult, seats: null },
-      { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
+      { cabinBags, checkedBags, seatsTogether, transitPreference, adults,
+        destinationName: destinationSlug?.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        firstCheckedBagGbp: precomputed.bagFeesCache?.get(recommendation?.outbound_carrier ?? 'BA')?.first_checked_bag_gbp ?? undefined,
+      },
     );
 
     const combinations = assembled.scoredPool;
@@ -133,6 +136,18 @@ export async function POST(request: NextRequest) {
 
     const blScored = assembled.scoredPool.find(c => (c as any).is_baseline) ?? null;
     const bl = assembled.baselineAsCombination;
+    const partySize = adults + children;
+    const lccCabinBagCost = (() => {
+      const lccCarriers = ['FR', 'U2', 'W6'];
+      const fees = lccCarriers
+        .map(c => precomputed.bagFeesCache?.get(c))
+        .filter(Boolean)
+        .map(f => f!.full_cabin_bag_fee_gbp ?? 0)
+        .filter(f => f > 0);
+      if (fees.length === 0) return undefined;
+      const avg = fees.reduce((a, b) => a + b, 0) / fees.length;
+      return Math.round((avg * partySize * 2) / 10) * 10;
+    })();
     const bestInsetFromPool = (() => {
       const insets = assembled.scoredPool
         .filter(c => c.is_inset_day && !(c as any).is_baseline)
@@ -182,6 +197,7 @@ export async function POST(request: NextRequest) {
       baseline_trip_nights:     blScored?.trip_nights ?? undefined,
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
       bestInsetFromPool,
+      lcc_cabin_bag_cost: lccCabinBagCost,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
