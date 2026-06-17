@@ -100,7 +100,7 @@ function encodeTfs(legs: Array<{ origin: string; dest: string; date: string }>, 
   }
   function tag(f: number, w: number) { return varint((f << 3) | w); }
   function str(f: number, s: string) {
-    const b = Array.from(Buffer.from(s, 'utf8'));
+    const b = Array.from(new TextEncoder().encode(s));
     return [...tag(f, 2), ...varint(b.length), ...b];
   }
   function vi(f: number, v: number) { return [...tag(f, 0), ...varint(v)]; }
@@ -116,7 +116,8 @@ function encodeTfs(legs: Array<{ origin: string; dest: string; date: string }>, 
     ...vi(14, 1), ...vi(8, 1), ...vi(9, 1),
     ...vi(19, oneWay ? 2 : 1),
   ];
-  return Buffer.from(bytes).toString('base64url');
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function buildGoogleFlightsUrl(params: {
