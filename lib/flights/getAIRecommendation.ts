@@ -219,10 +219,66 @@ export async function getAIRecommendation(
       c.return_carrier   === ctx.winner.return_carrier
     );
     if (found) return found;
-    // Baseline winner: build from ctx.winner directly (has all quality fields)
-    return combinationsForPrompt[0]
-      ? { ...combinationsForPrompt[0], ...ctx.winner }
-      : { ...ctx.winner, index: 0 } as unknown as typeof combinationsForPrompt[0];
+    // Baseline winner not in shortlist — build same shape from ctx.winner
+    const w = ctx.winner;
+    return {
+      index: 0,
+      outbound_date: w.outbound_date,
+      return_date: w.return_date,
+      origin_iata: w.origin_iata,
+      out_dest_iata: w.out_dest_iata,
+      ret_dest_iata: w.ret_dest_iata,
+      outbound_carrier: w.outbound_carrier,
+      return_carrier: w.return_carrier,
+      split_carrier: w.split_carrier,
+      outbound_departure_time: w.outbound_departure_time,
+      outbound_arrival_time: w.outbound_arrival_time,
+      outbound_duration_mins: w.outbound_duration_mins,
+      return_departure_time: w.return_departure_time,
+      return_arrival_time: w.return_arrival_time,
+      is_inset_day: w.is_inset_day,
+      requires_absence: w.requires_absence,
+      absence_days: w.absence_days,
+      fine_gbp: w.fine_gbp,
+      cabin_bag_cost_gbp: w.cabin_bag_cost_gbp,
+      outbound_cabin_bag_cost_gbp: w.outbound_cabin_bag_cost_gbp,
+      return_cabin_bag_cost_gbp: w.return_cabin_bag_cost_gbp,
+      checked_bag_cost_gbp: w.checked_bag_cost_gbp,
+      seat_cost_gbp: w.seat_cost_gbp,
+      outbound_transit_cost_gbp: w.outbound_transit_cost_gbp,
+      outbound_transit_route: w.outbound_transit?.transit?.route_summary ?? null,
+      outbound_transit_duration_mins: w.outbound_transit?.transit?.duration_mins ?? null,
+      outbound_transit_changes: w.outbound_transit?.transit?.changes ?? null,
+      outbound_uber_cost_gbp: w.outbound_transit?.uber?.mean_pence
+        ? Math.round(w.outbound_transit.uber.mean_pence / 100) : null,
+      outbound_uber_low_gbp: w.outbound_transit?.uber?.low_pence
+        ? Math.round(w.outbound_transit.uber.low_pence / 100) : null,
+      outbound_uber_high_gbp: w.outbound_transit?.uber?.high_pence
+        ? Math.round(w.outbound_transit.uber.high_pence / 100) : null,
+      outbound_uber_duration_mins: w.outbound_transit?.uber?.duration_mins ?? null,
+      outbound_early_warning: w.outbound_transit?.transit?.early_flight_warning ?? false,
+      return_transit_cost_gbp: w.return_transit_cost_gbp,
+      return_transit_route: w.return_transit?.transit?.route_summary ?? null,
+      return_transit_changes: w.return_transit?.transit?.changes ?? null,
+      return_uber_cost_gbp: w.return_transit?.uber?.mean_pence
+        ? Math.round(w.return_transit.uber.mean_pence / 100) : null,
+      return_uber_low_gbp: w.return_transit?.uber?.low_pence
+        ? Math.round(w.return_transit.uber.low_pence / 100) : null,
+      return_uber_high_gbp: w.return_transit?.uber?.high_pence
+        ? Math.round(w.return_transit.uber.high_pence / 100) : null,
+      destination_transfer_cost_gbp: w.destination_transfer_cost_gbp,
+      baggage_is_estimate: w.baggage_is_estimate,
+      total_cost_gbp: w.total_cost_gbp,
+      total_inc_fine: w.total_inc_fine,
+      outbound_fare_gbp: w.outbound_fare_gbp,
+      return_fare_gbp: w.return_fare_gbp,
+      trip_nights: w.trip_nights,
+      arrival_quality: w.arrival_quality,
+      outbound_departure_quality: w.outbound_departure_quality,
+      return_departure_quality: w.return_departure_quality,
+      total_outbound_travel_mins: w.total_outbound_travel_mins,
+      pre_score: w.pre_score,
+    };
   })();
 
   // ── Helpers ──────────────────────────────────────────────────────────
