@@ -220,7 +220,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     ) : null,
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
+      transitPreference, cabinBags, checkedBags + 1, seatsTogether, airportOnly,
     ) : null,
     // Flip transit mode — same bags as main call; shares full precomputed transit cache.
     // applyTransitPreference runs independently per call so the override is never shared.

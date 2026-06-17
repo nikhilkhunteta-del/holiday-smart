@@ -107,12 +107,12 @@ export function buildScenarioResults(
       facts: {
         extra_cost:      Math.abs(extraCost),
         scenario_total:  scenarioTotal,
-        bags_added:      params.adults,
+        bags_added:      1,
         flight_changes:  flightChanged(currentWinner, w),
         scenario_carrier: cn(w.outbound_carrier),
       },
       url_params: {
-        checked_bags: String(params.checkedBags + params.adults)
+        checked_bags: String(params.checkedBags + 1)
       },
     });
   }

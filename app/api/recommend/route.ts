@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         ),
         assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
-          transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
+          transitPreference, cabinBags, checkedBags + 1, seatsTogether, airportOnly,
         ),
         transitPreference !== 'uber'
           ? assembleCombinationsOnly(
