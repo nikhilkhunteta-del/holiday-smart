@@ -687,6 +687,7 @@ export type BaselineAsItinerary = {
   outbound_date: string;
   return_date: string;
   origin_iata: string;
+  destination_iata: string;
   outbound_carrier: string;
   return_carrier: string;
   total_cost_gbp: number;
@@ -918,6 +919,7 @@ export async function assembleCombinationsOnly(
     outbound_date: assembledBaseline.outbound_date,
     return_date: assembledBaseline.return_date,
     origin_iata: assembledBaseline.origin_iata,
+    destination_iata: assembledBaseline.destination_iata,
     outbound_carrier: assembledBaseline.carrier,
     return_carrier: assembledBaseline.carrier,
     total_cost_gbp: assembledBaseline.total_cost_gbp,
@@ -1050,6 +1052,7 @@ export async function assembleRecommendation(
     outbound_date: base.baseline.outbound_date,
     return_date: base.baseline.return_date,
     origin_iata: base.baseline.origin_iata,
+    destination_iata: base.baseline.destination_iata,
     outbound_carrier: base.baseline.carrier,
     return_carrier: base.baseline.carrier,
     total_cost_gbp: base.baseline.total_cost_gbp,
