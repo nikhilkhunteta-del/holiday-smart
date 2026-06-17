@@ -257,10 +257,11 @@ function recalcBagCosts(
 
 function applyDestTransferFlip(
   c: AssembledCombination,
-  partySize: number,
+  _partySize?: number,
 ): AssembledCombination {
   if (c.destination_taxi_cost_gbp == null) return c;
-  const newTransferCost = c.destination_taxi_cost_gbp * 2 * partySize;
+  // taxi_cost_gbp is a flat vehicle rate (not per-person); × 2 for round trip only
+  const newTransferCost = c.destination_taxi_cost_gbp * 2;
   const delta = newTransferCost - c.destination_transfer_cost_gbp;
   return {
     ...c,

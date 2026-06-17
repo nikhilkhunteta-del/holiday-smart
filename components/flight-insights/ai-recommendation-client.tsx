@@ -54,6 +54,9 @@ interface AIRecommendationClientProps {
     destination_iata: string;
     carrier: string;
     outbound_departure_time: string | null;
+    outbound_arrival_time: string | null;
+    return_departure_time: string | null;
+    return_arrival_time: string | null;
     total_cost_gbp: number;
   } | null;
 }
@@ -777,15 +780,24 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     </span>
                   </div>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
-                    {baseline.outbound_departure_time?.slice(0, 5) ?? '06:10'}
+                    {baseline.outbound_departure_time?.slice(0, 5) ?? ''}
                     <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
-                    09:20
+                    {baseline.outbound_arrival_time?.slice(0, 5) ?? ''}
                   </div>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
                     {baseline.origin_iata} → {baseline.destination_iata} &nbsp;·&nbsp; {baseline.outbound_date ? new Date(baseline.outbound_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
                   </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', fontStyle: 'italic' }}>
-                    Round-trip — return {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''} included
+                  <div style={{ height: 1, background: '#e1e3e3', margin: '12px 0' }} />
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Return
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
+                    {baseline.return_departure_time?.slice(0, 5) ?? ''}
+                    <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
+                    {baseline.return_arrival_time?.slice(0, 5) ?? ''}
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
+                    {baseline.destination_iata} → {baseline.origin_iata} &nbsp;·&nbsp; {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
                   </div>
                 </div>
 

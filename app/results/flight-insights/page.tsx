@@ -381,13 +381,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
             scenarios={scenarios}
             baseline={assembled?.baseline ? {
-              outbound_date:         assembled.baseline.outbound_date,
-              return_date:           assembled.baseline.return_date,
-              origin_iata:           assembled.baseline.origin_iata,
-              destination_iata:      assembled.baseline.destination_iata,
-              carrier:               assembled.baseline.carrier,
+              outbound_date:           assembled.baseline.outbound_date,
+              return_date:             assembled.baseline.return_date,
+              origin_iata:             assembled.baseline.origin_iata,
+              destination_iata:        assembled.baseline.destination_iata,
+              carrier:                 assembled.baseline.carrier,
               outbound_departure_time: assembled.baseline.outbound_departure_time,
-              total_cost_gbp:        assembled.baseline.total_cost_gbp,
+              outbound_arrival_time:   assembled.baselineAsCombination?.outbound_arrival_time ?? null,
+              return_departure_time:   assembled.baselineAsCombination?.return_departure_time ?? null,
+              return_arrival_time:     assembled.baselineAsCombination?.return_arrival_time ?? null,
+              total_cost_gbp:          assembled.baseline.total_cost_gbp,
             } : null}
           >
 
