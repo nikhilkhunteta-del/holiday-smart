@@ -1128,6 +1128,15 @@ One sentence. Specific. No carrier saving numbers.`,
     };
   });
 
+  const baselineDepartureLabel = (() => {
+    const d = context.baseline_outbound_date;
+    if (!d) return '';
+    const date = new Date(d + 'T00:00:00');
+    const day = date.getDate();
+    const month = date.toLocaleDateString('en-GB', { month: 'short' });
+    return `Saturday ${day} ${month}`;
+  })();
+
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
 FAMILY:
@@ -1182,6 +1191,8 @@ SELECTION CONTEXT:
 - baseline_fare: £${context.baseline_fare ?? 'unknown'} (what Google Flights shows for the BA round-trip)
 - baseline_allin: £${context.baseline_allin ?? 'unknown'} (fare + bags + airport transport)
 - baseline_dep_quality: ${context.baseline_out_dep_quality ?? 'unknown'} (e.g. very_early = 06:10 departure)
+- baseline_origin_iata: ${context.baseline_origin_iata ?? 'LHR'}
+- baseline_departure_label: ${baselineDepartureLabel || 'unknown'} (e.g. "Saturday 25 Oct")
 
 ──────────────────────────────────────────
 HEADLINE
@@ -1239,10 +1250,10 @@ Use these values from SELECTION CONTEXT:
 - baseline_allin = what it actually costs (fare + bags + transport)
 
 IF is_baseline_cheapest is true:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for ${destinationName} this half-term. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday of your half-term window'} — the first Saturday of your half-term window. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
 
 OTHERWISE:
-"Most ${context.borough ?? 'London'} families search Google Flights and see £[baseline_fare] for ${destinationName} this half-term. All-in — bags, transport to the airport, transfers — it's £[baseline_allin]. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations. Here's what we found."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. All-in — bags, transport to the airport, transfers — it's £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations. Here's what we found."
 
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
