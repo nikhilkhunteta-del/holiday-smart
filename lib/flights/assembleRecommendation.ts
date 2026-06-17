@@ -1183,6 +1183,44 @@ export async function assembleRecommendation(
       };
       return AIRPORT_NAMES[base.baseline.origin_iata] ?? base.baseline.origin_iata;
     })(),
+    baseline_arr_quality:     (() => {
+      const blS = base.scoredPool.find(c => (c as any).is_baseline);
+      return blS?.arrival_quality ?? undefined;
+    })(),
+    baseline_ret_dep_quality: (() => {
+      const blS = base.scoredPool.find(c => (c as any).is_baseline);
+      return blS?.return_departure_quality ?? undefined;
+    })(),
+    baseline_out_arr_time:    base.baselineAsCombination?.outbound_arrival_time ?? undefined,
+    baseline_ret_arr_time:    base.baselineAsCombination?.return_arrival_time ?? undefined,
+    baseline_origin_iata:     base.baselineAsCombination?.origin_iata ?? undefined,
+    baseline_dest_iata:       base.baselineAsCombination?.out_dest_iata ?? undefined,
+    baseline_outbound_date:   base.baselineAsCombination?.outbound_date ?? undefined,
+    baseline_return_date:     base.baselineAsCombination?.return_date ?? undefined,
+    baseline_trip_nights:     (() => {
+      const blS = base.scoredPool.find(c => (c as any).is_baseline);
+      return blS?.trip_nights ?? undefined;
+    })(),
+    baseline_carrier:         base.baselineAsCombination?.outbound_carrier ?? undefined,
+    bestInsetFromPool: (() => {
+      const insets = base.scoredPool
+        .filter((c: any) => c.is_inset_day && !c.is_baseline)
+        .sort((a: any, b: any) => effectiveCost(a) - effectiveCost(b));
+      const best = insets[0];
+      if (!best) return undefined;
+      return {
+        outbound_date: best.outbound_date,
+        return_date: best.return_date,
+        outbound_departure_time: best.outbound_departure_time ?? null,
+        return_departure_time: best.return_departure_time ?? null,
+        total_cost_gbp: best.total_cost_gbp,
+        trip_nights: best.trip_nights,
+        arrival_quality: best.arrival_quality ?? null,
+        outbound_carrier: best.outbound_carrier,
+        return_carrier: best.return_carrier,
+        origin_iata: best.origin_iata,
+      };
+    })(),
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],

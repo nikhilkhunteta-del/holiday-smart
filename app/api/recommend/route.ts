@@ -131,6 +131,28 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    const blScored = assembled.scoredPool.find(c => (c as any).is_baseline) ?? null;
+    const bl = assembled.baselineAsCombination;
+    const bestInsetFromPool = (() => {
+      const insets = assembled.scoredPool
+        .filter(c => c.is_inset_day && !(c as any).is_baseline)
+        .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+      const best = insets[0];
+      if (!best) return undefined;
+      return {
+        outbound_date: best.outbound_date,
+        return_date: best.return_date,
+        outbound_departure_time: best.outbound_departure_time ?? null,
+        return_departure_time: best.return_departure_time ?? null,
+        total_cost_gbp: best.total_cost_gbp,
+        trip_nights: best.trip_nights,
+        arrival_quality: best.arrival_quality ?? null,
+        outbound_carrier: best.outbound_carrier,
+        return_carrier: best.return_carrier,
+        origin_iata: best.origin_iata,
+      };
+    })();
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -147,6 +169,19 @@ export async function POST(request: NextRequest) {
       baseline_fare:  Math.round(assembled.baseline?.baseline_fare_gbp ?? 0),
       baseline_allin: Math.round(assembled.baseline?.total_cost_gbp ?? 0),
       baseline_airport_name: assembled.baseline?.baseline_airport ?? 'Heathrow',
+      baseline_arr_quality:     blScored?.arrival_quality ?? undefined,
+      baseline_ret_dep_quality: blScored?.return_departure_quality ?? undefined,
+      baseline_out_dep_quality: blScored?.outbound_departure_quality ?? undefined,
+      baseline_out_arr_time:    bl?.outbound_arrival_time ?? undefined,
+      baseline_ret_dep_time:    bl?.return_departure_time ?? undefined,
+      baseline_ret_arr_time:    bl?.return_arrival_time ?? undefined,
+      baseline_origin_iata:     bl?.origin_iata ?? undefined,
+      baseline_dest_iata:       bl?.out_dest_iata ?? undefined,
+      baseline_outbound_date:   bl?.outbound_date ?? undefined,
+      baseline_return_date:     bl?.return_date ?? undefined,
+      baseline_trip_nights:     blScored?.trip_nights ?? undefined,
+      baseline_carrier:         bl?.outbound_carrier ?? undefined,
+      bestInsetFromPool,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
