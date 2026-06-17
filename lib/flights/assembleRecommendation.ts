@@ -198,6 +198,79 @@ function mapCombination(
   };
 }
 
+// ── Bag cost recalculation ────────────────────────────────────────────────────
+// Adjusts cabin/checked bag costs on assembled combinations using per-carrier
+// unit fees from airline_baggage_fees, then cascades to fare_plus_ancillary and
+// total_cost_gbp. Used by bag scenarios (travel_light, add_checked_bag) so the
+// winner selection runs on correct costs rather than SQL-baked originals.
+
+function recalcBagCosts(
+  c: AssembledCombination,
+  cabinBags: number,
+  checkedBags: number,
+  bagFees: Map<string, BagFeeRow>,
+): AssembledCombination {
+  const outFee = bagFees.get(c.outbound_carrier);
+  const retFee = bagFees.get(c.return_carrier);
+
+  const outCabin = (outFee && !outFee.cabin_bag_included && cabinBags > 0)
+    ? cabinBags * (outFee.full_cabin_bag_fee_gbp ?? 0) : 0;
+  const retCabin = (retFee && !retFee.cabin_bag_included && cabinBags > 0)
+    ? cabinBags * (retFee.full_cabin_bag_fee_gbp ?? 0) : 0;
+  const outChecked = checkedBags > 0
+    ? checkedBags * (outFee?.first_checked_bag_gbp ?? 0) : 0;
+  const retChecked = checkedBags > 0
+    ? checkedBags * (retFee?.first_checked_bag_gbp ?? 0) : 0;
+
+  const newCabinTotal   = outCabin + retCabin;
+  const newCheckedTotal = outChecked + retChecked;
+  const oldBagTotal     = c.cabin_bag_cost_gbp + c.checked_bag_cost_gbp;
+  const newBagTotal     = newCabinTotal + newCheckedTotal;
+  const bagDelta        = newBagTotal - oldBagTotal;
+
+  const newFarePlusAnc = c.fare_plus_ancillary_gbp + bagDelta;
+  const newTotalCost   = c.total_cost_gbp + bagDelta;
+  const newTotalInc    = newTotalCost + (c.fine_gbp ?? 0);
+
+  return {
+    ...c,
+    cabin_bag_cost_gbp:             newCabinTotal,
+    checked_bag_cost_gbp:           newCheckedTotal,
+    outbound_cabin_bag_cost_gbp:    outCabin,
+    return_cabin_bag_cost_gbp:      retCabin,
+    outbound_checked_bag_cost_gbp:  outChecked,
+    return_checked_bag_cost_gbp:    retChecked,
+    cabin_bag_cost_min_gbp:         newCabinTotal,
+    cabin_bag_cost_max_gbp:         newCabinTotal,
+    checked_bag_cost_min_gbp:       newCheckedTotal,
+    checked_bag_cost_max_gbp:       newCheckedTotal,
+    fare_plus_ancillary_gbp:        newFarePlusAnc,
+    total_cost_gbp:                 newTotalCost,
+    total_inc_fine:                  newTotalInc,
+  };
+}
+
+// ── Destination transfer flip ─────────────────────────────────────────────────
+// When transitPreference is 'uber', substitutes destination taxi cost for
+// destination transit cost in the all-in total, and updates the penalty field
+// so effectiveCost() uses the taxi duration.
+
+function applyDestTransferFlip(
+  c: AssembledCombination,
+  partySize: number,
+): AssembledCombination {
+  if (c.destination_taxi_cost_gbp == null) return c;
+  const newTransferCost = c.destination_taxi_cost_gbp * 2 * partySize;
+  const delta = newTransferCost - c.destination_transfer_cost_gbp;
+  return {
+    ...c,
+    destination_transfer_cost_gbp: newTransferCost,
+    destination_transit_duration_mins: c.destination_taxi_duration_mins,
+    total_cost_gbp: c.total_cost_gbp + delta,
+    total_inc_fine: c.total_inc_fine + delta,
+  };
+}
+
 // ── Shared transit enrichment ─────────────────────────────────────────────────
 // Collects all unique transit lookups needed for a combinations array + baseline,
 // fires them in parallel, returns a raw cache with no preference override applied.
@@ -306,6 +379,19 @@ export interface AssemblyPrecomputed {
   // Optional — absent when the caller only wants to share the airport lookup
   // but needs to build its own transit cache (e.g. bag-varying scenarios).
   rawTransitCache?: Map<string, AirportTransitCost>;
+  // Per-carrier baggage fee lookup — fetched once, used by bag scenarios.
+  bagFeesCache?: Map<string, BagFeeRow>;
+  // Original bag counts from the RPC call — used to detect when a scenario
+  // needs bag cost recalculation.
+  originalCabinBags?: number;
+  originalCheckedBags?: number;
+}
+
+export interface BagFeeRow {
+  airline_iata: string;
+  cabin_bag_included: boolean;
+  full_cabin_bag_fee_gbp: number | null;
+  first_checked_bag_gbp: number | null;
 }
 
 export async function buildAssemblyPrecomputed(
@@ -315,14 +401,35 @@ export async function buildAssemblyPrecomputed(
   adults: number,
   children: number,
   infants: number,
+  cabinBags: number = adults,
   checkedBags: number = 0,
 ): Promise<AssemblyPrecomputed> {
   const nearestAirport = await resolveNearestAirport(postcodeDistrict);
-  const rawTransitCache = await buildRawTransitCache(
-    combinations, baseline, postcodeDistrict, nearestAirport,
-    adults, children, infants, checkedBags,
-  );
-  return { nearestAirport, rawTransitCache };
+  const [rawTransitCache, bagFeesCache] = await Promise.all([
+    buildRawTransitCache(
+      combinations, baseline, postcodeDistrict, nearestAirport,
+      adults, children, infants, checkedBags,
+    ),
+    fetchBagFeesCache(),
+  ]);
+  return {
+    nearestAirport,
+    rawTransitCache,
+    bagFeesCache,
+    originalCabinBags: cabinBags,
+    originalCheckedBags: checkedBags,
+  };
+}
+
+async function fetchBagFeesCache(): Promise<Map<string, BagFeeRow>> {
+  const { data } = await supabase
+    .from('airline_baggage_fees')
+    .select('airline_iata, cabin_bag_included, full_cabin_bag_fee_gbp, first_checked_bag_gbp');
+  const map = new Map<string, BagFeeRow>();
+  for (const row of data ?? []) {
+    map.set(row.airline_iata, row as BagFeeRow);
+  }
+  return map;
 }
 
 // ── Nearest airport lookup ────────────────────────────────────────────────────
@@ -760,11 +867,34 @@ export async function assembleCombinationsOnly(
   );
   const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
 
-  const assembled: AssembledCombination[] = combinations.map((c: any) => {
+  let assembled: AssembledCombination[] = combinations.map((c: any) => {
     const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
     const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
     return mapCombination(c, transitCache.get(outKey)!, transitCache.get(retKey)!);
   });
+
+  // ── Bag cost recalculation ───────────────────────────────────────────────
+  // When this call's bag params differ from the SQL-baked originals (bag
+  // scenarios), recalculate per-combination bag costs from airline_baggage_fees.
+  const bagFees = precomputed?.bagFeesCache;
+  const origCabin   = precomputed?.originalCabinBags;
+  const origChecked = precomputed?.originalCheckedBags;
+  const bagsChanged = bagFees &&
+    origCabin != null && origChecked != null &&
+    (cabinBags !== origCabin || checkedBags !== origChecked);
+
+  if (bagsChanged) {
+    assembled = assembled.map(c => recalcBagCosts(c, cabinBags, checkedBags, bagFees));
+    console.log('[assembly] bag recalc applied: cabin', origCabin, '→', cabinBags,
+      'checked', origChecked, '→', checkedBags);
+  }
+
+  // ── Destination transfer flip ────────────────────────────────────────────
+  // When uber mode, substitute taxi costs for transit costs at the destination.
+  const partySize = adults + children + infants;
+  if (transitPreference === 'uber') {
+    assembled = assembled.map(c => applyDestTransferFlip(c, partySize));
+  }
 
   assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
 
@@ -777,11 +907,29 @@ export async function assembleCombinationsOnly(
   // arrival/duration is looked up here so the baseline can be scored with
   // the same effectiveCost() formula as every other combination, instead
   // of a duplicated penalty calculation.
-  const baselineNormalised = await buildBaselineAsCombination(
+  let baselineNormalised = await buildBaselineAsCombination(
     baseline, assembledBaseline, nearestAirport, adults, children,
   );
 
+  // Apply bag recalculation and destination transfer flip to baseline too.
   if (baselineNormalised) {
+    let blCombo = baselineNormalised.combination as AssembledCombination;
+    if (bagsChanged) {
+      blCombo = recalcBagCosts(blCombo, cabinBags, checkedBags, bagFees) as BaselineAsCombination;
+    }
+    if (transitPreference === 'uber') {
+      blCombo = applyDestTransferFlip(blCombo, partySize) as BaselineAsCombination;
+    }
+    if (bagsChanged || transitPreference === 'uber') {
+      const quality = computeQualityFields(blCombo);
+      const scored: ScoredCombination = { ...blCombo, ...quality, pre_score: 0 };
+      const newEffCost = effectiveCost(scored);
+      baselineNormalised = {
+        combination: blCombo as BaselineAsCombination,
+        scored,
+        eff_cost: newEffCost,
+      };
+    }
     assembledBaseline.eff_cost = Math.round(baselineNormalised.eff_cost);
     assembledBaseline.return_departure_time_derived =
       baselineNormalised.combination.return_departure_time ?? 'unknown';

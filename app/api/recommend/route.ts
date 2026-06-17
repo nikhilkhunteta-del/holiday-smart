@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
-import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
 import { effectiveCost, viable } from '@/lib/flights/selectCombination';
-import { computeScenarios } from '@/lib/flights/computeScenarios';
+import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,52 +44,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'RPC failed' }, { status: 500 });
     }
 
-    const assembled = await assembleCombinationsOnly(
-      smartResult.data,
-      postcodeDistrict,
-      adults,
-      children,
-      infants,
-      transitPreference,
-      cabinBags,
-      checkedBags,
-      seatsTogether,
-    );
+    const smartRaw = smartResult.data;
+    const rawCombinations = smartRaw?.combinations ?? [];
+    const rawBaseline = smartRaw?.baseline ?? {};
 
-    // Canonical winner — computed once inside assembleCombinationsOnly over the
-    // full deduped pool, not the AI-facing shortlist. Do not recompute here:
-    // a second selectCombination(assembled.shortlist) call would silently
-    // diverge from assembled.recommendation once the pools differ.
+    // Build shared precomputed cache — airport + transit + bag fees
+    const precomputed = await buildAssemblyPrecomputed(
+      rawCombinations, rawBaseline, postcodeDistrict,
+      adults, children, infants, cabinBags, checkedBags,
+    );
+    const airportOnly = { nearestAirport: precomputed.nearestAirport,
+      bagFeesCache: precomputed.bagFeesCache,
+      originalCabinBags: cabinBags, originalCheckedBags: checkedBags };
+
+    // Main assembly + 3 scenario re-assemblies in parallel
+    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult] =
+      await Promise.all([
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, cabinBags, checkedBags, seatsTogether, precomputed,
+        ),
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, 0, 0, seatsTogether, airportOnly,
+        ),
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
+        ),
+        transitPreference !== 'uber'
+          ? assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'uber', cabinBags, checkedBags, seatsTogether, precomputed,
+            )
+          : assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'auto', cabinBags, checkedBags, seatsTogether, precomputed,
+            ),
+      ]);
+
     const selectionContext = assembled.selection;
     if (!selectionContext) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
 
-    // Compute what-if scenarios using full assembled combinations.
-    // When the baseline won (is_baseline: true), it's not in combinations[]
-    // — use baselineAsCombination as the anchor so scenario deltas are relative
-    // to the baseline rather than falling through to combinations[0].
-    const isBaselineWinner = (selectionContext.winner as any).is_baseline === true;
-    const currentWinner = isBaselineWinner
-      ? (assembled.baselineAsCombination ?? assembled.combinations[0])
-      : assembled.combinations.find(c =>
-          c.outbound_date    === selectionContext.winner.outbound_date &&
-          c.return_date      === selectionContext.winner.return_date   &&
-          c.outbound_carrier === selectionContext.winner.outbound_carrier,
-        ) ?? assembled.combinations[0];
+    const recommendation = assembled.recommendation;
 
-    const scenarios = currentWinner
-      ? computeScenarios(
-          assembled.combinations,
-          currentWinner,
-          transitPreference,
-          adults,
-          children,
-          cabinBags,
-          checkedBags,
-          seatsTogether,
-        )
-      : [];
+    const scenarios = buildScenarioResults(
+      recommendation, assembled,
+      { light: scenarioLightResult, checked: scenarioCheckedResult,
+        uber: scenarioUberResult, seats: null },
+      { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
+    );
 
     const combinations = assembled.scoredPool;
     console.log('[validate] top combinations:',
