@@ -138,6 +138,9 @@ export async function POST(request: NextRequest) {
       checkedBags,
       seatsTogether,
       benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
+      baseline_fare:  Math.round(assembled.baseline?.baseline_fare_gbp ?? 0),
+      baseline_allin: Math.round(assembled.baseline?.total_cost_gbp ?? 0),
+      baseline_airport_name: assembled.baseline?.baseline_airport ?? 'Heathrow',
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))

@@ -492,18 +492,28 @@ async function buildBaselineAsCombination(
 
   const carrier = baseline.airline_iata ?? baseline.carrier;
 
-  // Prefer raw_json segment timestamps — baseline departure date is outside
-  // fare_snapshots coverage (Saturday before the holiday window), so lookupFareLeg
-  // always returns null for both legs. raw_json segments[0/1] carry the full
-  // ISO datetime for outbound and return legs of the round-trip result.
-  const rawJson = baseline.raw_json ? JSON.parse(baseline.raw_json) : null;
-  // Brief 2 diagnostic: log raw_json top-level structure so we can confirm the
-  // correct path to outbound arrival time. Remove once Brief 2 is resolved.
-  console.log('[baseline-raw_json-keys] top-level keys:', rawJson ? Object.keys(rawJson) : null);
-  console.log('[baseline-raw_json-result] result keys:', rawJson?.result ? Object.keys(rawJson.result) : null);
-  console.log('[baseline-raw_json-seg0]', JSON.stringify(rawJson?.result?.segments?.[0] ?? rawJson?.best_flights?.[0] ?? null));
-  const rawSegOut = rawJson?.result?.segments?.[0];
-  const rawSegRet = rawJson?.result?.segments?.[1];
+  // The RPC builds baseline as a jsonb_build_object and does NOT include raw_json.
+  // Query baseline_snapshots directly to get it.
+  const { data: bsRow } = await supabase
+    .from('baseline_snapshots')
+    .select('raw_json')
+    .eq('origin_iata', baseline.origin_iata)
+    .eq('destination_iata', baseline.destination_iata)
+    .eq('outbound_date', baseline.outbound_date)
+    .eq('airline_iata', carrier)
+    .limit(1)
+    .maybeSingle();
+
+  const rawJson = bsRow?.raw_json
+    ? (typeof bsRow.raw_json === 'string' ? JSON.parse(bsRow.raw_json) : bsRow.raw_json)
+    : null;
+  const rawSegOut = rawJson?.result?.segments?.[0] ?? null;
+
+  // Outbound arrival from raw_json — the baseline only has one segment (outbound).
+  // Return leg times come from fare_snapshots via lookupFareLeg below.
+  const outArrTimeRaw = rawSegOut?.arrival?.slice(11, 16)
+    ?? rawJson?.result?.arrival?.slice(11, 16)
+    ?? null;
 
   function durationFromSegment(seg: any): number | null {
     if (!seg) return null;
@@ -515,22 +525,21 @@ async function buildBaselineAsCombination(
     }
     return null;
   }
+  const outDurMins = durationFromSegment(rawSegOut) ?? null;
 
-  // Fallback to fare_snapshots only if rawJson segments are absent.
+  // Return leg times from fare_snapshots (baseline departure date is outside
+  // fare_snapshots coverage, but the return date falls inside the holiday window).
   const snapshotAdults   = baseline.adults   ?? adults;
   const snapshotChildren = baseline.children ?? children;
-  const [outLeg, retLeg] = rawSegOut && rawSegRet
-    ? [null, null]
-    : await Promise.all([
-        lookupFareLeg(baseline.origin_iata, baseline.destination_iata, baseline.outbound_date, carrier, snapshotAdults, snapshotChildren),
-        lookupFareLeg(baseline.destination_iata, baseline.origin_iata, baseline.return_date, carrier, snapshotAdults, snapshotChildren),
-      ]);
+  const retLeg = await lookupFareLeg(
+    baseline.destination_iata, baseline.origin_iata, baseline.return_date,
+    carrier, snapshotAdults, snapshotChildren,
+  );
 
-  const outArrTime    = rawSegOut?.arrival?.slice(11, 16)    ?? outLeg?.arrival_time?.slice(0, 5)   ?? null;
-  const outDurMins    = durationFromSegment(rawSegOut)       ?? outLeg?.duration_minutes            ?? null;
-  const retDepTime    = rawSegRet?.departure?.slice(11, 16)  ?? retLeg?.departure_time?.slice(0, 5) ?? null;
-  const retArrTime    = rawSegRet?.arrival?.slice(11, 16)    ?? retLeg?.arrival_time?.slice(0, 5)   ?? null;
-  const retDurMins    = durationFromSegment(rawSegRet)       ?? retLeg?.duration_minutes            ?? null;
+  const outArrTime = outArrTimeRaw;
+  const retDepTime = retLeg?.departure_time?.slice(0, 5) ?? null;
+  const retArrTime = retLeg?.arrival_time?.slice(0, 5)   ?? null;
+  const retDurMins = retLeg?.duration_minutes             ?? null;
 
   // Baseline ancillaries aren't split per leg the way combinations are —
   // approximate evenly across outbound/return for the per-leg fields that
@@ -880,11 +889,14 @@ export async function assembleCombinationsOnly(
   const recEffCost = selectionResult
     ? selectionResult.winnerEffCost
     : recommendation.total_cost_gbp;
-  const savingCategory = computeSavingCategory(
-    assembledBaseline.eff_cost,
-    recEffCost,
-    0,
-  );
+  const isBaselineWinner = (recommendation as any).is_baseline === true;
+  const savingCategory = isBaselineWinner
+    ? 'baseline_cheapest' as const
+    : computeSavingCategory(
+        assembledBaseline.eff_cost,
+        recEffCost,
+        0,
+      );
   console.log('[selection]', {
     winner_out:    recommendation.outbound_date,
     winner_ret:    recommendation.return_date,
@@ -1020,11 +1032,14 @@ export async function assembleRecommendation(
   // recommendation IS base.selection.winner — reuse its already-computed
   // effectiveCost rather than re-finding it via a shortlist .find().
   const recEffCost2 = base.selection?.winnerEffCost ?? recommendation.total_cost_gbp;
-  const savingCategory = computeSavingCategory(
-    base.baseline.eff_cost,
-    recEffCost2,
-    0, // nightsDiff already baked into eff_cost
-  );
+  const isBaselineWinner2 = (recommendation as any).is_baseline === true;
+  const savingCategory = isBaselineWinner2
+    ? 'baseline_cheapest' as const
+    : computeSavingCategory(
+        base.baseline.eff_cost,
+        recEffCost2,
+        0, // nightsDiff already baked into eff_cost
+      );
   console.log('[savingCategory-eff]', {
     baseline_eff_cost:        base.baseline.eff_cost,
     recommendation_eff_cost:  recEffCost2,
