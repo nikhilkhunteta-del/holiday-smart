@@ -423,13 +423,18 @@ export async function buildAssemblyPrecomputed(
 }
 
 async function fetchBagFeesCache(): Promise<Map<string, BagFeeRow>> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('airline_baggage_fees')
     .select('airline_iata, cabin_bag_included, full_cabin_bag_fee_gbp, first_checked_bag_gbp');
+  if (error) {
+    console.error('[bagFeesCache] query failed:', error.message);
+  }
   const map = new Map<string, BagFeeRow>();
   for (const row of data ?? []) {
     map.set(row.airline_iata, row as BagFeeRow);
   }
+  console.log('[bagFeesCache] loaded', map.size, 'carriers:',
+    [...map.entries()].map(([k, v]) => `${k}:cabin_inc=${v.cabin_bag_included},checked=£${v.first_checked_bag_gbp}`).join(', '));
   return map;
 }
 
@@ -930,6 +935,21 @@ export async function assembleCombinationsOnly(
         scored,
         eff_cost: newEffCost,
       };
+      // Propagate recalculated costs back to assembledBaseline so the returned
+      // baseline object reflects bag/transfer adjustments, not SQL-baked values.
+      assembledBaseline.cabin_bag_cost_gbp   = blCombo.cabin_bag_cost_gbp;
+      assembledBaseline.checked_bag_cost_gbp = blCombo.checked_bag_cost_gbp;
+      assembledBaseline.seat_cost_gbp        = blCombo.seat_cost_gbp;
+      assembledBaseline.fare_plus_ancillary_gbp = blCombo.fare_plus_ancillary_gbp;
+      assembledBaseline.total_cost_gbp       = blCombo.total_cost_gbp;
+      assembledBaseline.destination_transfer_cost_gbp = blCombo.destination_transfer_cost_gbp;
+      console.log('[baseline-recalc]', {
+        bags_changed: bagsChanged,
+        uber_flip: transitPreference === 'uber',
+        checked_bag_cost: blCombo.checked_bag_cost_gbp,
+        total_cost: Math.round(blCombo.total_cost_gbp),
+        eff_cost: Math.round(newEffCost),
+      });
     }
     assembledBaseline.eff_cost = Math.round(baselineNormalised.eff_cost);
     assembledBaseline.return_departure_time_derived =
