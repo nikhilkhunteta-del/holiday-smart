@@ -8,9 +8,11 @@ interface ScenarioStripProps {
 }
 
 const SCENARIO_ICONS: Record<string, string> = {
-  travel_light:   'backpack',
-  skip_seats:     'airline_seat_recline_normal',
-  transport_flip: 'commute',
+  travel_light:          'backpack',
+  skip_seats:            'airline_seat_recline_normal',
+  transport_flip:        'commute',
+  transport_all_transit: 'directions_bus',
+  add_checked_bag:       'luggage',
 };
 
 export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {

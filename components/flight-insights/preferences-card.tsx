@@ -7,7 +7,7 @@ interface Props {
   cabinBags: number;
   checkedBags: number;
   seatsTogether: boolean;
-  transitPreference: 'auto' | 'uber';
+  transitPreference: 'auto' | 'uber' | 'transit';
   postcodeDistrict: string | null;
   outboundCarrier?: string | null;
   adults?: number;
@@ -104,7 +104,7 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
   const TRANSIT_OPTIONS = [
     {
       val: 'auto' as const,
-      label: 'Auto',
+      label: 'Smart',
       sub: 'Public transport unless flight is before 07:00 or connections are impractical — then Uber',
     },
     {
@@ -112,13 +112,18 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
       label: 'Always Uber',
       sub: uberSub,
     },
+    {
+      val: 'transit' as const,
+      label: 'Public transport only',
+      sub: 'Forces public transport even for early departures — no Uber override',
+    },
   ];
 
   const summaryParts = [
     `${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`,
     `${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`,
     seatsTogether ? 'Seats reserved' : 'No seat selection',
-    transitPreference === 'uber' ? 'Always Uber' : 'Auto transport',
+    transitPreference === 'uber' ? 'Always Uber' : transitPreference === 'transit' ? 'Public transport only' : 'Smart transport',
   ];
 
   const label = { fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#191c1d' } as const;

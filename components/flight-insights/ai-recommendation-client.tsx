@@ -15,7 +15,7 @@ interface FetchParams {
   cabinBags: number;
   checkedBags: number;
   seatsTogether: boolean;
-  transitPreference: 'auto' | 'uber';
+  transitPreference: 'auto' | 'uber' | 'transit';
   windowStart: string;
   windowEnd: string;
   postcodeDistrict: string;

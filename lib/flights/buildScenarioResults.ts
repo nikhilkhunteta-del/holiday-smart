@@ -50,12 +50,13 @@ export function buildScenarioResults(
     checked?: CombinationsOnlyResult | null;
     uber?:    CombinationsOnlyResult | null;
     seats?:   CombinationsOnlyResult | null;
+    transit?: CombinationsOnlyResult | null;
   },
   params: {
     cabinBags:         number;
     checkedBags:       number;
     seatsTogether:     boolean;
-    transitPreference: 'auto' | 'uber';
+    transitPreference: 'auto' | 'uber' | 'transit';
     adults:            number;
     destinationName?:  string;
     firstCheckedBagGbp?: number;
@@ -208,6 +209,32 @@ export function buildScenarioResults(
       },
       url_params: { seats: 'true' },
     });
+  }
+
+  // ── SCENARIO 5 — All public transport ──────────────
+  if (params.transitPreference !== 'transit' &&
+      scenarioResults.transit?.recommendation) {
+    const w = scenarioResults.transit.recommendation;
+    const scenarioTotal = round(w.total_cost_gbp);
+    const diff = scenarioTotal - currentTotal;
+
+    if (diff < 0) {
+      results.push({
+        lever: 'transport_all_transit',
+        locked_headline: `Public transport only — saves £${Math.abs(diff)}`,
+        current_total:  currentTotal,
+        scenario_total: scenarioTotal,
+        saving:         Math.abs(diff),
+        flight_changes: flightChanged(currentWinner, w),
+        facts: {
+          saving:         Math.abs(diff),
+          scenario_total: scenarioTotal,
+          flight_changes: flightChanged(currentWinner, w),
+          note: 'Forces public transport even for early departures where Uber was recommended.',
+        },
+        url_params: { transit: 'transit' },
+      });
+    }
   }
 
   return results;

@@ -338,7 +338,7 @@ export interface CostRange {
 
 export function computeCostRange(
   c: AssembledCombination,
-  transitPreference: 'auto' | 'uber',
+  transitPreference: 'auto' | 'uber' | 'transit',
 ): CostRange {
   const baseFare = c.outbound_fare_gbp + c.return_fare_gbp;
   const seatCost = c.seat_cost_gbp;

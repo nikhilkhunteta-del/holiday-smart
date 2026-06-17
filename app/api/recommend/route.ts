@@ -57,8 +57,8 @@ export async function POST(request: NextRequest) {
       bagFeesCache: precomputed.bagFeesCache,
       originalCabinBags: cabinBags, originalCheckedBags: checkedBags };
 
-    // Main assembly + 3 scenario re-assemblies in parallel
-    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult] =
+    // Main assembly + 4 scenario re-assemblies in parallel
+    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult, scenarioTransitResult] =
       await Promise.all([
         assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
@@ -81,6 +81,12 @@ export async function POST(request: NextRequest) {
               smartRaw, postcodeDistrict, adults, children, infants,
               'auto', cabinBags, checkedBags, seatsTogether, precomputed,
             ),
+        transitPreference !== 'transit'
+          ? assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'transit', cabinBags, checkedBags, seatsTogether, precomputed,
+            )
+          : null,
       ]);
 
     const selectionContext = assembled.selection;
@@ -93,7 +99,7 @@ export async function POST(request: NextRequest) {
     const scenarios = buildScenarioResults(
       recommendation, assembled,
       { light: scenarioLightResult, checked: scenarioCheckedResult,
-        uber: scenarioUberResult, seats: null },
+        uber: scenarioUberResult, seats: null, transit: scenarioTransitResult },
       { cabinBags, checkedBags, seatsTogether, transitPreference, adults,
         destinationName: destinationSlug?.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
         firstCheckedBagGbp: precomputed.bagFeesCache?.get(recommendation?.outbound_carrier ?? 'BA')?.first_checked_bag_gbp ?? undefined,

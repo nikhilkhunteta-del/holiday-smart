@@ -52,7 +52,7 @@ export interface FamilyContext {
   seatsTogether: boolean;
   benchmarkCost: number | null; // pre-computed typical Saturday booking cost
   destinationName?: string | null;
-  transitPreference?: 'auto' | 'uber' | null;
+  transitPreference?: 'auto' | 'uber' | 'transit' | null;
   scenarios?: ScenarioResult[];
   savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
   combinationCount: number;
@@ -1286,6 +1286,7 @@ Rules:
 - add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
 - transport_flip (costs more): mention both London and destination transport (e.g. "Uber to Heathrow + taxi from BCN airport")
 - transport_flip (saves money): lead with the saving
+- transport_all_transit: mention it forces transit even for early departures, lead with the saving
 - If flight_changes is true: mention "different flight"
 
 Return as:

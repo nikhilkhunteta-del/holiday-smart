@@ -54,7 +54,7 @@ interface LegOptionsProps {
   adults: number;
   children: number;
   infants: number;
-  transitPreference: 'auto' | 'uber';
+  transitPreference: 'auto' | 'uber' | 'transit';
   postcodeDistrict: string | null;
   selectedDate: string;
   smartDate: string;
@@ -213,7 +213,7 @@ interface LeverTableProps {
   getAirportIata: (o: ProcessedOption) => string;
   getDestIata: (o: ProcessedOption) => string;
   direction: 'outbound' | 'return';
-  transitPreference: 'auto' | 'uber';
+  transitPreference: 'auto' | 'uber' | 'transit';
   isSmartDate: boolean;
 }
 
@@ -318,7 +318,7 @@ function LeverRow({
   isRec: boolean;
   notCheapestNote: boolean;
   isFirst: boolean;
-  transitPreference: 'auto' | 'uber';
+  transitPreference: 'auto' | 'uber' | 'transit';
   isSmartDate: boolean;
   direction: 'outbound' | 'return';
 }) {
