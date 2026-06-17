@@ -29,7 +29,7 @@ function attachTransitCost(
   children: number,
   infants: number,
   checkedBags: number,
-  transitPreference: 'auto' | 'uber',
+  transitPreference: 'auto' | 'uber' | 'transit',
 ): any {
   if (!legResult || legResult.error || !legResult.data) return legResult?.data ?? null;
 
@@ -102,7 +102,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const cabinBags         = parseInt(searchParams.cabin_bags   ?? String(adults));
   const checkedBags       = parseInt(searchParams.checked_bags ?? (tripType === 'circuit' ? String(adults) : '0'));
   const seatsTogether     = searchParams.seats === 'true';
-  const transitPreference = (searchParams.transit === 'uber' ? 'uber' : 'auto') as 'auto' | 'uber';
+  const transitPreference = (searchParams.transit === 'uber' ? 'uber' : searchParams.transit === 'transit' ? 'transit' : 'auto') as 'auto' | 'uber' | 'transit';
 
   const destinationSlug = 'barcelona';
 

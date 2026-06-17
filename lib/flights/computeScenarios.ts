@@ -123,7 +123,7 @@ function buildScenario(
 export function computeScenarios(
   combinations: AssembledCombination[],
   currentWinner: AssembledCombination,
-  currentTransitPreference: 'auto' | 'uber',
+  currentTransitPreference: 'auto' | 'uber' | 'transit',
   adults: number,
   children: number,
   currentCabinBags: number,

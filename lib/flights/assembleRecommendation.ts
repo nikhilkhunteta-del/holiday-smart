@@ -357,16 +357,24 @@ async function buildRawTransitCache(
 // and the main call get the right override without sharing mutable state.
 function applyTransitPreference(
   rawCache: Map<string, AirportTransitCost>,
-  transitPreference: 'auto' | 'uber',
+  transitPreference: 'auto' | 'uber' | 'transit',
 ): Map<string, AirportTransitCost> {
-  if (transitPreference !== 'uber') return rawCache;
+  if (transitPreference === 'auto') return rawCache;
   const result = new Map<string, AirportTransitCost>();
   for (const [key, t] of rawCache) {
-    result.set(key, {
-      ...t,
-      recommended_mode: 'uber',
-      recommended_cost_pence: t.uber.mean_pence,
-    });
+    if (transitPreference === 'uber') {
+      result.set(key, {
+        ...t,
+        recommended_mode: 'uber',
+        recommended_cost_pence: t.uber.mean_pence,
+      });
+    } else {
+      result.set(key, {
+        ...t,
+        recommended_mode: 'transit',
+        recommended_cost_pence: t.transit?.total_family_pence ?? t.recommended_cost_pence,
+      });
+    }
   }
   return result;
 }
@@ -839,7 +847,7 @@ export async function assembleCombinationsOnly(
   adults: number,
   children: number,
   infants: number,
-  transitPreference: 'auto' | 'uber' = 'auto',
+  transitPreference: 'auto' | 'uber' | 'transit' = 'auto',
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
@@ -1122,7 +1130,7 @@ export async function assembleRecommendation(
   adults: number,
   children: number,
   infants: number,
-  transitPreference: 'auto' | 'uber' = 'auto',
+  transitPreference: 'auto' | 'uber' | 'transit' = 'auto',
   schoolName: string | null = null,
   borough: string | null = null,
   windowStart: string = '',
@@ -1221,6 +1229,7 @@ export async function assembleRecommendation(
         origin_iata: best.origin_iata,
       };
     })(),
+    lcc_cabin_bag_cost: undefined,
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],

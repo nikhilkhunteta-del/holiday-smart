@@ -12,6 +12,12 @@ const CARRIER_NAMES: Record<string, string> = {
 };
 const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
 
+const AIRPORT_NAMES: Record<string, string> = {
+  LHR: 'Heathrow', LGW: 'Gatwick', STN: 'Stansted',
+  LTN: 'Luton', LCY: 'City', SEN: 'Southend',
+};
+const an = (iata: string) => AIRPORT_NAMES[iata] ?? iata;
+
 export interface ScenarioResult {
   lever:           string;
   locked_headline: string;
@@ -44,13 +50,16 @@ export function buildScenarioResults(
     checked?: CombinationsOnlyResult | null;
     uber?:    CombinationsOnlyResult | null;
     seats?:   CombinationsOnlyResult | null;
+    transit?: CombinationsOnlyResult | null;
   },
   params: {
     cabinBags:         number;
     checkedBags:       number;
     seatsTogether:     boolean;
-    transitPreference: 'auto' | 'uber';
+    transitPreference: 'auto' | 'uber' | 'transit';
     adults:            number;
+    destinationName?:  string;
+    firstCheckedBagGbp?: number;
   },
 ): ScenarioResult[] {
   if (!currentWinner || !currentAssembled) return [];
@@ -97,9 +106,15 @@ export function buildScenarioResults(
     const scenarioTotal = round(w.total_cost_gbp);
     const extraCost = scenarioTotal - currentTotal;
 
+    const expectedBagCost = round(params.firstCheckedBagGbp ?? 0) * 2;
+    const uberXlTriggered = expectedBagCost > 0 && Math.abs(extraCost) > expectedBagCost * 1.5;
+    const uberDelta = uberXlTriggered ? Math.abs(extraCost) - expectedBagCost : 0;
+
     results.push({
       lever:           'add_checked_bag',
-      locked_headline: `Add checked bags — £${Math.abs(extraCost)} more`,
+      locked_headline: uberXlTriggered
+        ? `Add checked bag — £${expectedBagCost} bag fees + £${uberDelta} Uber-XL`
+        : `Add checked bag — £${Math.abs(extraCost)} more`,
       current_total:   currentTotal,
       scenario_total:  scenarioTotal,
       saving:          -extraCost,
@@ -110,6 +125,9 @@ export function buildScenarioResults(
         bags_added:      1,
         flight_changes:  flightChanged(currentWinner, w),
         scenario_carrier: cn(w.outbound_carrier),
+        uber_xl_triggered: uberXlTriggered,
+        bag_fee_cost:    expectedBagCost,
+        uber_xl_delta:   uberDelta,
       },
       url_params: {
         checked_bags: String(params.checkedBags + 1)
@@ -134,12 +152,15 @@ export function buildScenarioResults(
       (currentWinner.return_transit?.uber?.high_pence ?? 0) / 100
     );
 
+    const originAirport = an(currentWinner.origin_iata);
+    const destName = params.destinationName ?? currentWinner.out_dest_iata;
+
     results.push({
       lever: 'transport_flip',
       locked_headline: isUberScenario
         ? diff > 0
-          ? `Door-to-door Uber — £${diff} more`
-          : `Uber saves £${Math.abs(diff)}`
+          ? `Uber to ${originAirport} + taxi from ${destName} — £${diff} more`
+          : `Uber to ${originAirport} + taxi from ${destName} saves £${Math.abs(diff)}`
         : diff < 0
           ? `Public transport saves £${Math.abs(diff)}`
           : `Public transport — £${diff} more`,
@@ -155,6 +176,8 @@ export function buildScenarioResults(
         uber_high:      uberHigh,
         scenario_total: scenarioTotal,
         flight_changes: flightChanged(currentWinner, w),
+        origin_airport: originAirport,
+        destination_name: destName,
       },
       url_params: {
         transit: isUberScenario ? 'uber' : 'auto'
@@ -186,6 +209,32 @@ export function buildScenarioResults(
       },
       url_params: { seats: 'true' },
     });
+  }
+
+  // ── SCENARIO 5 — All public transport ──────────────
+  if (params.transitPreference !== 'transit' &&
+      scenarioResults.transit?.recommendation) {
+    const w = scenarioResults.transit.recommendation;
+    const scenarioTotal = round(w.total_cost_gbp);
+    const diff = scenarioTotal - currentTotal;
+
+    if (diff < 0) {
+      results.push({
+        lever: 'transport_all_transit',
+        locked_headline: `Public transport only — saves £${Math.abs(diff)}`,
+        current_total:  currentTotal,
+        scenario_total: scenarioTotal,
+        saving:         Math.abs(diff),
+        flight_changes: flightChanged(currentWinner, w),
+        facts: {
+          saving:         Math.abs(diff),
+          scenario_total: scenarioTotal,
+          flight_changes: flightChanged(currentWinner, w),
+          note: 'Forces public transport even for early departures where Uber was recommended.',
+        },
+        url_params: { transit: 'transit' },
+      });
+    }
   }
 
   return results;

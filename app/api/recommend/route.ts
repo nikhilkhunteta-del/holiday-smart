@@ -57,8 +57,8 @@ export async function POST(request: NextRequest) {
       bagFeesCache: precomputed.bagFeesCache,
       originalCabinBags: cabinBags, originalCheckedBags: checkedBags };
 
-    // Main assembly + 3 scenario re-assemblies in parallel
-    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult] =
+    // Main assembly + 4 scenario re-assemblies in parallel
+    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult, scenarioTransitResult] =
       await Promise.all([
         assembleCombinationsOnly(
           smartRaw, postcodeDistrict, adults, children, infants,
@@ -81,6 +81,12 @@ export async function POST(request: NextRequest) {
               smartRaw, postcodeDistrict, adults, children, infants,
               'auto', cabinBags, checkedBags, seatsTogether, precomputed,
             ),
+        transitPreference !== 'transit'
+          ? assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'transit', cabinBags, checkedBags, seatsTogether, precomputed,
+            )
+          : null,
       ]);
 
     const selectionContext = assembled.selection;
@@ -93,8 +99,11 @@ export async function POST(request: NextRequest) {
     const scenarios = buildScenarioResults(
       recommendation, assembled,
       { light: scenarioLightResult, checked: scenarioCheckedResult,
-        uber: scenarioUberResult, seats: null },
-      { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
+        uber: scenarioUberResult, seats: null, transit: scenarioTransitResult },
+      { cabinBags, checkedBags, seatsTogether, transitPreference, adults,
+        destinationName: destinationSlug?.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        firstCheckedBagGbp: precomputed.bagFeesCache?.get(recommendation?.outbound_carrier ?? 'BA')?.first_checked_bag_gbp ?? undefined,
+      },
     );
 
     const combinations = assembled.scoredPool;
@@ -133,6 +142,18 @@ export async function POST(request: NextRequest) {
 
     const blScored = assembled.scoredPool.find(c => (c as any).is_baseline) ?? null;
     const bl = assembled.baselineAsCombination;
+    const partySize = adults + children;
+    const lccCabinBagCost = (() => {
+      const lccCarriers = ['FR', 'U2', 'W6'];
+      const fees = lccCarriers
+        .map(c => precomputed.bagFeesCache?.get(c))
+        .filter(Boolean)
+        .map(f => f!.full_cabin_bag_fee_gbp ?? 0)
+        .filter(f => f > 0);
+      if (fees.length === 0) return undefined;
+      const avg = fees.reduce((a, b) => a + b, 0) / fees.length;
+      return Math.round((avg * partySize * 2) / 10) * 10;
+    })();
     const bestInsetFromPool = (() => {
       const insets = assembled.scoredPool
         .filter(c => c.is_inset_day && !(c as any).is_baseline)
@@ -182,6 +203,7 @@ export async function POST(request: NextRequest) {
       baseline_trip_nights:     blScored?.trip_nights ?? undefined,
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
       bestInsetFromPool,
+      lcc_cabin_bag_cost: lccCabinBagCost,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
