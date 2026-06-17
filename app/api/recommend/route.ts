@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
-import { assembleCombinationsOnly } from '@/lib/flights/assembleRecommendation';
+import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
 import { effectiveCost, viable } from '@/lib/flights/selectCombination';
-import { computeScenarios } from '@/lib/flights/computeScenarios';
+import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,52 +44,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'RPC failed' }, { status: 500 });
     }
 
-    const assembled = await assembleCombinationsOnly(
-      smartResult.data,
-      postcodeDistrict,
-      adults,
-      children,
-      infants,
-      transitPreference,
-      cabinBags,
-      checkedBags,
-      seatsTogether,
-    );
+    const smartRaw = smartResult.data;
+    const rawCombinations = smartRaw?.combinations ?? [];
+    const rawBaseline = smartRaw?.baseline ?? {};
 
-    // Canonical winner — computed once inside assembleCombinationsOnly over the
-    // full deduped pool, not the AI-facing shortlist. Do not recompute here:
-    // a second selectCombination(assembled.shortlist) call would silently
-    // diverge from assembled.recommendation once the pools differ.
+    // Build shared precomputed cache — airport + transit + bag fees
+    const precomputed = await buildAssemblyPrecomputed(
+      rawCombinations, rawBaseline, postcodeDistrict,
+      adults, children, infants, cabinBags, checkedBags,
+    );
+    const airportOnly = { nearestAirport: precomputed.nearestAirport,
+      bagFeesCache: precomputed.bagFeesCache,
+      originalCabinBags: cabinBags, originalCheckedBags: checkedBags };
+
+    // Main assembly + 3 scenario re-assemblies in parallel
+    const [assembled, scenarioLightResult, scenarioCheckedResult, scenarioUberResult] =
+      await Promise.all([
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, cabinBags, checkedBags, seatsTogether, precomputed,
+        ),
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, 0, 0, seatsTogether, airportOnly,
+        ),
+        assembleCombinationsOnly(
+          smartRaw, postcodeDistrict, adults, children, infants,
+          transitPreference, cabinBags, checkedBags + 1, seatsTogether, airportOnly,
+        ),
+        transitPreference !== 'uber'
+          ? assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'uber', cabinBags, checkedBags, seatsTogether, precomputed,
+            )
+          : assembleCombinationsOnly(
+              smartRaw, postcodeDistrict, adults, children, infants,
+              'auto', cabinBags, checkedBags, seatsTogether, precomputed,
+            ),
+      ]);
+
     const selectionContext = assembled.selection;
     if (!selectionContext) {
       return NextResponse.json({ fallback: true }, { status: 200 });
     }
 
-    // Compute what-if scenarios using full assembled combinations.
-    // When the baseline won (is_baseline: true), it's not in combinations[]
-    // — use baselineAsCombination as the anchor so scenario deltas are relative
-    // to the baseline rather than falling through to combinations[0].
-    const isBaselineWinner = (selectionContext.winner as any).is_baseline === true;
-    const currentWinner = isBaselineWinner
-      ? (assembled.baselineAsCombination ?? assembled.combinations[0])
-      : assembled.combinations.find(c =>
-          c.outbound_date    === selectionContext.winner.outbound_date &&
-          c.return_date      === selectionContext.winner.return_date   &&
-          c.outbound_carrier === selectionContext.winner.outbound_carrier,
-        ) ?? assembled.combinations[0];
+    const recommendation = assembled.recommendation;
 
-    const scenarios = currentWinner
-      ? computeScenarios(
-          assembled.combinations,
-          currentWinner,
-          transitPreference,
-          adults,
-          children,
-          cabinBags,
-          checkedBags,
-          seatsTogether,
-        )
-      : [];
+    const scenarios = buildScenarioResults(
+      recommendation, assembled,
+      { light: scenarioLightResult, checked: scenarioCheckedResult,
+        uber: scenarioUberResult, seats: null },
+      { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
+    );
 
     const combinations = assembled.scoredPool;
     console.log('[validate] top combinations:',
@@ -125,6 +131,28 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    const blScored = assembled.scoredPool.find(c => (c as any).is_baseline) ?? null;
+    const bl = assembled.baselineAsCombination;
+    const bestInsetFromPool = (() => {
+      const insets = assembled.scoredPool
+        .filter(c => c.is_inset_day && !(c as any).is_baseline)
+        .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+      const best = insets[0];
+      if (!best) return undefined;
+      return {
+        outbound_date: best.outbound_date,
+        return_date: best.return_date,
+        outbound_departure_time: best.outbound_departure_time ?? null,
+        return_departure_time: best.return_departure_time ?? null,
+        total_cost_gbp: best.total_cost_gbp,
+        trip_nights: best.trip_nights,
+        arrival_quality: best.arrival_quality ?? null,
+        outbound_carrier: best.outbound_carrier,
+        return_carrier: best.return_carrier,
+        origin_iata: best.origin_iata,
+      };
+    })();
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -141,6 +169,19 @@ export async function POST(request: NextRequest) {
       baseline_fare:  Math.round(assembled.baseline?.baseline_fare_gbp ?? 0),
       baseline_allin: Math.round(assembled.baseline?.total_cost_gbp ?? 0),
       baseline_airport_name: assembled.baseline?.baseline_airport ?? 'Heathrow',
+      baseline_arr_quality:     blScored?.arrival_quality ?? undefined,
+      baseline_ret_dep_quality: blScored?.return_departure_quality ?? undefined,
+      baseline_out_dep_quality: blScored?.outbound_departure_quality ?? undefined,
+      baseline_out_arr_time:    bl?.outbound_arrival_time ?? undefined,
+      baseline_ret_dep_time:    bl?.return_departure_time ?? undefined,
+      baseline_ret_arr_time:    bl?.return_arrival_time ?? undefined,
+      baseline_origin_iata:     bl?.origin_iata ?? undefined,
+      baseline_dest_iata:       bl?.out_dest_iata ?? undefined,
+      baseline_outbound_date:   bl?.outbound_date ?? undefined,
+      baseline_return_date:     bl?.return_date ?? undefined,
+      baseline_trip_nights:     blScored?.trip_nights ?? undefined,
+      baseline_carrier:         bl?.outbound_carrier ?? undefined,
+      bestInsetFromPool,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))

@@ -1,4 +1,5 @@
 import { AssembledCombination } from './assembleRecommendation';
+import { effectiveCost } from './selectCombination';
 
 // ── Quality field computation ─────────────────────────────────────────────────
 // These are pre-computed labels the AI uses for reasoning.
@@ -181,127 +182,58 @@ export function scoreAndDedupeCombinations(
 }
 
 // ── Build candidate shortlist ─────────────────────────────────────────────────
-// Selects 10–15 diverse combinations for the AI to reason across, as labelled
-// post-scoring views over an already scored+deduped pool (see
-// scoreAndDedupeCombinations) — not a prefilter the winner is chosen from.
+// Selects 2–5 role-based combinations for the AI to reason across.
+// Winner is injected by withWinnerIncluded after this returns.
 
 export function buildCandidateShortlist(
   scored: ScoredCombination[],
 ): ScoredCombination[] {
   if (!scored.length) return [];
 
-  // Exclude baseline from shortlist — it's passed to the AI via a separate field
-  // and must not occupy diversity slots (it would confuse cheapest/best comparisons).
   const nonBaseline = scored.filter(c => !(c as any).is_baseline);
+  if (!nonBaseline.length) return [];
 
-  // Sort by pre_score descending for selection
-  const byScore = [...nonBaseline].sort((a, b) => b.pre_score - a.pre_score);
-
-  // Track selected combinations by a stable key to avoid duplicates
   const selected = new Map<string, ScoredCombination>();
+  const byEff = [...nonBaseline].sort((a, b) => effectiveCost(a) - effectiveCost(b));
+  const winnerKey = combinationKey(byEff[0]);
 
   function add(c: ScoredCombination | undefined, _label: string) {
     if (!c) return;
     const key = combinationKey(c);
+    if (key === winnerKey) return;
     if (!selected.has(key)) selected.set(key, c);
   }
 
-  // ── Category 1: Best overall ────────────────────────────────────────────────
-  add(byScore[0], 'best_overall');
+  // Slot 2 — best_inset: lowest eff_cost where is_inset_day = true
+  add(byEff.find(c => c.is_inset_day), 'best_inset');
 
-  // ── Category 2: Cheapest ────────────────────────────────────────────────────
-  const cheapest = [...nonBaseline].sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
-  add(cheapest, 'cheapest');
+  // Slot 3 — cheapest_raw: lowest total_cost_gbp
+  const cheapest = [...nonBaseline].sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0];
+  add(cheapest, 'cheapest_raw');
 
-  // ── Category 3: Best inset day outbound + good/excellent arrival ────────────
-  const bestInsetOutbound = byScore.find(
-    c => c.is_inset_day &&
-         (c.arrival_quality === 'excellent' || c.arrival_quality === 'good')
+  // Slot 4 — best_quality: lowest eff_cost with good outbound departure AND
+  // excellent/good/early return departure
+  const goodOutDep = new Set<string>(['ideal', 'good']);
+  const goodRetDep = new Set<string>(['excellent', 'good', 'early']);
+  add(
+    byEff.find(c =>
+      goodOutDep.has(c.outbound_departure_quality ?? '') &&
+      goodRetDep.has(c.return_departure_quality ?? ''),
+    ),
+    'best_quality',
   );
-  add(bestInsetOutbound, 'best_inset_outbound');
 
-  // ── Category 4: Best inset day return + good/excellent return departure ──────
-  // Return inset day: family flies home on an inset day — no absence on return
-  const bestInsetReturn = byScore.find(
-    c => {
-      // Check if return_date is an inset day — requires is_inset_day on return
-      // Using a proxy: if outbound is NOT inset but return has good departure quality
-      // Note: is_inset_day currently only flags outbound — flag for future extension
-      return !c.is_inset_day &&
-             (c.return_departure_quality === 'excellent' || c.return_departure_quality === 'good');
-    }
+  // Slot 5 — best_alt_airport: lowest eff_cost from a different origin,
+  // only if within £150 eff_cost of the winner
+  const winnerEff = effectiveCost(byEff[0]);
+  const altAirport = byEff.find(c =>
+    c.origin_iata !== byEff[0].origin_iata &&
+    effectiveCost(c) - winnerEff <= 150,
   );
-  add(bestInsetReturn, 'best_return_quality');
+  add(altAirport, 'best_alt_airport');
 
-  // ── Category 5: Best arrival quality ───────────────────────────────────────
-  const bestArrival = byScore.find(c => c.arrival_quality === 'excellent');
-  add(bestArrival, 'best_arrival');
-
-  // ── Category 6: Best last day ───────────────────────────────────────────────
-  const bestLastDay = byScore.find(c => c.return_departure_quality === 'excellent');
-  add(bestLastDay, 'best_last_day');
-
-  // ── Category 7: Best per outbound date (top 5 unique dates) ────────────────
-  const outboundDateMap = new Map<string, ScoredCombination>();
-  for (const c of byScore) {
-    if (!outboundDateMap.has(c.outbound_date)) {
-      outboundDateMap.set(c.outbound_date, c);
-    }
-    if (outboundDateMap.size >= 5) break;
-  }
-  outboundDateMap.forEach(c => add(c, `date_out_${c.outbound_date}`));
-
-  // ── Category 8: Best per return date (top 5 unique dates) ──────────────────
-  const returnDateMap = new Map<string, ScoredCombination>();
-  for (const c of byScore) {
-    if (!returnDateMap.has(c.return_date)) {
-      returnDateMap.set(c.return_date, c);
-    }
-    if (returnDateMap.size >= 5) break;
-  }
-  returnDateMap.forEach(c => add(c, `date_ret_${c.return_date}`));
-
-  // ── Category 9: Best per London departure airport ───────────────────────────
-  const originMap = new Map<string, ScoredCombination>();
-  for (const c of byScore) {
-    if (!originMap.has(c.origin_iata)) {
-      originMap.set(c.origin_iata, c);
-    }
-  }
-  originMap.forEach(c => add(c, `origin_${c.origin_iata}`));
-
-  // ── Category 10: Best per destination airport ───────────────────────────────
-  const destMap = new Map<string, ScoredCombination>();
-  for (const c of byScore) {
-    if (!destMap.has(c.out_dest_iata)) {
-      destMap.set(c.out_dest_iata, c);
-    }
-  }
-  destMap.forEach(c => add(c, `dest_${c.out_dest_iata}`));
-
-  // ── Category 11: Best per London return airport ─────────────────────────────
-  const retDestMap = new Map<string, ScoredCombination>();
-  for (const c of byScore) {
-    if (!retDestMap.has(c.ret_dest_iata)) {
-      retDestMap.set(c.ret_dest_iata, c);
-    }
-  }
-  retDestMap.forEach(c => add(c, `ret_dest_${c.ret_dest_iata}`));
-
-  // Always include cheapest inset day combination
-  const cheapestInset = [...nonBaseline]
-    .filter(c => c.is_inset_day)
-    .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
-  if (cheapestInset) add(cheapestInset, 'cheapest_inset_guarantee');
-
-  // Always include cheapest overall combination
-  const cheapestOverall = [...nonBaseline]
-    .sort((a, b) => a.total_inc_fine - b.total_inc_fine)[0];
-  if (cheapestOverall) add(cheapestOverall, 'cheapest_overall_guarantee');
-
-  // Return as array sorted by pre_score descending
   return Array.from(selected.values())
-    .sort((a, b) => b.pre_score - a.pre_score);
+    .sort((a, b) => effectiveCost(a) - effectiveCost(b));
 }
 
 // ── Guarantee winner membership ───────────────────────────────────────────────

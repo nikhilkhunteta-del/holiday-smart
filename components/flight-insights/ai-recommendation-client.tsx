@@ -51,8 +51,12 @@ interface AIRecommendationClientProps {
     outbound_date: string;
     return_date: string;
     origin_iata: string;
+    destination_iata: string;
     carrier: string;
     outbound_departure_time: string | null;
+    outbound_arrival_time: string | null;
+    return_departure_time: string | null;
+    return_arrival_time: string | null;
     total_cost_gbp: number;
   } | null;
 }
@@ -80,6 +84,42 @@ function fmtDuration(mins: number | null | undefined): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// ── Google Flights URL builder (protobuf tfs encoding) ────────────────────────
+// Google Flights uses a base64url-encoded protobuf in the ?tfs= query param.
+// Schema reverse-engineered from live Google Flights URLs:
+//   field 1 (varint 28), field 2 (varint 2) — constants
+//   field 3 (msg): flight leg { field 13: origin airport, field 2: date, field 14: dest airport }
+//   airport msg: { field 1: 1 (IATA type), field 2: IATA code }
+//   field 14 (varint 1) = economy, field 8/9 = 1, field 19 = 1 (round-trip) / 2 (one-way)
+
+function encodeTfs(legs: Array<{ origin: string; dest: string; date: string }>, oneWay: boolean): string {
+  function varint(v: number): number[] {
+    const bytes: number[] = []; v = v >>> 0;
+    while (v > 0x7f) { bytes.push((v & 0x7f) | 0x80); v >>>= 7; }
+    bytes.push(v & 0x7f); return bytes;
+  }
+  function tag(f: number, w: number) { return varint((f << 3) | w); }
+  function str(f: number, s: string) {
+    const b = Array.from(new TextEncoder().encode(s));
+    return [...tag(f, 2), ...varint(b.length), ...b];
+  }
+  function vi(f: number, v: number) { return [...tag(f, 0), ...varint(v)]; }
+  function msg(f: number, inner: number[]) { return [...tag(f, 2), ...varint(inner.length), ...inner]; }
+  function airport(f: number, iata: string) { return msg(f, [...vi(1, 1), ...str(2, iata)]); }
+  function leg(o: string, d: string, date: string) {
+    return msg(3, [...airport(13, o), ...str(2, date), ...airport(14, d)]);
+  }
+
+  const bytes = [
+    ...vi(1, 28), ...vi(2, 2),
+    ...legs.flatMap(l => leg(l.origin, l.dest, l.date)),
+    ...vi(14, 1), ...vi(8, 1), ...vi(9, 1),
+    ...vi(19, oneWay ? 2 : 1),
+  ];
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 function buildGoogleFlightsUrl(params: {
   origin: string;
   destination: string;
@@ -87,7 +127,8 @@ function buildGoogleFlightsUrl(params: {
   adults: number;
   children: number;
 }): string {
-  return `https://www.google.com/travel/flights?q=One+way+flights+from+${params.origin}+to+${params.destination}+on+${params.date}&adults=${params.adults}&children=${params.children}&trip_type=one_way`;
+  const tfs = encodeTfs([{ origin: params.origin, dest: params.destination, date: params.date }], true);
+  return `https://www.google.com/travel/flights/search?tfs=${tfs}&curr=GBP&hl=en-GB`;
 }
 
 function buildGoogleFlightsRoundTripUrl(params: {
@@ -98,27 +139,11 @@ function buildGoogleFlightsRoundTripUrl(params: {
   adults:      number;
   children:    number;
 }): string {
-  // Google Flights #flt deep-link for round trips.
-  // ;px: = adults, ;pxc: = children in the hash segment.
-  const route =
-    `${params.origin}.${params.destination}` +
-    `.${params.outbound}*` +
-    `${params.destination}.${params.origin}` +
-    `.${params.return_date}`;
-  const hash =
-    `flt=${route};c:GBP;e:1;sd:1;t:f` +
-    `;px:${params.adults}` +
-    `;pxc:${params.children}`;
-  const fallback =
-    `https://www.google.com/travel/flights` +
-    `?q=Flights+from+${params.origin}+to+` +
-    `${params.destination}+on+${params.outbound}` +
-    `+returning+${params.return_date}` +
-    `&adults=${params.adults}` +
-    `&children=${params.children}` +
-    `&curr=GBP`;
-  void fallback; // available via data-fallback-url on the anchor
-  return `https://www.google.com/travel/flights#${encodeURIComponent(hash)}`;
+  const tfs = encodeTfs([
+    { origin: params.origin, dest: params.destination, date: params.outbound },
+    { origin: params.destination, dest: params.origin, date: params.return_date },
+  ], false);
+  return `https://www.google.com/travel/flights/search?tfs=${tfs}&curr=GBP&hl=en-GB`;
 }
 
 const LEVER_ICONS: Record<string, string> = {
@@ -467,6 +492,17 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   const outDest = rec?.out_dest_iata ?? '';
   const retDest = (rec as any)?.ret_dest_iata ?? origin;
 
+  const isSplit = (rec as any)?.split_carrier ?? false;
+
+  const roundTripUrl = rec ? buildGoogleFlightsRoundTripUrl({
+    origin,
+    destination: outDest,
+    outbound:    rec.outbound_date,
+    return_date: rec.return_date,
+    adults,
+    children: numChildren,
+  }) : '#';
+
   const outboundUrl = rec ? buildGoogleFlightsUrl({
     origin,
     destination: outDest,
@@ -482,8 +518,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
     adults,
     children: numChildren,
   }) : '#';
-
-  const isSplit = (rec as any)?.split_carrier ?? false;
 
   // Timeline shows only lever_insights (qualitative cards now in right column)
   const timelineCards = aiResult?.lever_insights ?? [];
@@ -767,15 +801,24 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     </span>
                   </div>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
-                    {baseline.outbound_departure_time?.slice(0, 5) ?? '06:10'}
+                    {baseline.outbound_departure_time?.slice(0, 5) ?? ''}
                     <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
-                    09:20
+                    {baseline.outbound_arrival_time?.slice(0, 5) ?? ''}
                   </div>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
-                    {baseline.origin_iata} → BCN &nbsp;·&nbsp; {baseline.outbound_date ? new Date(baseline.outbound_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                    {baseline.origin_iata} → {baseline.destination_iata} &nbsp;·&nbsp; {baseline.outbound_date ? new Date(baseline.outbound_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
                   </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', fontStyle: 'italic' }}>
-                    Round-trip — return {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''} included
+                  <div style={{ height: 1, background: '#e1e3e3', margin: '12px 0' }} />
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Return
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
+                    {baseline.return_departure_time?.slice(0, 5) ?? ''}
+                    <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
+                    {baseline.return_arrival_time?.slice(0, 5) ?? ''}
+                  </div>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
+                    {baseline.destination_iata} → {baseline.origin_iata} &nbsp;·&nbsp; {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
                   </div>
                 </div>
 
@@ -794,20 +837,12 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                 <a
                   href={buildGoogleFlightsRoundTripUrl({
                     origin:      baseline.origin_iata,
-                    destination: 'BCN',
+                    destination: baseline.destination_iata,
                     outbound:    baseline.outbound_date,
                     return_date: baseline.return_date,
                     adults:      fetchParams.adults,
                     children:    fetchParams.children,
                   })}
-                  data-fallback-url={
-                    `https://www.google.com/travel/flights` +
-                    `?q=Flights+from+${baseline.origin_iata}+to+BCN` +
-                    `+on+${baseline.outbound_date}` +
-                    `+returning+${baseline.return_date}` +
-                    `&adults=${fetchParams.adults}` +
-                    `&children=${fetchParams.children}&curr=GBP`
-                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -976,24 +1011,33 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
               {/* Book buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <a
-                  href={outboundUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full bg-primary text-on-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:opacity-90 transition-all shadow-md text-center block"
-                >
-                  {isSplit
-                    ? `Book outbound · ${carrierName((rec as any)?.outbound_carrier ?? '')}`
-                    : 'Book on Google Flights'}
-                </a>
-                {isSplit && (
+                {isSplit ? (
+                  <>
+                    <a
+                      href={outboundUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-primary text-on-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:opacity-90 transition-all shadow-md text-center block"
+                    >
+                      Book outbound · {carrierName((rec as any)?.outbound_carrier ?? '')}
+                    </a>
+                    <a
+                      href={returnUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full border border-primary text-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:bg-primary/5 transition-all text-center block"
+                    >
+                      Book return · {carrierName((rec as any)?.return_carrier ?? '')}
+                    </a>
+                  </>
+                ) : (
                   <a
-                    href={returnUrl}
+                    href={roundTripUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full border border-primary text-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:bg-primary/5 transition-all text-center block"
+                    className="w-full bg-primary text-on-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:opacity-90 transition-all shadow-md text-center block"
                   >
-                    Book return · {carrierName((rec as any)?.return_carrier ?? '')}
+                    Book on Google Flights
                   </a>
                 )}
               </div>

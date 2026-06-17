@@ -173,15 +173,22 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         adults,
         children,
         infants,
+        cabinBags,
         checkedBags,
       )
     : null;
 
   // Scenarios that change checkedBags must build their own transit cache so the
   // Uber-XL multiplier (isXL when checkedBags >= 2) fires with the correct count.
-  // Pass only nearestAirport from precomputed — skips the airport DB lookup but
-  // triggers a fresh buildRawTransitCache with the scenario's own checkedBags.
-  const airportOnly = precomputed ? { nearestAirport: precomputed.nearestAirport } : undefined;
+  // Pass only nearestAirport + bagFeesCache + original bag counts from precomputed —
+  // skips the airport DB lookup and transit cache but triggers a fresh
+  // buildRawTransitCache with the scenario's own checkedBags.
+  const airportOnly = precomputed ? {
+    nearestAirport: precomputed.nearestAirport,
+    bagFeesCache: precomputed.bagFeesCache,
+    originalCabinBags: cabinBags,
+    originalCheckedBags: checkedBags,
+  } : undefined;
 
   const assembled = smartRaw
     ? await assembleCombinationsOnly(
@@ -199,28 +206,21 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     : null;
 
   // ── Scenario pre-computation (parallel) ────────────────────────────────
-  // Each scenario uses the shared precomputed cache; only the per-call
-  // transitPreference override is applied independently in-memory.
+  // Each scenario re-assembles with different params. Bag costs are recalculated
+  // from airline_baggage_fees via bagFeesCache; destination transfer flips use
+  // taxi costs when in uber mode.
   const [
     scenarioLightResult,
     scenarioCheckedResult,
     scenarioUberResult,
   ] = await Promise.all([
-    // Travel light: zero all bags — own transit cache (isXL must use checkedBags=0)
-    // TODO(correctness): cabinBags=0/checkedBags=0 here are ignored — bag costs
-    // are baked into the SQL row from the original get_smart_recommendation call.
-    // Scenario saving figures do not reflect true bag cost differences. Fix separately.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
       transitPreference, 0, 0, seatsTogether, airportOnly,
     ) : null,
-    // Add 1 checked bag per adult — own transit cache (isXL must use checkedBags+adults)
-    // TODO(correctness): fare-side bag costs are baked into the SQL row from the original
-    // get_smart_recommendation call. Only transit XL-adjustment reflects the bag change.
-    // Full fare-side correctness is a separate fix.
     smartRaw ? assembleCombinationsOnly(
       smartRaw, postcodeDistrict, adults, children, infants,
-      transitPreference, cabinBags, checkedBags + adults, seatsTogether, airportOnly,
+      transitPreference, cabinBags, checkedBags + 1, seatsTogether, airportOnly,
     ) : null,
     // Flip transit mode — same bags as main call; shares full precomputed transit cache.
     // applyTransitPreference runs independently per call so the override is never shared.
@@ -381,12 +381,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
             scenarios={scenarios}
             baseline={assembled?.baseline ? {
-              outbound_date:         assembled.baseline.outbound_date,
-              return_date:           assembled.baseline.return_date,
-              origin_iata:           assembled.baseline.origin_iata,
-              carrier:               assembled.baseline.carrier,
+              outbound_date:           assembled.baseline.outbound_date,
+              return_date:             assembled.baseline.return_date,
+              origin_iata:             assembled.baseline.origin_iata,
+              destination_iata:        assembled.baseline.destination_iata,
+              carrier:                 assembled.baseline.carrier,
               outbound_departure_time: assembled.baseline.outbound_departure_time,
-              total_cost_gbp:        assembled.baseline.total_cost_gbp,
+              outbound_arrival_time:   assembled.baselineAsCombination?.outbound_arrival_time ?? null,
+              return_departure_time:   assembled.baselineAsCombination?.return_departure_time ?? null,
+              return_arrival_time:     assembled.baselineAsCombination?.return_arrival_time ?? null,
+              total_cost_gbp:          assembled.baseline.total_cost_gbp,
             } : null}
           >
 

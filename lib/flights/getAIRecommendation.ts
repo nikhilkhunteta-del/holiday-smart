@@ -67,6 +67,29 @@ export interface FamilyContext {
   baseline_allin?:           number;
   baseline_ret_dep_time?:    string;
   baseline_airport_name?:    string;
+  baseline_arr_quality?:     string;
+  baseline_ret_dep_quality?: string;
+  baseline_out_arr_time?:    string;
+  baseline_ret_arr_time?:    string;
+  baseline_origin_iata?:     string;
+  baseline_dest_iata?:       string;
+  baseline_outbound_date?:   string;
+  baseline_return_date?:     string;
+  baseline_trip_nights?:     number;
+  baseline_carrier?:         string;
+  // Best inset option from the full scored pool (not limited to shortlist)
+  bestInsetFromPool?: {
+    outbound_date: string;
+    return_date: string;
+    outbound_departure_time: string | null;
+    return_departure_time: string | null;
+    total_cost_gbp: number;
+    trip_nights: number;
+    arrival_quality: string | null;
+    outbound_carrier: string;
+    return_carrier: string;
+    origin_iata: string;
+  } | null;
 }
 
 interface CardSpec {
@@ -185,13 +208,78 @@ export async function getAIRecommendation(
 
   // Winner is pre-determined by selectCombination.
   // AI receives it as context and writes copy only — never re-derives winner.
-  const recommended = combinationsForPrompt.find(c =>
-    c.outbound_date    === ctx.winner.outbound_date &&
-    c.return_date      === ctx.winner.return_date &&
-    c.origin_iata      === ctx.winner.origin_iata &&
-    c.outbound_carrier === ctx.winner.outbound_carrier &&
-    c.return_carrier   === ctx.winner.return_carrier
-  ) ?? combinationsForPrompt[0];
+  // When baseline wins, it's excluded from the shortlist, so build recommended
+  // directly from the winner (which IS the baseline in the scored pool).
+  const recommended = (() => {
+    const found = combinationsForPrompt.find(c =>
+      c.outbound_date    === ctx.winner.outbound_date &&
+      c.return_date      === ctx.winner.return_date &&
+      c.origin_iata      === ctx.winner.origin_iata &&
+      c.outbound_carrier === ctx.winner.outbound_carrier &&
+      c.return_carrier   === ctx.winner.return_carrier
+    );
+    if (found) return found;
+    // Baseline winner not in shortlist — build same shape from ctx.winner
+    const w = ctx.winner;
+    return {
+      index: 0,
+      outbound_date: w.outbound_date,
+      return_date: w.return_date,
+      origin_iata: w.origin_iata,
+      out_dest_iata: w.out_dest_iata,
+      ret_dest_iata: w.ret_dest_iata,
+      outbound_carrier: w.outbound_carrier,
+      return_carrier: w.return_carrier,
+      split_carrier: w.split_carrier,
+      outbound_departure_time: w.outbound_departure_time,
+      outbound_arrival_time: w.outbound_arrival_time,
+      outbound_duration_mins: w.outbound_duration_mins,
+      return_departure_time: w.return_departure_time,
+      return_arrival_time: w.return_arrival_time,
+      is_inset_day: w.is_inset_day,
+      requires_absence: w.requires_absence,
+      absence_days: w.absence_days,
+      fine_gbp: w.fine_gbp,
+      cabin_bag_cost_gbp: w.cabin_bag_cost_gbp,
+      outbound_cabin_bag_cost_gbp: w.outbound_cabin_bag_cost_gbp,
+      return_cabin_bag_cost_gbp: w.return_cabin_bag_cost_gbp,
+      checked_bag_cost_gbp: w.checked_bag_cost_gbp,
+      seat_cost_gbp: w.seat_cost_gbp,
+      outbound_transit_cost_gbp: w.outbound_transit_cost_gbp,
+      outbound_transit_route: w.outbound_transit?.transit?.route_summary ?? null,
+      outbound_transit_duration_mins: w.outbound_transit?.transit?.duration_mins ?? null,
+      outbound_transit_changes: w.outbound_transit?.transit?.changes ?? null,
+      outbound_uber_cost_gbp: w.outbound_transit?.uber?.mean_pence
+        ? Math.round(w.outbound_transit.uber.mean_pence / 100) : null,
+      outbound_uber_low_gbp: w.outbound_transit?.uber?.low_pence
+        ? Math.round(w.outbound_transit.uber.low_pence / 100) : null,
+      outbound_uber_high_gbp: w.outbound_transit?.uber?.high_pence
+        ? Math.round(w.outbound_transit.uber.high_pence / 100) : null,
+      outbound_uber_duration_mins: w.outbound_transit?.uber?.duration_mins ?? null,
+      outbound_early_warning: w.outbound_transit?.transit?.early_flight_warning ?? false,
+      return_transit_cost_gbp: w.return_transit_cost_gbp,
+      return_transit_route: w.return_transit?.transit?.route_summary ?? null,
+      return_transit_changes: w.return_transit?.transit?.changes ?? null,
+      return_uber_cost_gbp: w.return_transit?.uber?.mean_pence
+        ? Math.round(w.return_transit.uber.mean_pence / 100) : null,
+      return_uber_low_gbp: w.return_transit?.uber?.low_pence
+        ? Math.round(w.return_transit.uber.low_pence / 100) : null,
+      return_uber_high_gbp: w.return_transit?.uber?.high_pence
+        ? Math.round(w.return_transit.uber.high_pence / 100) : null,
+      destination_transfer_cost_gbp: w.destination_transfer_cost_gbp,
+      baggage_is_estimate: w.baggage_is_estimate,
+      total_cost_gbp: w.total_cost_gbp,
+      total_inc_fine: w.total_inc_fine,
+      outbound_fare_gbp: w.outbound_fare_gbp,
+      return_fare_gbp: w.return_fare_gbp,
+      trip_nights: w.trip_nights,
+      arrival_quality: w.arrival_quality,
+      outbound_departure_quality: w.outbound_departure_quality,
+      return_departure_quality: w.return_departure_quality,
+      total_outbound_travel_mins: w.total_outbound_travel_mins,
+      pre_score: w.pre_score,
+    };
+  })();
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const round = (n: number) => Math.round(n);
@@ -905,62 +993,97 @@ One sentence. Specific. No carrier saving numbers.`,
   // ── Override card set when baseline is cheapest ───────────────────────────
   if (isBaselineCheapest) {
     const baselineCards: CardSpec[] = [];
+    const blAllin  = context.baseline_allin ?? round(recommended.total_cost_gbp);
+    const blFare   = context.baseline_fare  ?? 0;
+    const blAirport = context.baseline_airport_name ?? 'Heathrow';
+    const blCarrier = context.baseline_carrier ?? 'BA';
+    const blOutArr  = context.baseline_out_arr_time ?? recommended.outbound_arrival_time?.toString().slice(0, 5) ?? '';
+    const blRetDep  = context.baseline_ret_dep_time ?? recommended.return_departure_time?.toString().slice(0, 5) ?? '';
+    const blRetArr  = context.baseline_ret_arr_time ?? recommended.return_arrival_time?.toString().slice(0, 5) ?? '';
+    const blArrQ    = context.baseline_arr_quality ?? recommended.arrival_quality ?? '';
+    const blOutDepQ = context.baseline_out_dep_quality ?? recommended.outbound_departure_quality ?? '';
+    const blRetDepQ = context.baseline_ret_dep_quality ?? recommended.return_departure_quality ?? '';
+    const blOutDep  = recommended.outbound_departure_time?.toString().slice(0, 5) ?? '';
 
-    // Card 1 — Research lead (reuse if exists)
-    const existingLead = finalCards.find(c => c.lever === 'lead_research');
-    if (existingLead) baselineCards.push(existingLead);
-
-    // Card 2 — Why baseline wins
-    baselineCards.push({
-      lever: 'baseline_wins',
-      headline_hint: 'The direct booking wins',
-      voice: `Explain why the BA round-trip (£${context.benchmarkCost}) beats every two-leg combination we found (cheapest two-leg: £${context.trueCheapest_total_cost}).
-
-The reason: BA round-trip fares sometimes undercut the sum of two one-ways, and bags are included in the BA fare whereas LCC two-leg combinations charge separately.
-
-One sentence. Specific numbers from facts. Never apologetic — this is a valid and trustworthy conclusion.`,
-      facts: {
-        locked_headline:   'The direct booking wins',
-        baseline_total:    context.benchmarkCost ?? null,
-        cheapest_two_leg:  context.trueCheapest_total_cost ?? null,
-        diff: context.trueCheapest_total_cost && context.benchmarkCost
-          ? Math.round(context.trueCheapest_total_cost - context.benchmarkCost)
-          : null,
-      },
-      verified_field: 'total_cost_gbp',
-      verified_value:  context.benchmarkCost ?? 0,
-      saving_gbp: null,
-    });
-
-    // Card 3 — Inset day exists but wasn't recommended
-    const insetCombo = combinationsForPrompt.find(
-      c => c.is_inset_day && !c.requires_absence
-    );
-    if (insetCombo) {
-      const insetRetTime = insetCombo.return_departure_time?.slice(0, 5) ?? '05:20';
+    // Card 1 — All-in transparency
+    if (allInTrap) {
       baselineCards.push({
-        lever: 'inset_day_not_picked',
-        headline_hint: 'Inset day option exists',
-        voice: `Your school has an inset day on ${fmtD(insetCombo.outbound_date)}. Flying that day gives ${insetCombo.trip_nights} nights with zero absence and costs £${round(insetCombo.total_cost_gbp)}.
-
-We didn't recommend it because the return departs Barcelona at ${insetRetTime} — meaning a 03:00–03:30 hotel checkout.
-
-One sentence. Mention the inset date, the cost, and the early return time. End with: "If you're comfortable with that, check the date matrix below."`,
+        lever: 'allin_transparency',
+        headline_hint: 'Google Flights shows fares — we show costs',
+        voice: `Copy the three sentences from facts VERBATIM. Assembly only — do not rephrase.`,
         facts: {
-          locked_headline: 'Inset day option exists',
-          inset_date:  fmtD(insetCombo.outbound_date),
-          inset_total: round(insetCombo.total_cost_gbp),
-          return_time: insetRetTime,
+          locked_headline: 'Google Flights shows fares — we show costs',
+          sentence_1: `${allInTrap.cheap_description}: fare £${allInTrap.cheap_fare}. All-in — bags, ${allInTrap.has_expensive_transfer ? `airport transfer to ${allInTrap.cheap_dest_iata}, ` : ''}getting to the airport — it's £${allInTrap.cheap_allin}.`,
+          sentence_2: `${cn(blCarrier)} from ${blAirport} at £${blAllin} is £${allInTrap.allin_saving} cheaper once everything's counted.`,
         },
         verified_field: 'total_cost_gbp',
-        verified_value:  round(insetCombo.total_cost_gbp),
+        verified_value: blAllin,
+        saving_gbp: allInTrap.allin_saving,
+      });
+    } else {
+      baselineCards.push({
+        lever: 'allin_transparency',
+        headline_hint: 'Every cost included',
+        voice: `One sentence: "Fares don't tell the full story — we price every combination with bags, airport transit, and destination transfer included. The BA round-trip holds up under that accounting."`,
+        facts: {
+          locked_headline: 'Every cost included',
+          baseline_allin: blAllin,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value: blAllin,
         saving_gbp: null,
       });
     }
 
-    // Card 4 — Google Flights education (permanent)
-    const educationCard = finalCards.find(c => c.lever === 'allin_trap');
-    if (educationCard) baselineCards.push(educationCard);
+    // Card 2 — Quality validation (built from actual baseline quality fields)
+    const qualityParts: string[] = [];
+    if (blArrQ === 'excellent' || blArrQ === 'good') {
+      qualityParts.push(`Arrives ${destinationName} ${blOutArr} — you're at the hotel ${blArrQ === 'excellent' ? 'before lunch' : 'by the afternoon'}.`);
+    }
+    if (blRetDep && blRetArr) {
+      qualityParts.push(`Returns ${blRetDep} from ${destinationName}, landing ${blAirport} ${blRetArr}${blRetDepQ === 'excellent' || blRetDepQ === 'good' ? ' — a full last day and a reasonable school-night arrival' : ''}.`);
+    }
+    if (blOutDepQ === 'very_early' && blOutDep) {
+      qualityParts.push(`The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.`);
+    }
+    if (qualityParts.length > 0) {
+      baselineCards.push({
+        lever: 'quality_validation',
+        headline_hint: 'The schedule works',
+        voice: `Copy each sentence from facts VERBATIM. Assembly only.`,
+        facts: {
+          locked_headline: 'The schedule works',
+          ...Object.fromEntries(qualityParts.map((s, i) => [`sentence_${i + 1}`, s])),
+        },
+        verified_field: 'arrival_quality',
+        verified_value: blArrQ,
+        saving_gbp: null,
+      });
+    }
+
+    // Card 3 — Inset day (from scored pool, not shortlist)
+    const insetFromPool = context.bestInsetFromPool;
+    if (insetFromPool) {
+      const insetRetTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
+      const insetDelta = round(insetFromPool.total_cost_gbp - blAllin);
+      const insetMoreOrLess = insetDelta >= 0 ? `£${insetDelta} more` : `£${Math.abs(insetDelta)} less`;
+      const earlyCheckout = insetRetTime && parseInt(insetRetTime.slice(0, 2)) < 9;
+      baselineCards.push({
+        lever: 'inset_day_option',
+        headline_hint: 'Inset day option',
+        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        facts: {
+          locked_headline: 'Inset day option',
+          sentence_1: `Flying ${insetFromPool.outbound_departure_time?.slice(0, 5) ?? ''} on ${fmtD(insetFromPool.outbound_date)} (the inset day) costs £${round(insetFromPool.total_cost_gbp)} all-in — ${insetMoreOrLess} than Saturday.`,
+          sentence_2: earlyCheckout
+            ? `The return departs ${destinationName} at ${insetRetTime}, which means a 03:00–03:30 hotel checkout. We're not recommending it, but it's there if you want it.`
+            : `The return departs ${destinationName} at ${insetRetTime}. Check the date matrix below if you're interested.`,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value: round(insetFromPool.total_cost_gbp),
+        saving_gbp: null,
+      });
+    }
 
     finalCards = baselineCards;
   }
@@ -1046,8 +1169,8 @@ SELECTION CONTEXT:
 HEADLINE
 ──────────────────────────────────────────
 IF is_baseline_cheapest is true, write instead:
-  "The direct BA round-trip from ${context.baseline_airport_name ?? 'Heathrow'} is the best option this window — £[baseline_total] all-in, bags included."
-  Do not use "We found". Lead with the conclusion.
+  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'} — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, bags and transfers included."
+  Do not use "We found", "beat", "typical", or comparison language. Lead with the trip.
 
 OTHERWISE, HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
 
@@ -1081,6 +1204,11 @@ RULES:
 - Always lead with nights or saving, not departure mechanic
 
 SUBHEADLINE
+IF is_baseline_cheapest is true:
+  "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''}${context.baseline_out_dep_quality === 'very_early' ? ' — early start, but you gain the whole day' : ''}."
+  Do not repeat the cost. No comparison language.
+
+OTHERWISE:
 One sentence explaining the 2–3 key optimisations in plain English.
 Do not repeat the cost. No numbers.
 Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton Airport."
@@ -1092,14 +1220,11 @@ Use these values from SELECTION CONTEXT:
 - baseline_fare = what Google Flights shows for the BA round-trip
 - baseline_allin = what it actually costs (fare + bags + transport)
 
-Format (for ALL cases including is_baseline_cheapest):
-"Most ${context.borough ?? 'London'} families search Google Flights and see £[baseline_fare] for ${destinationName} this half-term. All-in — bags, transport to the airport, transfers — it's £[baseline_allin]. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations to see if we could beat it."
+IF is_baseline_cheapest is true:
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for ${destinationName} this half-term. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
 
-IF is_baseline_cheapest is true, add a fourth sentence:
-"This time, the direct BA round-trip from ${context.baseline_airport_name ?? 'Heathrow'} is the best answer."
-
-IF is_baseline_cheapest is false, add instead:
-"Here's what we found."
+OTHERWISE:
+"Most ${context.borough ?? 'London'} families search Google Flights and see £[baseline_fare] for ${destinationName} this half-term. All-in — bags, transport to the airport, transfers — it's £[baseline_allin]. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations. Here's what we found."
 
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
@@ -1160,8 +1285,10 @@ ${JSON.stringify((context.scenarios ?? []).map(s => ({
 ──────────────────────────────────────────
 CAVEATS
 ──────────────────────────────────────────
-Maximum 1 caveat. Only include if recommended.baggage_is_estimate is true: "Bag fees for [carrier] are estimates — actual price may vary by route and demand."
-If baggage_is_estimate is false: return empty array.
+Maximum 1 caveat.
+IF is_baseline_cheapest is true: "Prices observed ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. Book direct with ${cn(context.baseline_carrier ?? 'BA')}."
+ELSE IF recommended.baggage_is_estimate is true: "Bag fees for [carrier] are estimates — actual price may vary by route and demand."
+ELSE: return empty array.
 
 ──────────────────────────────────────────
 CRITICAL: Return ONLY valid JSON. Start with { end with }.
