@@ -880,11 +880,14 @@ export async function assembleCombinationsOnly(
   const recEffCost = selectionResult
     ? selectionResult.winnerEffCost
     : recommendation.total_cost_gbp;
-  const savingCategory = computeSavingCategory(
-    assembledBaseline.eff_cost,
-    recEffCost,
-    0,
-  );
+  const isBaselineWinner = (recommendation as any).is_baseline === true;
+  const savingCategory = isBaselineWinner
+    ? 'baseline_cheapest' as const
+    : computeSavingCategory(
+        assembledBaseline.eff_cost,
+        recEffCost,
+        0,
+      );
   console.log('[selection]', {
     winner_out:    recommendation.outbound_date,
     winner_ret:    recommendation.return_date,
@@ -1020,11 +1023,14 @@ export async function assembleRecommendation(
   // recommendation IS base.selection.winner — reuse its already-computed
   // effectiveCost rather than re-finding it via a shortlist .find().
   const recEffCost2 = base.selection?.winnerEffCost ?? recommendation.total_cost_gbp;
-  const savingCategory = computeSavingCategory(
-    base.baseline.eff_cost,
-    recEffCost2,
-    0, // nightsDiff already baked into eff_cost
-  );
+  const isBaselineWinner2 = (recommendation as any).is_baseline === true;
+  const savingCategory = isBaselineWinner2
+    ? 'baseline_cheapest' as const
+    : computeSavingCategory(
+        base.baseline.eff_cost,
+        recEffCost2,
+        0, // nightsDiff already baked into eff_cost
+      );
   console.log('[savingCategory-eff]', {
     baseline_eff_cost:        base.baseline.eff_cost,
     recommendation_eff_cost:  recEffCost2,
