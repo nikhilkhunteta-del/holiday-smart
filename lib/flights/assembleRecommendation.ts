@@ -1229,7 +1229,9 @@ export async function assembleRecommendation(
         origin_iata: best.origin_iata,
       };
     })(),
-    lcc_cabin_bag_cost: undefined,
+    lcc_cabin_bag_min_fee: undefined,
+    lcc_cabin_bag_max_fee: undefined,
+    partySize: adults + children + infants,
     destinationName: 'Barcelona',
     transitPreference,
     scenarios: [],
