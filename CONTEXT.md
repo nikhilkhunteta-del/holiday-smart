@@ -431,6 +431,59 @@ CLAUDE.md                            ← Claude Code session instructions
 - [ ] Scale to 21 destinations
 - [ ] Layer 3 leaderboard / narrative generation
 
+## Smart Recommendation Engine
+
+### Saving Categories
+
+`computeSavingCategory()` in `lib/flights/assembleRecommendation.ts` classifies the recommendation:
+
+| Category | Condition | UI framing |
+|---|---|---|
+| `significant` | adjustedSaving ≥ £100 | "£{saving} less than standard Saturday booking" |
+| `found_saving` | adjustedSaving ≥ £1 | "Stronger option, £{saving} less" |
+| `baseline_cheapest` | adjustedSaving < £1 | "The best all-in option" — baseline wins |
+
+`adjustedSaving = rawSaving + (nightsDiff × £80)` — credits longer trips at £80/night.
+
+### Transit Preference (3 modes)
+
+| Mode | Behaviour |
+|---|---|
+| `auto` (Smart) | Public transport unless flight before 07:00 or connections impractical — then Uber |
+| `uber` (Always Uber) | Force Uber for all airport legs |
+| `transit` (Public transport only) | Force public transport even for early departures |
+
+`applyTransitPreference()` in `assembleRecommendation.ts` overrides transit cache entries.
+
+### Scenario Cards
+
+`buildScenarioResults.ts` generates 5 what-if scenarios comparing against the recommendation:
+
+| Scenario | What it tests |
+|---|---|
+| `light` | Drop all bags (0 cabin, 0 checked) |
+| `checked` | Add one extra checked bag per leg |
+| `uber` / `transport_flip` | Switch between Uber and auto transport |
+| `seats` | Toggle seat pre-selection |
+| `transit` / `transport_all_transit` | Force public transport for all legs |
+
+Each scenario returns `{ type, headline, subheadline, delta, direction }` or null if not applicable.
+
+### Baseline Override Cards
+
+When `baseline_cheapest`, the AI prompt receives 4 override insight cards instead of the standard set:
+
+1. **allin_transparency** — explains all-in cost components
+2. **quality_validation** — validates flight timing quality
+3. **inset_day_option** — best inset-day alternative from scored pool
+4. **cabin_bags_included** — LCC cabin bag fee range from live `airline_baggage_fees` data
+
+### Google Flights Deep Links
+
+`encodeTfs()` in `ai-recommendation-client.tsx` generates Google Flights URLs with pre-filled route data using a protobuf-style encoding. Uses `TextEncoder` + `btoa()` (not Node.js Buffer) for browser compatibility.
+
+---
+
 ## Current Task
 **Task 3 — Flight Insights page UI restructure.**
 Layer 3 RPC functions are complete. Build the 11 UI components that consume them.
