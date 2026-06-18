@@ -158,9 +158,7 @@ export function buildScenarioResults(
     results.push({
       lever: 'transport_flip',
       locked_headline: isUberScenario
-        ? diff > 0
-          ? `Uber to ${originAirport} + taxi from ${destName} — £${diff} more`
-          : `Uber to ${originAirport} + taxi from ${destName} saves £${Math.abs(diff)}`
+        ? `Door-to-door both ends — £${Math.abs(diff)} ${diff > 0 ? 'more' : 'less'}`
         : diff < 0
           ? `Public transport saves £${Math.abs(diff)}`
           : `Public transport — £${diff} more`,

@@ -1295,7 +1295,7 @@ Rules:
 - travel_light: lead with the saving and action
 - skip_seats: mention the caveat (may not sit together)
 - add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
-- transport_flip (costs more): mention both London and destination transport (e.g. "Uber to Heathrow + taxi from BCN airport")
+- transport_flip (is_uber scenario, costs more): "Adds Uber home from {origin_airport} (instead of the tube) plus taxi from {destination_name} airport — door-to-door both ends." Do NOT say "Uber to" the airport — only what changes vs auto mode.
 - transport_flip (saves money): lead with the saving
 - transport_all_transit: mention it forces transit even for early departures, lead with the saving
 - If flight_changes is true: mention "different flight"
