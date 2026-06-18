@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
         .join(' '),
       transitPreference,
       scenarios,
-      savingCategory: body.savingCategory ?? 'modest',
+      savingCategory: body.savingCategory ?? 'found_saving',
       combinationCount: body.combinationCount ?? 0,
     }, selectionContext);
 

@@ -790,15 +790,11 @@ function computeSavingCategory(
   baselineTotal: number,
   recommendationTotal: number,
   nightsDiff: number = 0,
-): 'significant' | 'modest' | 'minimal' | 'baseline_cheapest' {
-  // Raw saving: positive means recommendation is cheaper
+): 'significant' | 'found_saving' | 'baseline_cheapest' {
   const rawSaving = baselineTotal - recommendationTotal;
-  // Adjust for extra nights — paying more for extra nights
-  // is still good value if the premium is under NIGHT_VALUE
   const adjustedSaving = rawSaving + (nightsDiff * NIGHT_VALUE);
-  if (adjustedSaving >= 75) return 'significant';
-  if (adjustedSaving >= 20) return 'modest';
-  if (adjustedSaving >= 0)  return 'minimal';
+  if (adjustedSaving >= 100) return 'significant';
+  if (adjustedSaving >= 1)   return 'found_saving';
   return 'baseline_cheapest';
 }
 
@@ -821,7 +817,7 @@ export type CombinationsOnlyResult = {
   scoredPool: ScoredCombination[];
   baseline: AssembledBaseline;
   recommendation: AssembledCombination;
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest';
   baselineIsRecommended: boolean;
   baselineAsItinerary: BaselineAsItinerary;
   shortlist: ScoredCombination[];

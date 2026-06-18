@@ -54,7 +54,7 @@ export interface FamilyContext {
   destinationName?: string | null;
   transitPreference?: 'auto' | 'uber' | 'transit' | null;
   scenarios?: ScenarioResult[];
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest';
   combinationCount: number;
   trueCheapest_total_cost?:  number;
   trueCheapest_trip_nights?: number;
@@ -386,9 +386,8 @@ export async function getAIRecommendation(
   );
 
   // ── Saving category helpers ───────────────────────────────────────────
-  const isSigOrModest = context.savingCategory === 'significant' ||
-    context.savingCategory === 'modest';
-  const isMinimal = context.savingCategory === 'minimal';
+  const isSignificant = context.savingCategory === 'significant';
+  const isFoundSaving = context.savingCategory === 'found_saving';
   const isBaselineCheapest = context.savingCategory === 'baseline_cheapest';
 
   const combCount = context.combinationCount > 0
@@ -397,13 +396,11 @@ export async function getAIRecommendation(
 
   // ── LEAD CARD — only when no inset day ───────────────────────────────
   if (!recommended.is_inset_day) {
-    if (isBaselineCheapest || isMinimal) {
+    if (isBaselineCheapest) {
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: isBaselineCheapest
-          ? `"We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both." Copy VERBATIM. Assembly only.`
-          : `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. Here is what we found. One sentence. Confident, not apologetic.`,
+        voice: `"We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both." Copy VERBATIM. Assembly only.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
           combination_count:    combCount,
@@ -984,7 +981,7 @@ One sentence. Specific. No carrier saving numbers.`,
     );
   }
 
-  if (isMinimal) {
+  if (isFoundSaving) {
     const diff = round(recommended.total_inc_fine -
       (cheapestOverall?.total_inc_fine ?? recommended.total_inc_fine));
     if (diff < 15) {
@@ -1227,15 +1224,12 @@ OTHERWISE, HEADLINE varies by saving_category:
 IF saving_category = 'significant':
   "We found ${recommended.trip_nights} nights in ${destinationName} for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking from ${context.baseline_airport_name ?? 'Heathrow'}."
 
-IF saving_category = 'modest':
-  "We found a better-value option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the obvious booking."
-
-IF saving_category = 'minimal':
-  "${recommended.trip_nights} nights in ${destinationName} — £${round(recommended.total_cost_gbp)} all-in, with better timing than the standard Saturday booking."
+IF saving_category = 'found_saving':
+  "We found a stronger option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking."
 
 RULES:
 - Never say "typical booking." Say "the standard Saturday booking from {airport}" or "the obvious option."
-- Never say "we found savings." Say "we found a better-value option" for significant/modest and "a stronger routing" for minimal.
+- Never say "we found savings." Say "we found a better-value option" or "a stronger option."
 - Never say "cheapest option" in the headline
 - Never use decimal places
 - Always lead with nights or saving, not departure mechanic
@@ -1250,11 +1244,8 @@ OTHERWISE, SUBHEADLINE varies by saving_category:
 IF saving_category = 'significant':
   "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}. All-in: fare + bags + transit + transfer."
 
-IF saving_category = 'modest':
-  "Not a dramatic saving, but the all-in numbers check out — and the timing works."
-
-IF saving_category = 'minimal':
-  "Only £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the direct ${cn(context.baseline_carrier ?? 'BA')} round-trip — but with ${recommended.arrival_quality === 'excellent' ? 'a morning arrival' : recommended.trip_nights > (context.baseline_trip_nights ?? 0) ? 'an extra night' : 'better timing'}."
+IF saving_category = 'found_saving':
+  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}, with better timing than the obvious choice."
 
 Do not repeat the cost. One sentence max.
 
@@ -1268,13 +1259,8 @@ Use these values from SELECTION CONTEXT:
 IF is_baseline_cheapest is true:
 "Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday of your half-term window'} — the first Saturday of your half-term window. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
 
-OTHERWISE, PROBLEM STATEMENT varies by saving_category:
-
-IF saving_category = 'significant' or 'modest':
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost — bags, transit, transfer — is £${context.baseline_allin ?? 'unknown'}. We found a better option for £${round(recommended.total_cost_gbp)}: £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less, once everything's counted."
-
-IF saving_category = 'minimal':
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for ${destinationName} this half-term. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations to find the best all-in option. The difference is small — but the routing is stronger."
+OTHERWISE (saving_category = 'significant' or 'found_saving'):
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less, once bags, transit, and transfers are counted."
 
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
