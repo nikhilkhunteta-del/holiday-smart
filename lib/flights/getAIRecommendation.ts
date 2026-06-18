@@ -394,7 +394,9 @@ export async function getAIRecommendation(
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? `The ${context.baseline_airport_name ?? 'Heathrow'} option turned out to be the best option — say this with confidence, not apology.` : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
+        voice: isBaselineCheapest
+          ? `"We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both." Copy VERBATIM. Assembly only.`
+          : `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. Here is what we found. One sentence. Confident, not apologetic.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
           combination_count:    combCount,

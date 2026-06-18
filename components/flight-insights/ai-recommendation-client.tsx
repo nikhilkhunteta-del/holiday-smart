@@ -752,11 +752,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#6f797a', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Best option found
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,67,73,0.06)', borderRadius: 20, padding: '4px 10px', border: '1px solid rgba(0,67,73,0.12)' }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#004349', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      Verified
-                    </span>
-                  </div>
                 </div>
 
                 <div style={{ fontFamily: 'Newsreader, serif', fontSize: 18, color: '#004349', fontWeight: 500 }}>
@@ -835,8 +830,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   Book · British Airways
                 </a>
 
-                <div style={{ textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a' }}>
-                  Best all-in price found across 128+ combinations
+                <div style={{ textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', lineHeight: 1.5 }}>
+                  We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both.
                 </div>
               </div>
             ) : (
