@@ -400,9 +400,10 @@ export async function getAIRecommendation(
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: `"We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both." Copy VERBATIM. Assembly only.`,
+        voice: `Copy the sentence from facts VERBATIM. Assembly only.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
+          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} came out on top.`,
           combination_count:    combCount,
           is_baseline_cheapest: isBaselineCheapest,
         },
@@ -1031,14 +1032,33 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'allin_transparency',
         headline_hint: 'Every cost included',
-        voice: `One sentence: "Fares don't tell the full story — we price every combination with bags, airport transit, and destination transfer included. The BA round-trip holds up under that accounting."`,
+        voice: `Copy the sentences from facts VERBATIM. Assembly only — do not rephrase.`,
         facts: {
           locked_headline: 'Every cost included',
+          sentence_1: `Fares don't tell the full story — we checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.`,
+          sentence_2: `We also scored every option on arrival time, departure hour, and transit changes — not just cost. The ${cn(blCarrier)} round-trip holds up on both.`,
           baseline_allin: blAllin,
         },
         verified_field: 'total_cost_gbp',
         verified_value: blAllin,
         saving_gbp: null,
+      });
+    }
+
+    // Card — All-in trap (when allInTrap data exists, show dedicated card)
+    if (allInTrap) {
+      baselineCards.push({
+        lever: 'allin_trap',
+        headline_hint: "Why the cheap fare isn't cheap",
+        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        facts: {
+          locked_headline: "Why the cheap fare isn't cheap",
+          sentence_1: `${allInTrap.cheap_description}: fare £${allInTrap.cheap_fare}. Add bags, transit to ${an(allInTrap.cheap_dest_iata)}${allInTrap.has_expensive_transfer ? `, and the transfer from ${allInTrap.cheap_dest_iata}` : ''} — all-in it's £${allInTrap.cheap_allin}.`,
+          sentence_2: `${cn(blCarrier)} from ${blAirport} at £${blAllin} is £${allInTrap.allin_saving} less despite the higher headline fare.`,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value: blAllin,
+        saving_gbp: allInTrap.allin_saving,
       });
     }
 
@@ -1299,12 +1319,12 @@ describing what the parent gets or saves. Use only the
 values in facts. Copy numbers exactly — never calculate.
 
 Rules:
-- travel_light: lead with the saving and action
+- travel_light: if bags_included is true, write "${cn(context.baseline_carrier ?? 'BA')} includes cabin bags in the fare, so removing them makes no difference to your total. If you switched to a budget carrier, removing bags would matter — but not here." Otherwise lead with the saving and action
 - skip_seats: mention the caveat (may not sit together)
 - add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
-- transport_flip (is_uber scenario, costs more): "Adds Uber home from {origin_airport} (instead of the tube) plus taxi from {destination_name} airport — door-to-door both ends." Do NOT say "Uber to" the airport — only what changes vs auto mode.
+- transport_flip (is_uber scenario, costs more): "Your outbound Uber to {origin_airport} is already included in the £{current_total} — the {outbound_departure_time} departure triggered our early-morning auto-rule. This scenario adds Uber home from {origin_airport} and taxi from {destination_name} airport — door-to-door both ends." Do NOT say "Uber to" the airport — only what changes vs auto mode.
 - transport_flip (saves money): lead with the saving
-- transport_all_transit: mention it forces transit even for early departures, lead with the saving
+- transport_all_transit: if saves_money is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Saves £{delta}, total £{scenario_total}." If costs_more is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Costs £{delta} more than smart transport, total £{scenario_total}." If delta is 0, write "No Uber in the smart route, so forcing public transport makes no difference."
 - If flight_changes is true: mention "different flight"
 
 Return as:

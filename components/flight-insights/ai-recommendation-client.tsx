@@ -830,9 +830,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   Book · British Airways
                 </a>
 
-                <div style={{ textAlign: 'center', fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', lineHeight: 1.5 }}>
-                  We scored every option on cost AND timing — arrival time, departure hour, transit changes. The BA round-trip holds up on both.
-                </div>
               </div>
             ) : (
             <div className="space-y-xl">

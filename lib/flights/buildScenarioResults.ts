@@ -97,6 +97,26 @@ export function buildScenarioResults(
           checked_bags: '0'
         },
       });
+    } else {
+      results.push({
+        lever:           'travel_light',
+        locked_headline: 'Travel light — no saving',
+        current_total:   currentTotal,
+        scenario_total:  scenarioTotal,
+        saving:          0,
+        flight_changes:  false,
+        facts: {
+          bag_saving:       0,
+          scenario_total:   scenarioTotal,
+          scenario_carrier: cn(w.outbound_carrier),
+          bags_included:    true,
+          flight_changes:   false,
+        },
+        url_params: {
+          cabin_bags: '0',
+          checked_bags: '0'
+        },
+      });
     }
   }
 
@@ -176,6 +196,8 @@ export function buildScenarioResults(
         flight_changes: flightChanged(currentWinner, w),
         origin_airport: originAirport,
         destination_name: destName,
+        outbound_departure_time: currentWinner.outbound_departure_time ?? null,
+        current_total: currentTotal,
       },
       url_params: {
         transit: isUberScenario ? 'uber' : 'auto'
@@ -216,23 +238,27 @@ export function buildScenarioResults(
     const scenarioTotal = round(w.total_cost_gbp);
     const diff = scenarioTotal - currentTotal;
 
-    if (diff < 0) {
-      results.push({
-        lever: 'transport_all_transit',
-        locked_headline: `Public transport only — saves £${Math.abs(diff)}`,
-        current_total:  currentTotal,
+    results.push({
+      lever: 'transport_all_transit',
+      locked_headline: diff < 0
+        ? `All public transport — saves £${Math.abs(diff)}`
+        : diff > 0
+          ? `All public transport — £${diff} more`
+          : 'All public transport — same cost',
+      current_total:  currentTotal,
+      scenario_total: scenarioTotal,
+      saving:         -diff,
+      flight_changes: flightChanged(currentWinner, w),
+      facts: {
+        delta:          Math.abs(diff),
+        costs_more:     diff > 0,
+        saves_money:    diff < 0,
         scenario_total: scenarioTotal,
-        saving:         Math.abs(diff),
         flight_changes: flightChanged(currentWinner, w),
-        facts: {
-          saving:         Math.abs(diff),
-          scenario_total: scenarioTotal,
-          flight_changes: flightChanged(currentWinner, w),
-          note: 'Forces public transport even for early departures where Uber was recommended.',
-        },
-        url_params: { transit: 'transit' },
-      });
-    }
+        outbound_departure_time: currentWinner.outbound_departure_time ?? null,
+      },
+      url_params: { transit: 'transit' },
+    });
   }
 
   return results;
