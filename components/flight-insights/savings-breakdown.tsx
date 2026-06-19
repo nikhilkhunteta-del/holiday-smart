@@ -46,7 +46,7 @@ interface Props {
   seatsTogether: boolean;
   party_size: number;
   combinations?: AssembledCombination[];
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest';
   schoolName: string | null;
   baselineIsRecommended?: boolean;
   baselineAsItinerary?: BaselineAsItinerary;
@@ -163,21 +163,16 @@ export function SavingsBreakdown({
       line2: `We found the same trip for ${fmt(effectiveRecommendation.total_cost_gbp)}.`,
       amberNote: null as string | null,
     };
-    if (savingCategory === 'modest') return {
-      line1: `Prices for ${destName} this half-term are fairly consistent across most families${schoolSuffix}.`,
-      line2: `The cheapest all-in option we found is ${fmt(effectiveRecommendation.total_cost_gbp)}.`,
+    if (savingCategory === 'found_saving') return {
+      line1: `We found a stronger option for ${destName} this half-term for families${schoolSuffix}.`,
+      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} all-in — here's the full breakdown.`,
       amberNote: null as string | null,
     };
-    if (savingCategory === 'baseline_cheapest') return {
-      line1: `The cheapest all-in option we found for ${schoolName ?? borough} families this half-term.`,
-      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} — here's the full breakdown.`,
-      amberNote: `Note: with your current preferences, the standard Saturday ${AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport} booking is similar in cost. Try adjusting bags or transport above.` as string | null,
-    };
-    // minimal
+    // baseline_cheapest
     return {
-      line1: `You've picked a good window. ${destName} this half-term is consistently priced for families${schoolAt}.`,
-      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} is about as good as it gets — here's the full breakdown.`,
-      amberNote: null as string | null,
+      line1: `The best all-in option we found for ${schoolName ?? borough} families this half-term.`,
+      line2: `${fmt(effectiveRecommendation.total_cost_gbp)} — here's the full breakdown.`,
+      amberNote: `Note: with your current preferences, the standard Saturday ${AIRPORT_NAMES[baseline.baseline_airport] ?? baseline.baseline_airport} booking is the strongest option. Try adjusting bags or transport above.` as string | null,
     };
   })();
 

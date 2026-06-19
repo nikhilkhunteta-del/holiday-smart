@@ -120,7 +120,7 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
   ];
 
   const summaryParts = [
-    `${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''}`,
+    `${cabinBags} cabin bag${cabinBags !== 1 ? 's' : ''} (shared)`,
     `${checkedBags} checked bag${checkedBags !== 1 ? 's' : ''}`,
     seatsTogether ? 'Seats reserved' : 'No seat selection',
     transitPreference === 'uber' ? 'Always Uber' : transitPreference === 'transit' ? 'Public transport only' : 'Smart transport',
@@ -170,8 +170,8 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
 
           {/* Cabin bags */}
           <div>
-            <span style={label}>Cabin bags</span>
-            <span style={sub}>Overhead bags per leg · based on published airline fees</span>
+            <span style={label}>Cabin bags (shared)</span>
+            <span style={sub}>{cabinBags} bag{cabinBags !== 1 ? 's' : ''} shared across your party of {adults ?? 2} · based on published airline fees</span>
             <Stepper value={cabinBags} onChange={v => update('cabin_bags', String(v))} />
           </div>
 

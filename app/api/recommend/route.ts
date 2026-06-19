@@ -143,16 +143,16 @@ export async function POST(request: NextRequest) {
     const blScored = assembled.scoredPool.find(c => (c as any).is_baseline) ?? null;
     const bl = assembled.baselineAsCombination;
     const partySize = adults + children;
-    const lccCabinBagCost = (() => {
-      const lccCarriers = ['FR', 'U2', 'W6'];
-      const fees = lccCarriers
-        .map(c => precomputed.bagFeesCache?.get(c))
-        .filter(Boolean)
-        .map(f => f!.full_cabin_bag_fee_gbp ?? 0)
-        .filter(f => f > 0);
-      if (fees.length === 0) return undefined;
-      const avg = fees.reduce((a, b) => a + b, 0) / fees.length;
-      return Math.round((avg * partySize * 2) / 10) * 10;
+    const lccCabinBagFees = (() => {
+      if (!precomputed.bagFeesCache) return { min: undefined, max: undefined };
+      const fees: number[] = [];
+      for (const [, row] of precomputed.bagFeesCache) {
+        if (!row.cabin_bag_included && row.full_cabin_bag_fee_gbp != null && row.full_cabin_bag_fee_gbp > 0) {
+          fees.push(row.full_cabin_bag_fee_gbp);
+        }
+      }
+      if (fees.length === 0) return { min: undefined, max: undefined };
+      return { min: Math.min(...fees), max: Math.max(...fees) };
     })();
     const bestInsetFromPool = (() => {
       const insets = assembled.scoredPool
@@ -203,14 +203,16 @@ export async function POST(request: NextRequest) {
       baseline_trip_nights:     blScored?.trip_nights ?? undefined,
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
       bestInsetFromPool,
-      lcc_cabin_bag_cost: lccCabinBagCost,
+      lcc_cabin_bag_min_fee: lccCabinBagFees.min,
+      lcc_cabin_bag_max_fee: lccCabinBagFees.max,
+      partySize,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' '),
       transitPreference,
       scenarios,
-      savingCategory: body.savingCategory ?? 'modest',
+      savingCategory: body.savingCategory ?? 'found_saving',
       combinationCount: body.combinationCount ?? 0,
     }, selectionContext);
 

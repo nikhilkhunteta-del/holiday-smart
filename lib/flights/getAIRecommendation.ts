@@ -54,7 +54,7 @@ export interface FamilyContext {
   destinationName?: string | null;
   transitPreference?: 'auto' | 'uber' | 'transit' | null;
   scenarios?: ScenarioResult[];
-  savingCategory: 'significant' | 'modest' | 'minimal' | 'baseline_cheapest';
+  savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest';
   combinationCount: number;
   trueCheapest_total_cost?:  number;
   trueCheapest_trip_nights?: number;
@@ -90,7 +90,9 @@ export interface FamilyContext {
     return_carrier: string;
     origin_iata: string;
   } | null;
-  lcc_cabin_bag_cost?: number;
+  lcc_cabin_bag_min_fee?: number;
+  lcc_cabin_bag_max_fee?: number;
+  partySize?: number;
 }
 
 interface CardSpec {
@@ -311,6 +313,11 @@ export async function getAIRecommendation(
     EI: 'Aer Lingus',
   };
   const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
+  const AIRPORT_NAMES: Record<string, string> = {
+    LHR: 'Heathrow', LGW: 'Gatwick', STN: 'Stansted',
+    LTN: 'Luton', LCY: 'City', SEN: 'Southend',
+  };
+  const an = (iata: string) => AIRPORT_NAMES[iata] ?? iata;
   const simplifyRoute = (route: string | null): string => {
     if (!route) return 'public transport';
     const operators = route
@@ -379,9 +386,8 @@ export async function getAIRecommendation(
   );
 
   // ── Saving category helpers ───────────────────────────────────────────
-  const isSigOrModest = context.savingCategory === 'significant' ||
-    context.savingCategory === 'modest';
-  const isMinimal = context.savingCategory === 'minimal';
+  const isSignificant = context.savingCategory === 'significant';
+  const isFoundSaving = context.savingCategory === 'found_saving';
   const isBaselineCheapest = context.savingCategory === 'baseline_cheapest';
 
   const combCount = context.combinationCount > 0
@@ -390,13 +396,14 @@ export async function getAIRecommendation(
 
   // ── LEAD CARD — only when no inset day ───────────────────────────────
   if (!recommended.is_inset_day) {
-    if (isBaselineCheapest || isMinimal) {
+    if (isBaselineCheapest) {
       cards.push({
         lever: 'lead_research',
         headline_hint: `${combCount} combinations checked`,
-        voice: `Tell the parent we did the research so they don't have to. We checked ${combCount} flight combinations across 5 London airports and every viable date in their half-term window. ${isBaselineCheapest ? `The ${context.baseline_airport_name ?? 'Heathrow'} option turned out to be the best option — say this with confidence, not apology.` : 'Here is what we found.'} One sentence. Confident, not apologetic.`,
+        voice: `Copy the sentence from facts VERBATIM. Assembly only.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
+          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} came out on top.`,
           combination_count:    combCount,
           is_baseline_cheapest: isBaselineCheapest,
         },
@@ -975,7 +982,7 @@ One sentence. Specific. No carrier saving numbers.`,
     );
   }
 
-  if (isMinimal) {
+  if (isFoundSaving) {
     const diff = round(recommended.total_inc_fine -
       (cheapestOverall?.total_inc_fine ?? recommended.total_inc_fine));
     if (diff < 15) {
@@ -1025,14 +1032,33 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'allin_transparency',
         headline_hint: 'Every cost included',
-        voice: `One sentence: "Fares don't tell the full story — we price every combination with bags, airport transit, and destination transfer included. The BA round-trip holds up under that accounting."`,
+        voice: `Copy the sentences from facts VERBATIM. Assembly only — do not rephrase.`,
         facts: {
           locked_headline: 'Every cost included',
+          sentence_1: `Fares don't tell the full story — we checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.`,
+          sentence_2: `We also scored every option on arrival time, departure hour, and transit changes — not just cost. The ${cn(blCarrier)} round-trip holds up on both.`,
           baseline_allin: blAllin,
         },
         verified_field: 'total_cost_gbp',
         verified_value: blAllin,
         saving_gbp: null,
+      });
+    }
+
+    // Card — All-in trap (when allInTrap data exists, show dedicated card)
+    if (allInTrap) {
+      baselineCards.push({
+        lever: 'allin_trap',
+        headline_hint: "Why the cheap fare isn't cheap",
+        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        facts: {
+          locked_headline: "Why the cheap fare isn't cheap",
+          sentence_1: `${allInTrap.cheap_description}: fare £${allInTrap.cheap_fare}. Add bags, transit to ${an(allInTrap.cheap_dest_iata)}${allInTrap.has_expensive_transfer ? `, and the transfer from ${allInTrap.cheap_dest_iata}` : ''} — all-in it's £${allInTrap.cheap_allin}.`,
+          sentence_2: `${cn(blCarrier)} from ${blAirport} at £${blAllin} is £${allInTrap.allin_saving} less despite the higher headline fare.`,
+        },
+        verified_field: 'total_cost_gbp',
+        verified_value: blAllin,
+        saving_gbp: allInTrap.allin_saving,
       });
     }
 
@@ -1087,19 +1113,27 @@ One sentence. Specific. No carrier saving numbers.`,
     }
 
     // Card 4 — Cabin bags included (when BA includes bags and LCCs charge)
-    if ((recommended.cabin_bag_cost_gbp ?? 0) === 0 && context.lcc_cabin_bag_cost && context.lcc_cabin_bag_cost > 0) {
-      const lccCost = context.lcc_cabin_bag_cost;
+    const lccMin = context.lcc_cabin_bag_min_fee;
+    const lccMax = context.lcc_cabin_bag_max_fee;
+    const sessionBags = context.cabinBags ?? 2;
+    const pSize = context.partySize ?? (context.adults + context.children);
+    const bagWord = sessionBags === 1 ? 'bag' : 'bags';
+    if ((recommended.cabin_bag_cost_gbp ?? 0) === 0 && lccMin && lccMax && lccMin > 0) {
+      const minTotal = round(lccMin * sessionBags * 2);
+      const maxTotal = round(lccMax * sessionBags * 2);
       baselineCards.push({
         lever: 'cabin_bags_included',
         headline_hint: 'Cabin bags included',
         voice: `Copy sentences from facts VERBATIM. Assembly only.`,
         facts: {
           locked_headline: 'Cabin bags included',
-          sentence_1: `${cn(blCarrier)} includes a full cabin bag in this fare. Budget carriers on the same route charge £25–£47 per person each way — for your party, that's an extra £${lccCost} not shown in their fare.`,
+          sentence_1: `${cn(blCarrier)} includes ${sessionBags} cabin ${bagWord} in the fare — no extra charge. Budget carriers on this route charge £${lccMin}–£${lccMax} per bag per flight.`,
+          sentence_2: `For ${sessionBags} ${bagWord} across both legs, that's £${minTotal}–£${maxTotal} extra not shown in their fare.`,
+          sentence_3: `Our default assumes ${sessionBags} cabin ${bagWord} shared across your party of ${pSize}.`,
         },
         verified_field: 'cabin_bag_cost_gbp',
         verified_value: 0,
-        saving_gbp: lccCost,
+        saving_gbp: minTotal,
       });
     }
 
@@ -1193,6 +1227,10 @@ SELECTION CONTEXT:
 - baseline_dep_quality: ${context.baseline_out_dep_quality ?? 'unknown'} (e.g. very_early = 06:10 departure)
 - baseline_origin_iata: ${context.baseline_origin_iata ?? 'LHR'}
 - baseline_departure_label: ${baselineDepartureLabel || 'unknown'} (e.g. "Saturday 25 Oct")
+- saving_category: ${context.savingCategory}
+- saving_vs_baseline: £${context.baseline_allin != null ? Math.abs(round(context.baseline_allin - recommended.total_cost_gbp)) : 'unknown'}
+- winner_airport: ${an(recommended.origin_iata)}
+- winner_carrier: ${cn(recommended.outbound_carrier)}
 
 ──────────────────────────────────────────
 HEADLINE
@@ -1201,34 +1239,18 @@ IF is_baseline_cheapest is true, write instead:
   "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'} — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, bags and transfers included."
   Do not use "We found", "beat", "typical", or comparison language. Lead with the trip.
 
-OTHERWISE, HEADLINE MUST follow one of these exact formats. Always compare cost against baseline (baseline_cost), not against trueCheapest.
+OTHERWISE, HEADLINE varies by saving_category:
 
-FORMAT A — recommended costs MORE than baseline but gets more nights than trueCheapest (baseline_diff > 0, nights_diff > 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — £[baseline_diff] more than the typical booking, but one extra night."
-  Use "just £[baseline_diff] more" only if baseline_diff < 30.
+IF saving_category = 'significant':
+  "We found ${recommended.trip_nights} nights in ${destinationName} for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking from ${context.baseline_airport_name ?? 'Heathrow'}."
 
-FORMAT B — recommended costs LESS than baseline (baseline_diff < 0):
-  "We found [trip_nights] nights in [destinationName] for £[total] — £[abs(baseline_diff)] less than the typical booking."
-
-FORMAT C — recommended costs same as baseline (within £10 either way):
-  "We found [trip_nights] nights in [destinationName] for £[total] — same price as the typical booking, better routing."
-
-FORMAT D — minimal saving, no strong comparison:
-  "We found [trip_nights] nights in [destinationName] for £[total] — here's the optimal routing."
+IF saving_category = 'found_saving':
+  "We found a stronger option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking."
 
 RULES:
-- baseline_diff = recommended.total_cost_gbp − baseline_cost (positive = we cost more)
-- Always compare against baseline, never against trueCheapest
-- If baseline_diff > 0: explain what the extra money buys (extra night, better airport)
-- If baseline_diff < 0: lead with the saving
+- Never say "typical booking." Say "the standard Saturday booking from {airport}" or "the obvious option."
+- Never say "we found savings." Say "we found a better-value option" or "a stronger option."
 - Never say "cheapest option" in the headline
-
-FORMAT E — inset day adds extra night:
-  "We found ${destinationName} for £[total] — a full extra night on the inset day, £[benchmarkSaving] less than booking from ${context.baseline_airport_name ?? 'Heathrow'}."
-
-RULES:
-- Never say "cheapest option" in the headline
-- Never say "typical booking" or "standard booking"
 - Never use decimal places
 - Always lead with nights or saving, not departure mechanic
 
@@ -1237,10 +1259,15 @@ IF is_baseline_cheapest is true:
   "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''}${context.baseline_out_dep_quality === 'very_early' ? ' — early start, but you gain the whole day' : ''}."
   Do not repeat the cost. No comparison language.
 
-OTHERWISE:
-One sentence explaining the 2–3 key optimisations in plain English.
-Do not repeat the cost. No numbers.
-Example: "Flying on the inset day, mixing carriers, and taking the bus to Luton Airport."
+OTHERWISE, SUBHEADLINE varies by saving_category:
+
+IF saving_category = 'significant':
+  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}. All-in: fare + bags + transit + transfer."
+
+IF saving_category = 'found_saving':
+  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}, with better timing than the obvious choice."
+
+Do not repeat the cost. One sentence max.
 
 PROBLEM STATEMENT
 The problem statement always leads with the Google Flights fare vs all-in reality — regardless of whether our pick wins or the baseline wins.
@@ -1252,8 +1279,8 @@ Use these values from SELECTION CONTEXT:
 IF is_baseline_cheapest is true:
 "Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday of your half-term window'} — the first Saturday of your half-term window. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
 
-OTHERWISE:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. All-in — bags, transport to the airport, transfers — it's £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} combinations. Here's what we found."
+OTHERWISE (saving_category = 'significant' or 'found_saving'):
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less, once bags, transit, and transfers are counted."
 
 Rules:
 - Always use the borough — "Most Harrow families" not "Most families"
@@ -1292,12 +1319,12 @@ describing what the parent gets or saves. Use only the
 values in facts. Copy numbers exactly — never calculate.
 
 Rules:
-- travel_light: lead with the saving and action
+- travel_light: if bags_included is true, write "${cn(context.baseline_carrier ?? 'BA')} includes cabin bags in the fare, so removing them makes no difference to your total. If you switched to a budget carrier, removing bags would matter — but not here." Otherwise lead with the saving and action
 - skip_seats: mention the caveat (may not sit together)
 - add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
-- transport_flip (costs more): mention both London and destination transport (e.g. "Uber to Heathrow + taxi from BCN airport")
+- transport_flip (is_uber scenario, costs more): "Your outbound Uber to {origin_airport} is already included in the £{current_total} — the {outbound_departure_time} departure triggered our early-morning auto-rule. This scenario adds Uber home from {origin_airport} and taxi from {destination_name} airport — door-to-door both ends." Do NOT say "Uber to" the airport — only what changes vs auto mode.
 - transport_flip (saves money): lead with the saving
-- transport_all_transit: mention it forces transit even for early departures, lead with the saving
+- transport_all_transit: if saves_money is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Saves £{delta}, total £{scenario_total}." If costs_more is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Costs £{delta} more than smart transport, total £{scenario_total}." If delta is 0, write "No Uber in the smart route, so forcing public transport makes no difference."
 - If flight_changes is true: mention "different flight"
 
 Return as:

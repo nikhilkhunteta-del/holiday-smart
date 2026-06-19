@@ -145,6 +145,17 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                       total: £{scenario.scenario_total}
                     </span>
                   </>
+                ) : scenario.saving === 0 ? (
+                  <span style={{
+                    fontFamily:    'Inter, sans-serif',
+                    fontSize:      13,
+                    fontWeight:    600,
+                    color:         '#6f797a',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}>
+                    £0 difference
+                  </span>
                 ) : scenario.saving < 0 ? (
                   <>
                     <span style={{
