@@ -86,6 +86,9 @@ interface ColumnData {
   outbound_carrier: string;
   return_carrier: string;
   origin_iata: string;
+  out_dest_iata: string;
+  ret_dest_iata: string;
+  cabin_bag_cost_gbp: number;
   base_fare_gbp: number;
   bags_cost_gbp: number;
   out_transit_cost_gbp: number;
@@ -121,6 +124,9 @@ function extractColumn(
     outbound_carrier: c.outbound_carrier,
     return_carrier: c.return_carrier,
     origin_iata: c.origin_iata,
+    out_dest_iata: c.out_dest_iata,
+    ret_dest_iata: c.ret_dest_iata,
+    cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
     base_fare_gbp: baseFare,
     bags_cost_gbp: bagsCost,
     out_transit_cost_gbp: c.outbound_transit_cost_gbp,
@@ -132,6 +138,17 @@ function extractColumn(
   };
 }
 
+// ── Carrier names ────────────────────────────────────────────────────────────
+
+const CARRIER_NAMES: Record<string, string> = {
+  FR: 'Ryanair', U2: 'easyJet', W6: 'Wizz Air', VY: 'Vueling',
+  BA: 'British Airways', TP: 'TAP', LS: 'Jet2',
+};
+
+function carrierName(iata: string): string {
+  return CARRIER_NAMES[iata] ?? iata;
+}
+
 // ── Row definitions ──────────────────────────────────────────────────────────
 
 interface RowDef {
@@ -140,6 +157,7 @@ interface RowDef {
   group: 'itinerary' | 'quality' | 'costs';
   render: (col: ColumnData) => string;
   bold?: boolean;
+  color?: (col: ColumnData) => string | undefined;
 }
 
 const ROWS: RowDef[] = [
@@ -150,10 +168,12 @@ const ROWS: RowDef[] = [
     render: c => `${c.trip_nights}` },
   { key: 'inset', label: 'Inset day', group: 'itinerary',
     render: c => c.is_inset_day ? 'Yes' : 'No' },
-  { key: 'airports', label: 'Airport', group: 'itinerary',
+  { key: 'carrier', label: 'Carrier', group: 'itinerary',
     render: c => c.outbound_carrier === c.return_carrier
-      ? `${c.origin_iata} · ${c.outbound_carrier}`
-      : `${c.origin_iata} · ${c.outbound_carrier} / ${c.return_carrier}` },
+      ? carrierName(c.outbound_carrier)
+      : `${carrierName(c.outbound_carrier)} / ${carrierName(c.return_carrier)}` },
+  { key: 'airports', label: 'Route', group: 'itinerary',
+    render: c => `${c.origin_iata} → ${c.out_dest_iata}` },
   // Quality
   { key: 'out_dep', label: 'Departure', group: 'quality',
     render: c => outDepLabel(c.outbound_departure_quality, c.outbound_departure_time) },
@@ -165,7 +185,8 @@ const ROWS: RowDef[] = [
   { key: 'fare', label: 'Flights', group: 'costs',
     render: c => gbp(c.base_fare_gbp) },
   { key: 'bags', label: 'Bags & seats', group: 'costs',
-    render: c => gbp(c.bags_cost_gbp) },
+    render: c => c.cabin_bag_cost_gbp === 0 && c.bags_cost_gbp === 0 ? 'Included' : gbp(c.bags_cost_gbp),
+    color: c => c.cabin_bag_cost_gbp === 0 && c.bags_cost_gbp === 0 ? '#5c7a6b' : undefined },
   { key: 'out_transit', label: 'To airport', group: 'costs',
     render: c => `${gbp(c.out_transit_cost_gbp)}` },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
@@ -304,18 +325,22 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                       )}
                       {row.label}
                     </td>
-                    {columns.map((col, i) => (
-                      <td
-                        key={i}
-                        className={`py-2 px-3 text-center ${
-                          row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
-                        } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
-                          showGroupHeader ? 'pt-5' : ''
-                        }`}
-                      >
-                        {row.render(col)}
-                      </td>
-                    ))}
+                    {columns.map((col, i) => {
+                      const cellColor = row.color?.(col);
+                      return (
+                        <td
+                          key={i}
+                          className={`py-2 px-3 text-center ${
+                            row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
+                          } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
+                            showGroupHeader ? 'pt-5' : ''
+                          }`}
+                          style={cellColor ? { color: cellColor } : undefined}
+                        >
+                          {row.render(col)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
