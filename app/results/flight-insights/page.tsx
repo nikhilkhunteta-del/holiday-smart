@@ -6,6 +6,7 @@ import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
+import { ComparisonTable } from '@/components/flight-insights/comparison-table';
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
@@ -418,7 +419,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               baselineAsItinerary={assembled?.baselineAsItinerary}
             />
 
-            {/* 4. ComplianceCalculator */}
+            {/* 4. ComparisonTable */}
+            {assembled && (
+              <ComparisonTable result={assembled} />
+            )}
+
+            {/* 5. ComplianceCalculator */}
             {assembled && (
               <ComplianceCalculator
                 combinations={assembled.combinations}
