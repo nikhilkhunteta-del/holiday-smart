@@ -113,6 +113,8 @@ interface ColumnData {
   total_cost_gbp: number;
   out_transit_mode: string;
   ret_transit_mode: string;
+  outbound_transit: ScoredCombination['outbound_transit'];
+  return_transit: ScoredCombination['return_transit'];
 }
 
 function extractColumn(
@@ -155,6 +157,8 @@ function extractColumn(
     total_cost_gbp: c.total_cost_gbp,
     out_transit_mode: transitModeLabel(c.outbound_transit),
     ret_transit_mode: transitModeLabel(c.return_transit),
+    outbound_transit: c.outbound_transit,
+    return_transit: c.return_transit,
   };
 }
 
@@ -168,7 +172,55 @@ interface RowDef {
   bold?: boolean;
 }
 
-function transferDetail(col: ColumnData): ReactNode {
+function londonTransitDetail(
+  transit: ScoredCombination['outbound_transit'] | null,
+): ReactNode {
+  if (!transit) return null;
+
+  if (transit.recommended_mode === 'uber') {
+    const low = gbp(transit.uber.low_pence / 100);
+    const high = gbp(transit.uber.high_pence / 100);
+    const parts: string[] = [`${low} – ${high}`];
+    if (transit.uber.is_xl) parts.push('Uber XL');
+    return (
+      <>
+        <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+          {parts.join(' · ')}
+        </span>
+        {transit.uber.early_morning_surge_warning && (
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#805600' }}>
+            Surge pricing likely
+          </span>
+        )}
+      </>
+    );
+  }
+
+  // transit mode
+  const t = transit.transit;
+  if (!t) return null;
+
+  const parts: string[] = [];
+  if (t.route_summary) parts.push(t.route_summary);
+  parts.push(`~${t.duration_mins} min`);
+  if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
+  if (t.confidence === 'estimated') parts.push('(estimate)');
+
+  return (
+    <>
+      <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+        {parts.join(' · ')}
+      </span>
+      {t.early_flight_warning && (
+        <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#805600' }}>
+          Check first train time
+        </span>
+      )}
+    </>
+  );
+}
+
+function destTransferDetail(col: ColumnData): ReactNode {
   const duration = col.dest_transit_duration_mins ?? col.dest_taxi_duration_mins;
   if (duration == null && col.dest_transfer_known) return null;
 
@@ -228,14 +280,24 @@ const ROWS: RowDef[] = [
   { key: 'seats', label: 'Seats', group: 'costs',
     renderNode: c => c.seat_cost_gbp === 0 ? '—' : gbp(c.seat_cost_gbp) },
   { key: 'out_transit', label: 'To airport', group: 'costs',
-    renderNode: c => gbp(c.out_transit_cost_gbp) },
+    renderNode: c => (
+      <>
+        {gbp(c.out_transit_cost_gbp)}
+        {londonTransitDetail(c.outbound_transit)}
+      </>
+    ) },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
-    renderNode: c => gbp(c.ret_transit_cost_gbp) },
+    renderNode: c => (
+      <>
+        {gbp(c.ret_transit_cost_gbp)}
+        {londonTransitDetail(c.return_transit)}
+      </>
+    ) },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
     renderNode: c => (
       <>
         {gbp(c.dest_transfer_gbp)}
-        {transferDetail(c)}
+        {destTransferDetail(c)}
       </>
     ) },
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
