@@ -7,37 +7,46 @@ import type { ScoredCombination } from '@/lib/flights/buildCandidates';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 
-function arrivalLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'excellent': return `Excellent${t}`;
-    case 'good':      return `Good${t}`;
-    case 'acceptable': return `Evening${t}`;
-    case 'poor':      return `Night${t}`;
-    default:          return '—';
+const AMBER_QUALITIES = new Set(['very_early', 'poor', 'early', 'acceptable']);
+
+function qualityPill(label: string, q: string | null, time: string | null): ReactNode {
+  const timeStr = time ? ` (${time})` : '';
+  if (!q) return '—';
+  if (AMBER_QUALITIES.has(q)) {
+    return (
+      <span>
+        <span
+          className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ background: '#fef3c7', color: '#92400e' }}
+        >
+          {label}
+        </span>
+        {timeStr && <span className="text-[#6f797a] text-[11px] ml-1">{timeStr}</span>}
+      </span>
+    );
   }
+  return <span className="text-[#3f484a]">{label}{timeStr}</span>;
 }
 
-function outDepLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'ideal':      return `Ideal${t}`;
-    case 'good':       return `Good${t}`;
-    case 'very_early': return `Very early${t}`;
-    case 'poor':       return `Late${t}`;
-    default:           return '—';
-  }
+function arrivalNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    excellent: 'Excellent', good: 'Good', acceptable: 'Evening', poor: 'Night',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
-function retDepLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'excellent':  return `Excellent${t}`;
-    case 'good':       return `Good${t}`;
-    case 'early':      return `Early${t}`;
-    case 'very_early': return `Very early${t}`;
-    default:           return '—';
-  }
+function outDepNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    ideal: 'Ideal', good: 'Good', very_early: 'Very early', poor: 'Late',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
+}
+
+function retDepNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    excellent: 'Excellent', good: 'Good', early: 'Early', very_early: 'Very early',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
 // ── Cost helpers ─────────────────────────────────────────────────────────────
@@ -172,20 +181,29 @@ interface RowDef {
   bold?: boolean;
 }
 
+function roundTo5(mins: number): number {
+  return Math.round(mins / 5) * 5;
+}
+
 function londonTransitDetail(
   transit: ScoredCombination['outbound_transit'] | null,
 ): ReactNode {
   if (!transit) return null;
 
+  const modeLabel = transitModeLabel(transit);
+
   if (transit.recommended_mode === 'uber') {
+    const duration = roundTo5(transit.uber.duration_mins);
+    const parts: string[] = [modeLabel, `~${duration} min`];
     const low = gbp(transit.uber.low_pence / 100);
     const high = gbp(transit.uber.high_pence / 100);
-    const parts: string[] = [`${low} – ${high}`];
-    if (transit.uber.is_xl) parts.push('Uber XL');
     return (
       <>
         <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
           {parts.join(' · ')}
+        </span>
+        <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+          {low} – {high}
         </span>
         {transit.uber.early_morning_surge_warning && (
           <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#805600' }}>
@@ -196,13 +214,13 @@ function londonTransitDetail(
     );
   }
 
-  // transit mode
   const t = transit.transit;
   if (!t) return null;
 
+  const duration = roundTo5(t.duration_mins);
   const parts: string[] = [];
-  if (t.route_summary) parts.push(t.route_summary);
-  parts.push(`~${t.duration_mins} min`);
+  if (modeLabel !== 'Transit') parts.push(modeLabel);
+  parts.push(`~${duration} min`);
   if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
   if (t.confidence === 'estimated') parts.push('(estimate)');
 
@@ -265,11 +283,11 @@ const ROWS: RowDef[] = [
     } },
   // Quality
   { key: 'out_dep', label: 'Departure', group: 'quality',
-    renderNode: c => outDepLabel(c.outbound_departure_quality, c.outbound_departure_time) },
+    renderNode: c => outDepNode(c.outbound_departure_quality, c.outbound_departure_time) },
   { key: 'arrival', label: 'Arrival', group: 'quality',
-    renderNode: c => arrivalLabel(c.arrival_quality, c.outbound_arrival_time) },
+    renderNode: c => arrivalNode(c.arrival_quality, c.outbound_arrival_time) },
   { key: 'ret_dep', label: 'Return', group: 'quality',
-    renderNode: c => retDepLabel(c.return_departure_quality, c.return_departure_time) },
+    renderNode: c => retDepNode(c.return_departure_quality, c.return_departure_time) },
   // Costs
   { key: 'fare', label: 'Flights', group: 'costs',
     renderNode: c => gbp(c.base_fare_gbp) },
