@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
 import type { ScoredCombination } from '@/lib/flights/buildCandidates';
@@ -67,6 +67,17 @@ function transitModeLabel(transit: ScoredCombination['outbound_transit'] | null)
   return 'Transit';
 }
 
+// ── Carrier names ────────────────────────────────────────────────────────────
+
+const CARRIER_NAMES: Record<string, string> = {
+  FR: 'Ryanair', U2: 'easyJet', W6: 'Wizz Air', VY: 'Vueling',
+  BA: 'British Airways', TP: 'TAP', LS: 'Jet2',
+};
+
+function carrierName(iata: string): string {
+  return CARRIER_NAMES[iata] ?? iata;
+}
+
 // ── Column data extraction ───────────────────────────────────────────────────
 
 interface ColumnData {
@@ -89,11 +100,16 @@ interface ColumnData {
   out_dest_iata: string;
   ret_dest_iata: string;
   cabin_bag_cost_gbp: number;
+  checked_bag_cost_gbp: number;
+  seat_cost_gbp: number;
   base_fare_gbp: number;
-  bags_cost_gbp: number;
   out_transit_cost_gbp: number;
   ret_transit_cost_gbp: number;
   dest_transfer_gbp: number;
+  dest_transfer_known: boolean;
+  dest_transit_duration_mins: number | null;
+  dest_transit_changes: number | null;
+  dest_taxi_duration_mins: number | null;
   total_cost_gbp: number;
   out_transit_mode: string;
   ret_transit_mode: string;
@@ -106,7 +122,6 @@ function extractColumn(
   isBaseline: boolean,
 ): ColumnData {
   const baseFare = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
-  const bagsCost = (c.fare_plus_ancillary_gbp ?? 0) - baseFare;
   return {
     label,
     isWinner,
@@ -127,26 +142,20 @@ function extractColumn(
     out_dest_iata: c.out_dest_iata,
     ret_dest_iata: c.ret_dest_iata,
     cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
+    checked_bag_cost_gbp: c.checked_bag_cost_gbp,
+    seat_cost_gbp: c.seat_cost_gbp,
     base_fare_gbp: baseFare,
-    bags_cost_gbp: bagsCost,
     out_transit_cost_gbp: c.outbound_transit_cost_gbp,
     ret_transit_cost_gbp: c.return_transit_cost_gbp,
     dest_transfer_gbp: c.destination_transfer_cost_gbp,
+    dest_transfer_known: c.destination_transfer_known,
+    dest_transit_duration_mins: c.destination_transit_duration_mins,
+    dest_transit_changes: c.destination_transit_changes,
+    dest_taxi_duration_mins: c.destination_taxi_duration_mins,
     total_cost_gbp: c.total_cost_gbp,
     out_transit_mode: transitModeLabel(c.outbound_transit),
     ret_transit_mode: transitModeLabel(c.return_transit),
   };
-}
-
-// ── Carrier names ────────────────────────────────────────────────────────────
-
-const CARRIER_NAMES: Record<string, string> = {
-  FR: 'Ryanair', U2: 'easyJet', W6: 'Wizz Air', VY: 'Vueling',
-  BA: 'British Airways', TP: 'TAP', LS: 'Jet2',
-};
-
-function carrierName(iata: string): string {
-  return CARRIER_NAMES[iata] ?? iata;
 }
 
 // ── Row definitions ──────────────────────────────────────────────────────────
@@ -155,46 +164,82 @@ interface RowDef {
   key: string;
   label: string;
   group: 'itinerary' | 'quality' | 'costs';
-  render: (col: ColumnData) => string;
+  renderNode: (col: ColumnData) => ReactNode;
   bold?: boolean;
-  color?: (col: ColumnData) => string | undefined;
+}
+
+function transferDetail(col: ColumnData): ReactNode {
+  const duration = col.dest_transit_duration_mins ?? col.dest_taxi_duration_mins;
+  if (duration == null && col.dest_transfer_known) return null;
+
+  const parts: string[] = [];
+  if (duration != null) parts.push(`~${duration} min`);
+  if (col.dest_transit_changes != null && col.dest_transit_changes > 0) {
+    parts.push(`${col.dest_transit_changes} change${col.dest_transit_changes > 1 ? 's' : ''}`);
+  }
+  if (!col.dest_transfer_known) parts.push('(estimate)');
+  if (parts.length === 0) return null;
+
+  return (
+    <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
+function bagCell(cost: number, cabinIncluded: boolean): ReactNode {
+  if (cabinIncluded && cost === 0) return <span style={{ color: '#5c7a6b' }}>Included</span>;
+  if (cost === 0) return '—';
+  return gbp(cost);
 }
 
 const ROWS: RowDef[] = [
-  // Itinerary
-  { key: 'dates', label: 'Dates', group: 'itinerary',
-    render: c => `${formatDate(c.outbound_date)} → ${formatDate(c.return_date)}` },
+  // Itinerary (dates and carrier now live in the column header)
   { key: 'nights', label: 'Nights', group: 'itinerary',
-    render: c => `${c.trip_nights}` },
+    renderNode: c => `${c.trip_nights}` },
   { key: 'inset', label: 'Inset day', group: 'itinerary',
-    render: c => c.is_inset_day ? 'Yes' : 'No' },
-  { key: 'carrier', label: 'Carrier', group: 'itinerary',
-    render: c => c.outbound_carrier === c.return_carrier
-      ? carrierName(c.outbound_carrier)
-      : `${carrierName(c.outbound_carrier)} / ${carrierName(c.return_carrier)}` },
-  { key: 'airports', label: 'Route', group: 'itinerary',
-    render: c => `${c.origin_iata} → ${c.out_dest_iata}` },
+    renderNode: c => c.is_inset_day ? 'Yes' : 'No' },
+  { key: 'route', label: 'Route', group: 'itinerary',
+    renderNode: c => {
+      if (c.out_dest_iata === c.ret_dest_iata) {
+        return `${c.origin_iata} → ${c.out_dest_iata}`;
+      }
+      return (
+        <>
+          <span className="block">{c.origin_iata} → {c.out_dest_iata}</span>
+          <span className="block">{c.ret_dest_iata} → {c.origin_iata}</span>
+        </>
+      );
+    } },
   // Quality
   { key: 'out_dep', label: 'Departure', group: 'quality',
-    render: c => outDepLabel(c.outbound_departure_quality, c.outbound_departure_time) },
+    renderNode: c => outDepLabel(c.outbound_departure_quality, c.outbound_departure_time) },
   { key: 'arrival', label: 'Arrival', group: 'quality',
-    render: c => arrivalLabel(c.arrival_quality, c.outbound_arrival_time) },
+    renderNode: c => arrivalLabel(c.arrival_quality, c.outbound_arrival_time) },
   { key: 'ret_dep', label: 'Return', group: 'quality',
-    render: c => retDepLabel(c.return_departure_quality, c.return_departure_time) },
+    renderNode: c => retDepLabel(c.return_departure_quality, c.return_departure_time) },
   // Costs
   { key: 'fare', label: 'Flights', group: 'costs',
-    render: c => gbp(c.base_fare_gbp) },
-  { key: 'bags', label: 'Bags & seats', group: 'costs',
-    render: c => c.cabin_bag_cost_gbp === 0 && c.bags_cost_gbp === 0 ? 'Included' : gbp(c.bags_cost_gbp),
-    color: c => c.cabin_bag_cost_gbp === 0 && c.bags_cost_gbp === 0 ? '#5c7a6b' : undefined },
+    renderNode: c => gbp(c.base_fare_gbp) },
+  { key: 'cabin_bags', label: 'Cabin bags', group: 'costs',
+    renderNode: c => bagCell(c.cabin_bag_cost_gbp, c.cabin_bag_cost_gbp === 0) },
+  { key: 'checked_bags', label: 'Checked bags', group: 'costs',
+    renderNode: c => bagCell(c.checked_bag_cost_gbp, false) },
+  { key: 'seats', label: 'Seats', group: 'costs',
+    renderNode: c => c.seat_cost_gbp === 0 ? '—' : gbp(c.seat_cost_gbp) },
   { key: 'out_transit', label: 'To airport', group: 'costs',
-    render: c => `${gbp(c.out_transit_cost_gbp)}` },
+    renderNode: c => gbp(c.out_transit_cost_gbp) },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
-    render: c => `${gbp(c.ret_transit_cost_gbp)}` },
+    renderNode: c => gbp(c.ret_transit_cost_gbp) },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
-    render: c => `${gbp(c.dest_transfer_gbp)}` },
+    renderNode: c => (
+      <>
+        {gbp(c.dest_transfer_gbp)}
+        {transferDetail(c)}
+      </>
+    ) },
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
-    render: c => gbp(c.total_cost_gbp) },
+    renderNode: c => gbp(c.total_cost_gbp) },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
@@ -295,14 +340,24 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                 {columns.map((col, i) => (
                   <th
                     key={i}
-                    className={`text-center py-3 px-3 font-semibold text-sm ${
+                    className={`text-center py-3 px-3 align-bottom ${
                       col.isWinner
-                        ? 'text-[#004349] bg-[#f0f7f7]'
-                        : 'text-[#191c1d]'
+                        ? 'bg-[#f0f7f7]'
+                        : ''
                     }`}
                     style={col.isWinner ? { borderTop: '3px solid #004349' } : undefined}
                   >
-                    {col.label}
+                    <span className={`block font-semibold text-sm ${col.isWinner ? 'text-[#004349]' : 'text-[#191c1d]'}`}>
+                      {col.label}
+                    </span>
+                    <span className="block text-xs text-[#3f484a] font-medium mt-1">
+                      {formatDate(col.outbound_date)} → {formatDate(col.return_date)}
+                    </span>
+                    <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+                      {col.outbound_carrier === col.return_carrier
+                        ? carrierName(col.outbound_carrier)
+                        : `${carrierName(col.outbound_carrier)} · ${carrierName(col.return_carrier)}`}
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -325,22 +380,18 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                       )}
                       {row.label}
                     </td>
-                    {columns.map((col, i) => {
-                      const cellColor = row.color?.(col);
-                      return (
-                        <td
-                          key={i}
-                          className={`py-2 px-3 text-center ${
-                            row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
-                          } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
-                            showGroupHeader ? 'pt-5' : ''
-                          }`}
-                          style={cellColor ? { color: cellColor } : undefined}
-                        >
-                          {row.render(col)}
-                        </td>
-                      );
-                    })}
+                    {columns.map((col, i) => (
+                      <td
+                        key={i}
+                        className={`py-2 px-3 text-center ${
+                          row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
+                        } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
+                          showGroupHeader ? 'pt-5' : ''
+                        }`}
+                      >
+                        {row.renderNode(col)}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
