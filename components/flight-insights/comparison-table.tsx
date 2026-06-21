@@ -120,6 +120,8 @@ interface ColumnData {
   dest_transit_changes: number | null;
   dest_taxi_duration_mins: number | null;
   total_cost_gbp: number;
+  total_inc_fine: number;
+  fine_gbp: number;
   out_transit_mode: string;
   ret_transit_mode: string;
   outbound_transit: ScoredCombination['outbound_transit'];
@@ -164,6 +166,8 @@ function extractColumn(
     dest_transit_changes: c.destination_transit_changes,
     dest_taxi_duration_mins: c.destination_taxi_duration_mins,
     total_cost_gbp: c.total_cost_gbp,
+    total_inc_fine: c.total_inc_fine,
+    fine_gbp: c.fine_gbp ?? 0,
     out_transit_mode: transitModeLabel(c.outbound_transit),
     ret_transit_mode: transitModeLabel(c.return_transit),
     outbound_transit: c.outbound_transit,
@@ -219,7 +223,7 @@ function londonTransitDetail(
 
   const duration = roundTo5(t.duration_mins);
   const parts: string[] = [];
-  if (modeLabel !== 'Transit') parts.push(modeLabel);
+  parts.push(modeLabel === 'Transit' ? 'Train' : modeLabel);
   parts.push(`~${duration} min`);
   if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
   if (t.confidence === 'estimated') parts.push('(estimate)');
@@ -271,13 +275,13 @@ const ROWS: RowDef[] = [
     renderNode: c => c.is_inset_day ? 'Yes' : 'No' },
   { key: 'route', label: 'Route', group: 'itinerary',
     renderNode: c => {
-      if (c.out_dest_iata === c.ret_dest_iata) {
+      if (c.origin_iata === c.ret_dest_iata) {
         return `${c.origin_iata} → ${c.out_dest_iata}`;
       }
       return (
         <>
           <span className="block">{c.origin_iata} → {c.out_dest_iata}</span>
-          <span className="block">{c.ret_dest_iata} → {c.origin_iata}</span>
+          <span className="block">{c.out_dest_iata} → {c.ret_dest_iata}</span>
         </>
       );
     } },
@@ -294,9 +298,19 @@ const ROWS: RowDef[] = [
   { key: 'cabin_bags', label: 'Cabin bags', group: 'costs',
     renderNode: c => bagCell(c.cabin_bag_cost_gbp, c.cabin_bag_cost_gbp === 0) },
   { key: 'checked_bags', label: 'Checked bags', group: 'costs',
-    renderNode: c => bagCell(c.checked_bag_cost_gbp, false) },
+    renderNode: c => c.checked_bag_cost_gbp === 0
+      ? (<>
+          <span className="text-[#6f797a]">0 assumed</span>
+          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Change baggage selection above to recalculate.</span>
+        </>)
+      : gbp(c.checked_bag_cost_gbp) },
   { key: 'seats', label: 'Seats', group: 'costs',
-    renderNode: c => c.seat_cost_gbp === 0 ? '—' : gbp(c.seat_cost_gbp) },
+    renderNode: c => c.seat_cost_gbp === 0
+      ? (<>
+          <span className="text-[#6f797a]">Allocated at check-in</span>
+          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Pay extra above to guarantee seats together in advance.</span>
+        </>)
+      : gbp(c.seat_cost_gbp) },
   { key: 'out_transit', label: 'To airport', group: 'costs',
     renderNode: c => (
       <>
@@ -319,7 +333,16 @@ const ROWS: RowDef[] = [
       </>
     ) },
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
-    renderNode: c => gbp(c.total_cost_gbp) },
+    renderNode: c => (
+      <>
+        {gbp(c.total_inc_fine)}
+        {c.fine_gbp > 0 && (
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#92400e' }}>
+            Includes {gbp(c.fine_gbp)} school absence fine
+          </span>
+        )}
+      </>
+    ) },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
@@ -341,8 +364,8 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
   const combinationCount = scoredPool.length;
-  const airportSet = new Set(scoredPool.map(c => c.origin_iata));
-  const airportCount = airportSet.size;
+  const londonAirportSet = new Set(scoredPool.map(c => c.origin_iata));
+  const londonAirportCount = londonAirportSet.size;
 
   // Find scored versions of recommendation and baseline
   const winnerScored = scoredPool.find(c =>
@@ -372,13 +395,38 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   const shownKeys = new Set(
     columns.map(c => `${c.outbound_date}_${c.return_date}_${c.outbound_carrier}`),
   );
+  const shortlistColumns: ColumnData[] = [];
   for (const s of shortlist) {
     const key = `${s.outbound_date}_${s.return_date}_${s.outbound_carrier}`;
     if (shownKeys.has(key)) continue;
-    if (columns.length >= 5) break;
-    columns.push(extractColumn(s, `Option ${columns.length}`, false, false));
+    if (columns.length + shortlistColumns.length >= 5) break;
+    shortlistColumns.push(extractColumn(s, '', false, false));
     shownKeys.add(key);
   }
+
+  // Derive shortlist labels from combination properties
+  const lowestFare = Math.min(...shortlistColumns.map(c => c.base_fare_gbp));
+  const goodQualities = new Set(['excellent', 'ideal', 'good']);
+  let optionIdx = 1;
+  for (const col of shortlistColumns) {
+    if (col.is_inset_day) {
+      col.label = 'Inset day option';
+    } else if (
+      goodQualities.has(col.outbound_departure_quality ?? '') &&
+      goodQualities.has(col.arrival_quality ?? '') &&
+      goodQualities.has(col.return_departure_quality ?? '')
+    ) {
+      col.label = 'Best timing';
+    } else if (col.base_fare_gbp === lowestFare) {
+      col.label = 'Lowest fare';
+    } else {
+      col.label = `Option ${optionIdx}`;
+    }
+    optionIdx++;
+  }
+  columns.push(...shortlistColumns);
+
+  const destAirportCount = new Set(columns.map(c => c.out_dest_iata)).size;
 
   if (columns.length < 2) return null;
 
@@ -400,7 +448,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
             How we ranked your options
           </h3>
           <p className="text-sm text-[#6f797a] mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-            {combinationCount} combinations scored across {airportCount} London airport{airportCount !== 1 ? 's' : ''}
+            {combinationCount} combinations scored across {londonAirportCount} London airport{londonAirportCount !== 1 ? 's' : ''} and {destAirportCount} Barcelona-area airport{destAirportCount !== 1 ? 's' : ''}
           </p>
         </div>
         <ChevronDown
