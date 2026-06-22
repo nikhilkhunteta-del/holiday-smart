@@ -1031,38 +1031,60 @@ One sentence. Specific. No carrier saving numbers.`,
     const blFare   = context.baseline_fare  ?? 0;
     const blAirport = context.baseline_airport_name ?? 'Heathrow';
     const blCarrier = context.baseline_carrier ?? 'BA';
+    const blOrigin  = context.baseline_origin_iata ?? 'LHR';
     const blOutArr  = context.baseline_out_arr_time ?? recommended.outbound_arrival_time?.toString().slice(0, 5) ?? '';
     const blRetDep  = context.baseline_ret_dep_time ?? recommended.return_departure_time?.toString().slice(0, 5) ?? '';
     const blRetArr  = context.baseline_ret_arr_time ?? recommended.return_arrival_time?.toString().slice(0, 5) ?? '';
-    const blArrQ    = context.baseline_arr_quality ?? recommended.arrival_quality ?? '';
-    const blOutDepQ = context.baseline_out_dep_quality ?? recommended.outbound_departure_quality ?? '';
-    const blRetDepQ = context.baseline_ret_dep_quality ?? recommended.return_departure_quality ?? '';
     const blOutDep  = recommended.outbound_departure_time?.toString().slice(0, 5) ?? '';
 
-    // Card 1 — All-in transparency
+    // Card 1 — Trap card (tiered by allin_saving)
     if (allInTrap) {
+      const saving = allInTrap.allin_saving;
+      const cheapCarrier = cn(allInTrap.cheap_description.split(' from ')[0] ?? '');
+      const cheapOrigin  = allInTrap.cheap_origin_iata;
+      const trapReason   = trapAlarmingReason ?? `bags and transfers add £${allInTrap.cheap_allin - allInTrap.cheap_fare} to the headline fare`;
+
+      let trapHeadline: string;
+      let trapVoice: string;
+      if (saving >= 150) {
+        trapHeadline = "The fare isn't the cost";
+        trapVoice = `Write this card in four beats — do not reorder, do not add detail beyond what is given, do not truncate: Beat 1 (hook): '${cheapCarrier} from ${cheapOrigin} shows £${allInTrap.cheap_fare}.' Beat 2 (reveal): 'All-in it's £${allInTrap.cheap_allin}.' Beat 3 (reason): '${trapReason}.' Beat 4 (payoff): '${cn(blCarrier)} from ${blOrigin} at £${blAllin} is £${saving} less — despite the higher headline fare.' Write as flowing prose, not a list. Four sentences maximum.`;
+      } else if (saving >= 50) {
+        trapHeadline = "What the fare doesn't show";
+        trapVoice = `Write this card in four beats — do not reorder, do not add detail beyond what is given: Beat 1 (hook): '${cheapCarrier} shows £${allInTrap.cheap_fare}.' Beat 2 (reveal): 'Once bags and transfers are counted, it's £${allInTrap.cheap_allin}.' Beat 3 (reason): '${trapReason}.' Beat 4 (payoff): '${cn(blCarrier)} at £${blAllin} is £${saving} less once everything's counted.' Write as flowing prose. Four sentences maximum.`;
+      } else {
+        trapHeadline = 'Every option priced all-in';
+        trapVoice = `Write this card in three beats: Beat 1: 'The cheapest headline fare on this route is £${allInTrap.cheap_fare} with ${cheapCarrier}.' Beat 2: 'Once bags, transit, and transfers are included, it comes to £${allInTrap.cheap_allin}.' Beat 3: '${cn(blCarrier)} from ${blOrigin} at £${blAllin} came out best on total cost — not just fare.' Three sentences. Do not add anything else.`;
+      }
       baselineCards.push({
-        lever: 'allin_transparency',
-        headline_hint: 'Google Flights shows fares — we show costs',
-        voice: `Copy the three sentences from facts VERBATIM. Assembly only — do not rephrase.`,
+        lever: 'allin_trap',
+        headline_hint: trapHeadline,
+        voice: trapVoice,
         facts: {
-          locked_headline: 'Google Flights shows fares — we show costs',
-          sentence_1: `${allInTrap.cheap_description}: fare £${allInTrap.cheap_fare}. All-in — bags, ${allInTrap.has_expensive_transfer ? `airport transfer to ${allInTrap.cheap_dest_iata}, ` : ''}getting to the airport — it's £${allInTrap.cheap_allin}.`,
-          sentence_2: `${cn(blCarrier)} from ${blAirport} at £${blAllin} is £${allInTrap.allin_saving} cheaper once everything's counted.`,
+          locked_headline: trapHeadline,
+          cheap_carrier: cheapCarrier,
+          cheap_origin_iata: cheapOrigin,
+          cheap_fare: allInTrap.cheap_fare,
+          cheap_allin: allInTrap.cheap_allin,
+          trap_alarming_reason: trapReason,
+          baseline_carrier: cn(blCarrier),
+          baseline_origin_iata: blOrigin,
+          baseline_allin: blAllin,
+          allin_saving: saving,
         },
         verified_field: 'total_cost_gbp',
         verified_value: blAllin,
-        saving_gbp: allInTrap.allin_saving,
+        saving_gbp: saving,
       });
     } else {
       baselineCards.push({
         lever: 'allin_transparency',
-        headline_hint: 'Every cost included',
-        voice: `Copy the sentences from facts VERBATIM. Assembly only — do not rephrase.`,
+        headline_hint: 'Every option priced all-in',
+        voice: `Write this card in three beats: Beat 1: 'We checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.' Beat 2: 'We also scored every option on arrival time, departure hour, and transit changes — not just cost.' Beat 3: 'The ${cn(blCarrier)} round-trip holds up on both.' Three sentences. Do not add anything else.`,
         facts: {
-          locked_headline: 'Every cost included',
-          sentence_1: `Fares don't tell the full story — we checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.`,
-          sentence_2: `We also scored every option on arrival time, departure hour, and transit changes — not just cost. The ${cn(blCarrier)} round-trip holds up on both.`,
+          locked_headline: 'Every option priced all-in',
+          combination_count: combCount,
+          baseline_carrier: cn(blCarrier),
           baseline_allin: blAllin,
         },
         verified_field: 'total_cost_gbp',
@@ -1071,105 +1093,76 @@ One sentence. Specific. No carrier saving numbers.`,
       });
     }
 
-    // Card — All-in trap (when allInTrap data exists, show dedicated card)
-    if (allInTrap) {
-      baselineCards.push({
-        lever: 'allin_trap',
-        headline_hint: "Why the cheap fare isn't cheap",
-        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
-        facts: {
-          locked_headline: "Why the cheap fare isn't cheap",
-          sentence_1: `${allInTrap.cheap_description}: fare £${allInTrap.cheap_fare}. Add bags, transit to ${an(allInTrap.cheap_dest_iata)}${allInTrap.has_expensive_transfer ? `, and the transfer from ${allInTrap.cheap_dest_iata}` : ''} — all-in it's £${allInTrap.cheap_allin}.`,
-          sentence_2: `${cn(blCarrier)} from ${blAirport} at £${blAllin} is £${allInTrap.allin_saving} less despite the higher headline fare.`,
-        },
-        verified_field: 'total_cost_gbp',
-        verified_value: blAllin,
-        saving_gbp: allInTrap.allin_saving,
-      });
-    }
+    // Card 2 — The schedule works
+    baselineCards.push({
+      lever: 'quality_validation',
+      headline_hint: 'The schedule works',
+      voice: `Three sentences, this order, no truncation: 1. 'Arrives ${destinationName} ${blOutArr} — you're at the hotel before lunch.' 2. 'Returns ${blRetDep} from ${destinationName}, landing ${blRetArr} — a full last day and a reasonable school-night arrival.' 3. 'The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.' Write verbatim using these times. Do not paraphrase or reorder.`,
+      facts: {
+        locked_headline: 'The schedule works',
+        sentence_1: `Arrives ${destinationName} ${blOutArr} — you're at the hotel before lunch.`,
+        sentence_2: `Returns ${blRetDep} from ${destinationName}, landing ${blRetArr} — a full last day and a reasonable school-night arrival.`,
+        sentence_3: `The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.`,
+      },
+      verified_field: 'outbound_arrival_time',
+      verified_value: blOutArr,
+      saving_gbp: null,
+    });
 
-    // Card 2 — Quality validation (built from actual baseline quality fields)
-    const qualityParts: string[] = [];
-    if (blOutArr) {
-      if (blArrQ === 'excellent' || blArrQ === 'good') {
-        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — you're at the hotel ${blArrQ === 'excellent' ? 'before lunch' : 'by the afternoon'}.`);
-      } else if (blArrQ === 'acceptable') {
-        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — an evening arrival, but you're settled in for the next morning.`);
-      } else {
-        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — a late landing, but it means a full first day tomorrow.`);
-      }
-    }
-    if (blRetDep && blRetArr) {
-      const schoolNight = blRetDepQ === 'excellent' || blRetDepQ === 'good'
-        ? ' — a full last day and a reasonable school-night arrival'
-        : blRetDepQ === 'early'
-          ? ' — you lose the last morning but land at a sensible hour for school night'
-          : '';
-      qualityParts.push(`Returns ${blRetDep} from ${destinationName}, landing ${blAirport} ${blRetArr}${schoolNight}.`);
-    }
-    if (blOutDep) {
-      if (blOutDepQ === 'very_early') {
-        qualityParts.push(`The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.`);
-      } else if (blOutDepQ === 'ideal') {
-        qualityParts.push(`The ${blOutDep} departure is a civilised start — no alarm clocks needed.`);
-      } else if (blOutDepQ === 'good') {
-        qualityParts.push(`Departing ${blOutDep} — a relaxed start, though you arrive later in the day.`);
-      }
-    }
-    if (qualityParts.length > 0) {
-      baselineCards.push({
-        lever: 'quality_validation',
-        headline_hint: 'The schedule works',
-        voice: `Copy each sentence from facts VERBATIM. Assembly only. Include all three elements: arrival implication, return timing with specific times, and honest trade-off on early departure. Do not truncate.`,
-        facts: {
-          locked_headline: 'The schedule works',
-          ...Object.fromEntries(qualityParts.map((s, i) => [`sentence_${i + 1}`, s])),
-        },
-        verified_field: 'arrival_quality',
-        verified_value: blArrQ,
-        saving_gbp: null,
-      });
-    }
-
-    // Card 3 — Inset day (from scored pool, not shortlist)
+    // Card 3 — Inset day option (from scored pool, not shortlist)
     const insetFromPool = context.bestInsetFromPool;
     if (insetFromPool) {
       const insetRetTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
       const insetDelta = round(insetFromPool.total_cost_gbp - blAllin);
-      const insetMoreOrLess = insetDelta >= 0 ? `£${insetDelta} more` : `£${Math.abs(insetDelta)} less`;
-      // Derive hotel checkout window: dep - 2h30m (floor) to dep - 2h00m (ceiling), rounded to 5 min
-      let checkoutLabel = '';
+      const insetDeltaLabel = `£${Math.abs(insetDelta)} ${insetDelta >= 0 ? 'more' : 'less'}`;
+      const insetOutDep = insetFromPool.outbound_departure_time?.slice(0, 5) ?? '';
+      const insetDateFormatted = (() => {
+        const d = new Date(insetFromPool.outbound_date + 'T00:00:00');
+        const dayName = d.toLocaleDateString('en-GB', { weekday: 'long' });
+        const day = d.getDate();
+        const month = d.toLocaleDateString('en-GB', { month: 'short' });
+        return `${dayName} ${day} ${month}`;
+      })();
+      // Checkout window: dep - 2h30m (floor) to dep - 2h00m (ceiling), rounded to 5 min
+      let checkoutFrom = '';
+      let checkoutTo = '';
       if (insetRetTime) {
         const [rh, rm] = insetRetTime.split(':').map(Number);
         const totalMins = rh * 60 + rm;
-        const floorMins = Math.round((totalMins - 150) / 5) * 5;
-        const ceilMins  = Math.round((totalMins - 120) / 5) * 5;
         const fmt5 = (m: number) => {
           const wrapped = ((m % 1440) + 1440) % 1440;
           return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
         };
-        checkoutLabel = `a ${fmt5(floorMins)}–${fmt5(ceilMins)} hotel checkout`;
+        checkoutFrom = fmt5(Math.round((totalMins - 150) / 5) * 5);
+        checkoutTo   = fmt5(Math.round((totalMins - 120) / 5) * 5);
       }
+      const insetTotal = round(insetFromPool.total_cost_gbp);
       baselineCards.push({
         lever: 'inset_day_option',
         headline_hint: 'Inset day option',
-        voice: `Copy sentences from facts VERBATIM. Assembly only. Always include: outbound departure time, date, all-in cost, delta vs Saturday, return departure time from Barcelona, the resulting hotel checkout time range, and close with 'We're not recommending it, but it's there if you want it.' These are all required — do not truncate any element.`,
+        voice: `Five elements, this order, no truncation: 1. 'Flying ${insetOutDep} on ${insetDateFormatted} (the inset day) costs £${insetTotal} all-in — ${insetDeltaLabel} than Saturday.' 2. 'The return departs ${destinationName} at ${insetRetTime},' 3. 'which means a ${checkoutFrom}–${checkoutTo} hotel checkout.' 4. 'We're not recommending it,' 5. 'but it's there if you want it.' Write as two or three sentences. Elements 4 and 5 must appear verbatim as the closing sentence.`,
         facts: {
           locked_headline: 'Inset day option',
-          sentence_1: `Flying ${insetFromPool.outbound_departure_time?.slice(0, 5) ?? ''} on ${fmtD(insetFromPool.outbound_date)} (the inset day) costs £${round(insetFromPool.total_cost_gbp)} all-in — ${insetMoreOrLess} than Saturday.`,
-          sentence_2: `The return departs ${destinationName} at ${insetRetTime}${checkoutLabel ? `, which means ${checkoutLabel}` : ''}. We're not recommending it, but it's there if you want it.`,
+          inset_out_dep_time: insetOutDep,
+          inset_date_formatted: insetDateFormatted,
+          inset_total: insetTotal,
+          inset_delta: insetDeltaLabel,
+          inset_ret_dep_time: insetRetTime,
+          inset_checkout_from: checkoutFrom,
+          inset_checkout_to: checkoutTo,
+          sentence_1: `Flying ${insetOutDep} on ${insetDateFormatted} (the inset day) costs £${insetTotal} all-in — ${insetDeltaLabel} than Saturday.`,
+          sentence_2: `The return departs ${destinationName} at ${insetRetTime}, which means a ${checkoutFrom}–${checkoutTo} hotel checkout. We're not recommending it, but it's there if you want it.`,
         },
         verified_field: 'total_cost_gbp',
-        verified_value: round(insetFromPool.total_cost_gbp),
+        verified_value: insetTotal,
         saving_gbp: null,
       });
     }
 
-    // Card 4 — Cabin bags included (when BA includes bags and LCCs charge)
+    // Card 4 — Cabin bags included (when baseline carrier includes bags and LCCs charge)
     const lccMin = context.lcc_cabin_bag_min_fee;
     const lccMax = context.lcc_cabin_bag_max_fee;
     const sessionBags = context.cabinBags ?? 2;
-    const pSize = context.partySize ?? (context.adults + context.children);
     const bagWord = sessionBags === 1 ? 'bag' : 'bags';
     if ((recommended.cabin_bag_cost_gbp ?? 0) === 0 && lccMin && lccMax && lccMin > 0) {
       const minTotal = round(lccMin * sessionBags * 2);
@@ -1177,12 +1170,11 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'cabin_bags_included',
         headline_hint: 'Cabin bags included',
-        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        voice: `Exactly two sentences — no more: 1. '${cn(blCarrier)} includes ${sessionBags} cabin ${bagWord} in the fare — no extra charge.' 2. 'Budget carriers on this route charge £${lccMin}–£${lccMax} per bag per flight — for ${sessionBags} ${bagWord} across both legs, that's £${minTotal}–£${maxTotal} extra not shown in their fare.' Stop after the second sentence. Do not add caveats or disclaimers.`,
         facts: {
           locked_headline: 'Cabin bags included',
-          sentence_1: `${cn(blCarrier)} includes ${sessionBags} cabin ${bagWord} in the fare — no extra charge. Budget carriers on this route charge £${lccMin}–£${lccMax} per bag per flight.`,
-          sentence_2: `For ${sessionBags} ${bagWord} across both legs, that's £${minTotal}–£${maxTotal} extra not shown in their fare.`,
-          sentence_3: `Our default assumes ${sessionBags} cabin ${bagWord} shared across your party of ${pSize}.`,
+          sentence_1: `${cn(blCarrier)} includes ${sessionBags} cabin ${bagWord} in the fare — no extra charge.`,
+          sentence_2: `Budget carriers on this route charge £${lccMin}–£${lccMax} per bag per flight — for ${sessionBags} ${bagWord} across both legs, that's £${minTotal}–£${maxTotal} extra not shown in their fare.`,
         },
         verified_field: 'cabin_bag_cost_gbp',
         verified_value: 0,
@@ -1289,7 +1281,7 @@ SELECTION CONTEXT:
 HEADLINE
 ──────────────────────────────────────────
 IF is_baseline_cheapest is true, write instead:
-  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'} — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, bags and transfers included."
+  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'} — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, cabin bags and transfers included."
   Do not use "We found", "beat", "typical", or comparison language. Lead with the trip.
 
 OTHERWISE, HEADLINE varies by saving_category:
@@ -1309,7 +1301,7 @@ RULES:
 
 SUBHEADLINE
 IF is_baseline_cheapest is true:
-  "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''}${context.baseline_out_dep_quality === 'very_early' ? ' — early start, but you gain the whole day' : ''}."
+  "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''} — early start, and you gain the whole day."
   Do not repeat the cost. No comparison language.
 
 OTHERWISE, SUBHEADLINE varies by saving_category:
@@ -1330,7 +1322,7 @@ Use these values from SELECTION CONTEXT:
 - baseline_allin = what it actually costs (fare + bags + transport)
 
 IF is_baseline_cheapest is true:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return flight from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday of your half-term window'} — the first Saturday of your half-term window. The real cost — bags, getting to the airport, and the transfer at the other end — is £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '100+'} date, carrier, and airport combinations. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} is the strongest option."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '128+'} combinations to see if anything came out lower."
 
 OTHERWISE (saving_category = 'significant' or 'found_saving'):
 "Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less, once bags, transit, and transfers are counted."
