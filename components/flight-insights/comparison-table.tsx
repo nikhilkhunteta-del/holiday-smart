@@ -1,43 +1,52 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
-import type { ScoredCombination } from '@/lib/flights/buildCandidates';
+import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
+import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 
-function arrivalLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'excellent': return `Excellent${t}`;
-    case 'good':      return `Good${t}`;
-    case 'acceptable': return `Evening${t}`;
-    case 'poor':      return `Night${t}`;
-    default:          return '—';
+const AMBER_QUALITIES = new Set(['very_early', 'poor', 'early', 'acceptable']);
+
+function qualityPill(label: string, q: string | null, time: string | null): ReactNode {
+  const timeStr = time ? ` (${time})` : '';
+  if (!q) return '—';
+  if (AMBER_QUALITIES.has(q)) {
+    return (
+      <span>
+        <span
+          className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ background: '#fef3c7', color: '#92400e' }}
+        >
+          {label}
+        </span>
+        {timeStr && <span className="text-[#6f797a] text-[11px] ml-1">{timeStr}</span>}
+      </span>
+    );
   }
+  return <span className="text-[#3f484a]">{label}{timeStr}</span>;
 }
 
-function outDepLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'ideal':      return `Ideal${t}`;
-    case 'good':       return `Good${t}`;
-    case 'very_early': return `Very early${t}`;
-    case 'poor':       return `Late${t}`;
-    default:           return '—';
-  }
+function arrivalNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    excellent: 'Excellent', good: 'Good', acceptable: 'Evening', poor: 'Night',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
-function retDepLabel(q: string | null, time: string | null): string {
-  const t = time ? ` (${time})` : '';
-  switch (q) {
-    case 'excellent':  return `Excellent${t}`;
-    case 'good':       return `Good${t}`;
-    case 'early':      return `Early${t}`;
-    case 'very_early': return `Very early${t}`;
-    default:           return '—';
-  }
+function outDepNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    ideal: 'Ideal', good: 'Good', very_early: 'Very early', poor: 'Late',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
+}
+
+function retDepNode(q: string | null, time: string | null): ReactNode {
+  const labels: Record<string, string> = {
+    excellent: 'Excellent', good: 'Good', early: 'Early', very_early: 'Very early',
+  };
+  return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
 // ── Cost helpers ─────────────────────────────────────────────────────────────
@@ -52,7 +61,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-function transitModeLabel(transit: ScoredCombination['outbound_transit'] | null): string {
+function transitModeLabel(transit: AssembledCombination['outbound_transit'] | null): string {
   if (!transit) return 'Transit';
   if (transit.recommended_mode === 'uber') return transit.uber.is_xl ? 'Uber XL' : 'Uber';
   if (transit.transit?.route_summary) {
@@ -65,6 +74,17 @@ function transitModeLabel(transit: ScoredCombination['outbound_transit'] | null)
     if (/stansted express/i.test(summary)) return 'Stansted Express';
   }
   return 'Transit';
+}
+
+// ── Carrier names ────────────────────────────────────────────────────────────
+
+const CARRIER_NAMES: Record<string, string> = {
+  FR: 'Ryanair', U2: 'easyJet', W6: 'Wizz Air', VY: 'Vueling',
+  BA: 'British Airways', TP: 'TAP', LS: 'Jet2',
+};
+
+function carrierName(iata: string): string {
+  return CARRIER_NAMES[iata] ?? iata;
 }
 
 // ── Column data extraction ───────────────────────────────────────────────────
@@ -86,49 +106,73 @@ interface ColumnData {
   outbound_carrier: string;
   return_carrier: string;
   origin_iata: string;
+  out_dest_iata: string;
+  ret_dest_iata: string;
+  cabin_bag_cost_gbp: number;
+  checked_bag_cost_gbp: number;
+  seat_cost_gbp: number;
   base_fare_gbp: number;
-  bags_cost_gbp: number;
   out_transit_cost_gbp: number;
   ret_transit_cost_gbp: number;
   dest_transfer_gbp: number;
+  dest_transfer_known: boolean;
+  dest_transit_duration_mins: number | null;
+  dest_transit_changes: number | null;
+  dest_taxi_duration_mins: number | null;
   total_cost_gbp: number;
+  total_inc_fine: number;
+  fine_gbp: number;
   out_transit_mode: string;
   ret_transit_mode: string;
+  outbound_transit: AssembledCombination['outbound_transit'];
+  return_transit: AssembledCombination['return_transit'];
 }
 
 function extractColumn(
-  c: ScoredCombination,
+  c: AssembledCombination,
   label: string,
   isWinner: boolean,
   isBaseline: boolean,
 ): ColumnData {
+  const quality = computeQualityFields(c);
   const baseFare = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
-  const bagsCost = (c.fare_plus_ancillary_gbp ?? 0) - baseFare;
   return {
     label,
     isWinner,
     isBaseline,
     outbound_date: c.outbound_date,
     return_date: c.return_date,
-    trip_nights: c.trip_nights,
+    trip_nights: quality.trip_nights,
     is_inset_day: c.is_inset_day,
-    outbound_departure_quality: c.outbound_departure_quality,
+    outbound_departure_quality: quality.outbound_departure_quality,
     outbound_departure_time: c.outbound_departure_time?.slice(0, 5) ?? null,
-    arrival_quality: c.arrival_quality,
+    arrival_quality: quality.arrival_quality,
     outbound_arrival_time: c.outbound_arrival_time?.slice(0, 5) ?? null,
-    return_departure_quality: c.return_departure_quality,
+    return_departure_quality: quality.return_departure_quality,
     return_departure_time: c.return_departure_time?.slice(0, 5) ?? null,
     outbound_carrier: c.outbound_carrier,
     return_carrier: c.return_carrier,
     origin_iata: c.origin_iata,
+    out_dest_iata: c.out_dest_iata,
+    ret_dest_iata: c.ret_dest_iata,
+    cabin_bag_cost_gbp: c.cabin_bag_cost_gbp,
+    checked_bag_cost_gbp: c.checked_bag_cost_gbp,
+    seat_cost_gbp: c.seat_cost_gbp,
     base_fare_gbp: baseFare,
-    bags_cost_gbp: bagsCost,
     out_transit_cost_gbp: c.outbound_transit_cost_gbp,
     ret_transit_cost_gbp: c.return_transit_cost_gbp,
     dest_transfer_gbp: c.destination_transfer_cost_gbp,
+    dest_transfer_known: c.destination_transfer_known,
+    dest_transit_duration_mins: c.destination_transit_duration_mins,
+    dest_transit_changes: c.destination_transit_changes,
+    dest_taxi_duration_mins: c.destination_taxi_duration_mins,
     total_cost_gbp: c.total_cost_gbp,
+    total_inc_fine: c.total_inc_fine,
+    fine_gbp: c.fine_gbp ?? 0,
     out_transit_mode: transitModeLabel(c.outbound_transit),
     ret_transit_mode: transitModeLabel(c.return_transit),
+    outbound_transit: c.outbound_transit,
+    return_transit: c.return_transit,
   };
 }
 
@@ -138,42 +182,168 @@ interface RowDef {
   key: string;
   label: string;
   group: 'itinerary' | 'quality' | 'costs';
-  render: (col: ColumnData) => string;
+  renderNode: (col: ColumnData) => ReactNode;
   bold?: boolean;
 }
 
+function roundTo5(mins: number): number {
+  return Math.round(mins / 5) * 5;
+}
+
+function londonTransitDetail(
+  transit: AssembledCombination['outbound_transit'] | null,
+): ReactNode {
+  if (!transit) return null;
+
+  const modeLabel = transitModeLabel(transit);
+
+  if (transit.recommended_mode === 'uber') {
+    const duration = roundTo5(transit.uber.duration_mins);
+    const parts: string[] = [modeLabel, `~${duration} min`];
+    const low = gbp(transit.uber.low_pence / 100);
+    const high = gbp(transit.uber.high_pence / 100);
+    return (
+      <>
+        <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+          {parts.join(' · ')}
+        </span>
+        <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+          {low} – {high}
+        </span>
+        {transit.uber.early_morning_surge_warning && (
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#805600' }}>
+            Surge pricing likely
+          </span>
+        )}
+      </>
+    );
+  }
+
+  const t = transit.transit;
+  if (!t) return null;
+
+  const duration = roundTo5(t.duration_mins);
+  const parts: string[] = [];
+  parts.push(modeLabel === 'Transit' ? 'Train' : modeLabel);
+  parts.push(`~${duration} min`);
+  if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
+  if (t.confidence === 'estimated') parts.push('(estimate)');
+
+  return (
+    <>
+      <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+        {parts.join(' · ')}
+      </span>
+      {t.early_flight_warning && (
+        <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#805600' }}>
+          Check first train time
+        </span>
+      )}
+    </>
+  );
+}
+
+function destTransferDetail(col: ColumnData): ReactNode {
+  const duration = col.dest_transit_duration_mins ?? col.dest_taxi_duration_mins;
+  if (duration == null && col.dest_transfer_known) return null;
+
+  const parts: string[] = [];
+  if (duration != null) parts.push(`~${duration} min`);
+  if (col.dest_transit_changes != null && col.dest_transit_changes > 0) {
+    parts.push(`${col.dest_transit_changes} change${col.dest_transit_changes > 1 ? 's' : ''}`);
+  }
+  if (!col.dest_transfer_known) parts.push('(estimate)');
+  if (parts.length === 0) return null;
+
+  return (
+    <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
+function bagCell(cost: number, cabinIncluded: boolean): ReactNode {
+  if (cabinIncluded && cost === 0) return <span style={{ color: '#5c7a6b' }}>Included</span>;
+  if (cost === 0) return '—';
+  return gbp(cost);
+}
+
 const ROWS: RowDef[] = [
-  // Itinerary
-  { key: 'dates', label: 'Dates', group: 'itinerary',
-    render: c => `${formatDate(c.outbound_date)} → ${formatDate(c.return_date)}` },
+  // Itinerary (dates and carrier now live in the column header)
   { key: 'nights', label: 'Nights', group: 'itinerary',
-    render: c => `${c.trip_nights}` },
+    renderNode: c => `${c.trip_nights}` },
   { key: 'inset', label: 'Inset day', group: 'itinerary',
-    render: c => c.is_inset_day ? 'Yes' : 'No' },
-  { key: 'airports', label: 'Airport', group: 'itinerary',
-    render: c => c.outbound_carrier === c.return_carrier
-      ? `${c.origin_iata} · ${c.outbound_carrier}`
-      : `${c.origin_iata} · ${c.outbound_carrier} / ${c.return_carrier}` },
+    renderNode: c => c.is_inset_day ? 'Yes' : 'No' },
+  { key: 'route', label: 'Route', group: 'itinerary',
+    renderNode: c => {
+      if (c.origin_iata === c.ret_dest_iata) {
+        return `${c.origin_iata} → ${c.out_dest_iata}`;
+      }
+      return (
+        <>
+          <span className="block">{c.origin_iata} → {c.out_dest_iata}</span>
+          <span className="block">{c.out_dest_iata} → {c.ret_dest_iata}</span>
+        </>
+      );
+    } },
   // Quality
   { key: 'out_dep', label: 'Departure', group: 'quality',
-    render: c => outDepLabel(c.outbound_departure_quality, c.outbound_departure_time) },
+    renderNode: c => outDepNode(c.outbound_departure_quality, c.outbound_departure_time) },
   { key: 'arrival', label: 'Arrival', group: 'quality',
-    render: c => arrivalLabel(c.arrival_quality, c.outbound_arrival_time) },
+    renderNode: c => arrivalNode(c.arrival_quality, c.outbound_arrival_time) },
   { key: 'ret_dep', label: 'Return', group: 'quality',
-    render: c => retDepLabel(c.return_departure_quality, c.return_departure_time) },
+    renderNode: c => retDepNode(c.return_departure_quality, c.return_departure_time) },
   // Costs
   { key: 'fare', label: 'Flights', group: 'costs',
-    render: c => gbp(c.base_fare_gbp) },
-  { key: 'bags', label: 'Bags & seats', group: 'costs',
-    render: c => gbp(c.bags_cost_gbp) },
+    renderNode: c => gbp(c.base_fare_gbp) },
+  { key: 'cabin_bags', label: 'Cabin bags', group: 'costs',
+    renderNode: c => bagCell(c.cabin_bag_cost_gbp, c.cabin_bag_cost_gbp === 0) },
+  { key: 'checked_bags', label: 'Checked bags', group: 'costs',
+    renderNode: c => c.checked_bag_cost_gbp === 0
+      ? (<>
+          <span className="text-[#6f797a]">0 assumed</span>
+          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Change baggage selection above to recalculate.</span>
+        </>)
+      : gbp(c.checked_bag_cost_gbp) },
+  { key: 'seats', label: 'Seats', group: 'costs',
+    renderNode: c => c.seat_cost_gbp === 0
+      ? (<>
+          <span className="text-[#6f797a]">Allocated at check-in</span>
+          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Pay extra above to guarantee seats together in advance.</span>
+        </>)
+      : gbp(c.seat_cost_gbp) },
   { key: 'out_transit', label: 'To airport', group: 'costs',
-    render: c => `${gbp(c.out_transit_cost_gbp)}` },
+    renderNode: c => (
+      <>
+        {gbp(c.out_transit_cost_gbp)}
+        {londonTransitDetail(c.outbound_transit)}
+      </>
+    ) },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
-    render: c => `${gbp(c.ret_transit_cost_gbp)}` },
+    renderNode: c => (
+      <>
+        {gbp(c.ret_transit_cost_gbp)}
+        {londonTransitDetail(c.return_transit)}
+      </>
+    ) },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
-    render: c => `${gbp(c.dest_transfer_gbp)}` },
+    renderNode: c => (
+      <>
+        {gbp(c.dest_transfer_gbp)}
+        {destTransferDetail(c)}
+      </>
+    ) },
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
-    render: c => gbp(c.total_cost_gbp) },
+    renderNode: c => (
+      <>
+        {gbp(c.total_inc_fine)}
+        {c.fine_gbp > 0 && (
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#92400e' }}>
+            Includes {gbp(c.fine_gbp)} school absence fine
+          </span>
+        )}
+      </>
+    ) },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
@@ -191,48 +361,61 @@ interface ComparisonTableProps {
 export function ComparisonTable({ result }: ComparisonTableProps) {
   const [open, setOpen] = useState(false);
 
-  const { baseline, recommendation, shortlist, savingCategory, scoredPool } = result;
+  const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
   const combinationCount = scoredPool.length;
-  const airportSet = new Set(scoredPool.map(c => c.origin_iata));
-  const airportCount = airportSet.size;
+  const londonAirportSet = new Set(scoredPool.map(c => c.origin_iata));
+  const londonAirportCount = londonAirportSet.size;
 
-  // Find scored versions of recommendation and baseline
-  const winnerScored = scoredPool.find(c =>
-    c.outbound_date === recommendation.outbound_date &&
-    c.return_date === recommendation.return_date &&
-    c.outbound_carrier === recommendation.outbound_carrier &&
-    c.return_carrier === recommendation.return_carrier,
-  );
-
-  const baselineScored = scoredPool.find(c => (c as any).is_baseline === true);
-
-  // Build columns
+  // Build columns directly from result props — no scoredPool lookups
   const columns: ColumnData[] = [];
 
-  if (isBaselineCheapest && baselineScored) {
-    columns.push(extractColumn(baselineScored, 'Recommended', true, true));
+  if (isBaselineCheapest && baselineAsCombination) {
+    columns.push(extractColumn(baselineAsCombination, 'Recommended', true, true));
   } else {
-    if (baselineScored) {
-      columns.push(extractColumn(baselineScored, 'Baseline', false, true));
+    if (baselineAsCombination) {
+      columns.push(extractColumn(baselineAsCombination, 'Baseline', false, true));
     }
-    if (winnerScored) {
-      columns.push(extractColumn(winnerScored, 'Recommended', true, false));
-    }
+    columns.push(extractColumn(recommendation, 'Recommended', true, false));
   }
 
   // Add shortlist alternatives (skip if already shown as winner or baseline)
   const shownKeys = new Set(
     columns.map(c => `${c.outbound_date}_${c.return_date}_${c.outbound_carrier}`),
   );
+  const shortlistColumns: ColumnData[] = [];
   for (const s of shortlist) {
     const key = `${s.outbound_date}_${s.return_date}_${s.outbound_carrier}`;
     if (shownKeys.has(key)) continue;
-    if (columns.length >= 5) break;
-    columns.push(extractColumn(s, `Option ${columns.length}`, false, false));
+    if (columns.length + shortlistColumns.length >= 5) break;
+    shortlistColumns.push(extractColumn(s, '', false, false));
     shownKeys.add(key);
   }
+
+  // Derive shortlist labels from combination properties
+  const lowestFare = Math.min(...shortlistColumns.map(c => c.base_fare_gbp));
+  const goodQualities = new Set(['excellent', 'ideal', 'good']);
+  let optionIdx = 1;
+  for (const col of shortlistColumns) {
+    if (col.is_inset_day) {
+      col.label = 'Inset day option';
+    } else if (
+      goodQualities.has(col.outbound_departure_quality ?? '') &&
+      goodQualities.has(col.arrival_quality ?? '') &&
+      goodQualities.has(col.return_departure_quality ?? '')
+    ) {
+      col.label = 'Best timing';
+    } else if (col.base_fare_gbp === lowestFare) {
+      col.label = 'Lowest fare';
+    } else {
+      col.label = `Option ${optionIdx}`;
+    }
+    optionIdx++;
+  }
+  columns.push(...shortlistColumns);
+
+  const destAirportCount = new Set(columns.map(c => c.out_dest_iata)).size;
 
   if (columns.length < 2) return null;
 
@@ -254,7 +437,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
             How we ranked your options
           </h3>
           <p className="text-sm text-[#6f797a] mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-            {combinationCount} combinations scored across {airportCount} London airport{airportCount !== 1 ? 's' : ''}
+            {combinationCount} combinations scored across {londonAirportCount} London airport{londonAirportCount !== 1 ? 's' : ''} and {destAirportCount} Barcelona-area airport{destAirportCount !== 1 ? 's' : ''}
           </p>
         </div>
         <ChevronDown
@@ -274,14 +457,24 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                 {columns.map((col, i) => (
                   <th
                     key={i}
-                    className={`text-center py-3 px-3 font-semibold text-sm ${
+                    className={`text-center py-3 px-3 align-bottom ${
                       col.isWinner
-                        ? 'text-[#004349] bg-[#f0f7f7]'
-                        : 'text-[#191c1d]'
+                        ? 'bg-[#f0f7f7]'
+                        : ''
                     }`}
                     style={col.isWinner ? { borderTop: '3px solid #004349' } : undefined}
                   >
-                    {col.label}
+                    <span className={`block font-semibold text-sm ${col.isWinner ? 'text-[#004349]' : 'text-[#191c1d]'}`}>
+                      {col.label}
+                    </span>
+                    <span className="block text-xs text-[#3f484a] font-medium mt-1">
+                      {formatDate(col.outbound_date)} → {formatDate(col.return_date)}
+                    </span>
+                    <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+                      {col.outbound_carrier === col.return_carrier
+                        ? carrierName(col.outbound_carrier)
+                        : `${carrierName(col.outbound_carrier)} · ${carrierName(col.return_carrier)}`}
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -313,7 +506,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                           showGroupHeader ? 'pt-5' : ''
                         }`}
                       >
-                        {row.render(col)}
+                        {row.renderNode(col)}
                       </td>
                     ))}
                   </tr>
