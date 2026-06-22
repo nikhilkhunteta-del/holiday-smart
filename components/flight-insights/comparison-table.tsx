@@ -2,8 +2,8 @@
 
 import { useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
-import type { ScoredCombination } from '@/lib/flights/buildCandidates';
+import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
+import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-function transitModeLabel(transit: ScoredCombination['outbound_transit'] | null): string {
+function transitModeLabel(transit: AssembledCombination['outbound_transit'] | null): string {
   if (!transit) return 'Transit';
   if (transit.recommended_mode === 'uber') return transit.uber.is_xl ? 'Uber XL' : 'Uber';
   if (transit.transit?.route_summary) {
@@ -124,16 +124,17 @@ interface ColumnData {
   fine_gbp: number;
   out_transit_mode: string;
   ret_transit_mode: string;
-  outbound_transit: ScoredCombination['outbound_transit'];
-  return_transit: ScoredCombination['return_transit'];
+  outbound_transit: AssembledCombination['outbound_transit'];
+  return_transit: AssembledCombination['return_transit'];
 }
 
 function extractColumn(
-  c: ScoredCombination,
+  c: AssembledCombination,
   label: string,
   isWinner: boolean,
   isBaseline: boolean,
 ): ColumnData {
+  const quality = computeQualityFields(c);
   const baseFare = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
   return {
     label,
@@ -141,13 +142,13 @@ function extractColumn(
     isBaseline,
     outbound_date: c.outbound_date,
     return_date: c.return_date,
-    trip_nights: c.trip_nights,
+    trip_nights: quality.trip_nights,
     is_inset_day: c.is_inset_day,
-    outbound_departure_quality: c.outbound_departure_quality,
+    outbound_departure_quality: quality.outbound_departure_quality,
     outbound_departure_time: c.outbound_departure_time?.slice(0, 5) ?? null,
-    arrival_quality: c.arrival_quality,
+    arrival_quality: quality.arrival_quality,
     outbound_arrival_time: c.outbound_arrival_time?.slice(0, 5) ?? null,
-    return_departure_quality: c.return_departure_quality,
+    return_departure_quality: quality.return_departure_quality,
     return_departure_time: c.return_departure_time?.slice(0, 5) ?? null,
     outbound_carrier: c.outbound_carrier,
     return_carrier: c.return_carrier,
@@ -190,7 +191,7 @@ function roundTo5(mins: number): number {
 }
 
 function londonTransitDetail(
-  transit: ScoredCombination['outbound_transit'] | null,
+  transit: AssembledCombination['outbound_transit'] | null,
 ): ReactNode {
   if (!transit) return null;
 
@@ -360,35 +361,23 @@ interface ComparisonTableProps {
 export function ComparisonTable({ result }: ComparisonTableProps) {
   const [open, setOpen] = useState(false);
 
-  const { baseline, recommendation, shortlist, savingCategory, scoredPool } = result;
+  const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
   const combinationCount = scoredPool.length;
   const londonAirportSet = new Set(scoredPool.map(c => c.origin_iata));
   const londonAirportCount = londonAirportSet.size;
 
-  // Find scored versions of recommendation and baseline
-  const winnerScored = scoredPool.find(c =>
-    c.outbound_date === recommendation.outbound_date &&
-    c.return_date === recommendation.return_date &&
-    c.outbound_carrier === recommendation.outbound_carrier &&
-    c.return_carrier === recommendation.return_carrier,
-  );
-
-  const baselineScored = scoredPool.find(c => (c as any).is_baseline === true);
-
-  // Build columns
+  // Build columns directly from result props — no scoredPool lookups
   const columns: ColumnData[] = [];
 
-  if (isBaselineCheapest && baselineScored) {
-    columns.push(extractColumn(baselineScored, 'Recommended', true, true));
+  if (isBaselineCheapest && baselineAsCombination) {
+    columns.push(extractColumn(baselineAsCombination, 'Recommended', true, true));
   } else {
-    if (baselineScored) {
-      columns.push(extractColumn(baselineScored, 'Baseline', false, true));
+    if (baselineAsCombination) {
+      columns.push(extractColumn(baselineAsCombination, 'Baseline', false, true));
     }
-    if (winnerScored) {
-      columns.push(extractColumn(winnerScored, 'Recommended', true, false));
-    }
+    columns.push(extractColumn(recommendation, 'Recommended', true, false));
   }
 
   // Add shortlist alternatives (skip if already shown as winner or baseline)
