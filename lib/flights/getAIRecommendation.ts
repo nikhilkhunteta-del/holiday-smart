@@ -407,7 +407,7 @@ export async function getAIRecommendation(
         voice: `Copy the sentence from facts VERBATIM. Assembly only.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
-          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} came out on top.`,
+          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — came out on top.`,
           combination_count:    combCount,
           is_baseline_cheapest: isBaselineCheapest,
         },
@@ -1080,11 +1080,12 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'allin_transparency',
         headline_hint: 'Every option priced all-in',
-        voice: `Write this card in three beats: Beat 1: 'We checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.' Beat 2: 'We also scored every option on arrival time, departure hour, and transit changes — not just cost.' Beat 3: 'The ${cn(blCarrier)} round-trip holds up on both.' Three sentences. Do not add anything else.`,
+        voice: `Write this card in three beats: Beat 1: 'We checked ${combCount} combinations and priced each one with bags, airport transit, and destination transfer included.' Beat 2: 'We also scored every option on arrival time, departure hour, and transit changes — not just cost.' Beat 3: 'The ${cn(blCarrier)} round-trip from ${blAirport} — the closest airport to your school — holds up on both.' Three sentences. Do not add anything else.`,
         facts: {
           locked_headline: 'Every option priced all-in',
           combination_count: combCount,
           baseline_carrier: cn(blCarrier),
+          baseline_airport: blAirport,
           baseline_allin: blAllin,
         },
         verified_field: 'total_cost_gbp',
@@ -1281,7 +1282,7 @@ SELECTION CONTEXT:
 HEADLINE
 ──────────────────────────────────────────
 IF is_baseline_cheapest is true, write instead:
-  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'} — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, cabin bags and transfers included."
+  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'}, the closest airport to your school — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, cabin bags and transfers included."
   Do not use "We found", "beat", "typical", or comparison language. Lead with the trip.
 
 OTHERWISE, HEADLINE varies by saving_category:
@@ -1322,7 +1323,7 @@ Use these values from SELECTION CONTEXT:
 - baseline_allin = what it actually costs (fare + bags + transport)
 
 IF is_baseline_cheapest is true:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '128+'} combinations to see if anything came out lower."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '128+'} combinations to see if anything came out lower."
 
 OTHERWISE (saving_category = 'significant' or 'found_saving'):
 "Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_origin_iata ?? 'LHR'} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less, once bags, transit, and transfers are counted."
