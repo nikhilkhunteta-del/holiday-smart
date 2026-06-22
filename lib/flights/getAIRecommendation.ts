@@ -1064,14 +1064,31 @@ One sentence. Specific. No carrier saving numbers.`,
 
     // Card 2 — Quality validation (built from actual baseline quality fields)
     const qualityParts: string[] = [];
-    if (blArrQ === 'excellent' || blArrQ === 'good') {
-      qualityParts.push(`Arrives ${destinationName} ${blOutArr} — you're at the hotel ${blArrQ === 'excellent' ? 'before lunch' : 'by the afternoon'}.`);
+    if (blOutArr) {
+      if (blArrQ === 'excellent' || blArrQ === 'good') {
+        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — you're at the hotel ${blArrQ === 'excellent' ? 'before lunch' : 'by the afternoon'}.`);
+      } else if (blArrQ === 'acceptable') {
+        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — an evening arrival, but you're settled in for the next morning.`);
+      } else {
+        qualityParts.push(`Arrives ${destinationName} ${blOutArr} — a late landing, but it means a full first day tomorrow.`);
+      }
     }
     if (blRetDep && blRetArr) {
-      qualityParts.push(`Returns ${blRetDep} from ${destinationName}, landing ${blAirport} ${blRetArr}${blRetDepQ === 'excellent' || blRetDepQ === 'good' ? ' — a full last day and a reasonable school-night arrival' : ''}.`);
+      const schoolNight = blRetDepQ === 'excellent' || blRetDepQ === 'good'
+        ? ' — a full last day and a reasonable school-night arrival'
+        : blRetDepQ === 'early'
+          ? ' — you lose the last morning but land at a sensible hour for school night'
+          : '';
+      qualityParts.push(`Returns ${blRetDep} from ${destinationName}, landing ${blAirport} ${blRetArr}${schoolNight}.`);
     }
-    if (blOutDepQ === 'very_early' && blOutDep) {
-      qualityParts.push(`The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.`);
+    if (blOutDep) {
+      if (blOutDepQ === 'very_early') {
+        qualityParts.push(`The ${blOutDep} departure is an early start, but it keeps the cost down and gets you there first thing.`);
+      } else if (blOutDepQ === 'ideal') {
+        qualityParts.push(`The ${blOutDep} departure is a civilised start — no alarm clocks needed.`);
+      } else if (blOutDepQ === 'good') {
+        qualityParts.push(`Departing ${blOutDep} — a relaxed start, though you arrive later in the day.`);
+      }
     }
     if (qualityParts.length > 0) {
       baselineCards.push({
@@ -1094,7 +1111,15 @@ One sentence. Specific. No carrier saving numbers.`,
       const insetRetTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
       const insetDelta = round(insetFromPool.total_cost_gbp - blAllin);
       const insetMoreOrLess = insetDelta >= 0 ? `£${insetDelta} more` : `£${Math.abs(insetDelta)} less`;
-      const earlyCheckout = insetRetTime && parseInt(insetRetTime.slice(0, 2)) < 9;
+      // Derive approximate hotel checkout: return departure minus ~2.5 hours
+      let checkoutLabel = '';
+      if (insetRetTime) {
+        const [rh, rm] = insetRetTime.split(':').map(Number);
+        const checkoutMins = (rh * 60 + rm) - 150;
+        const cH = Math.floor((checkoutMins + 1440) % 1440 / 60);
+        const cM = (checkoutMins + 1440) % 1440 % 60;
+        checkoutLabel = `approximately ${String(cH).padStart(2, '0')}:${String(cM).padStart(2, '0')} hotel checkout`;
+      }
       baselineCards.push({
         lever: 'inset_day_option',
         headline_hint: 'Inset day option',
@@ -1102,9 +1127,7 @@ One sentence. Specific. No carrier saving numbers.`,
         facts: {
           locked_headline: 'Inset day option',
           sentence_1: `Flying ${insetFromPool.outbound_departure_time?.slice(0, 5) ?? ''} on ${fmtD(insetFromPool.outbound_date)} (the inset day) costs £${round(insetFromPool.total_cost_gbp)} all-in — ${insetMoreOrLess} than Saturday.`,
-          sentence_2: earlyCheckout
-            ? `The return departs ${destinationName} at ${insetRetTime}, which means a 03:00–03:30 hotel checkout. We're not recommending it, but it's there if you want it.`
-            : `The return departs ${destinationName} at ${insetRetTime}. Check the date matrix below if you're interested.`,
+          sentence_2: `The return departs ${destinationName} at ${insetRetTime}${checkoutLabel ? `, which means ${checkoutLabel}` : ''}. We're not recommending it, but it's there if you want it.`,
         },
         verified_field: 'total_cost_gbp',
         verified_value: round(insetFromPool.total_cost_gbp),
