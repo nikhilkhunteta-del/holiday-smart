@@ -113,6 +113,7 @@ export async function getAIRecommendation(
   combinations: ScoredCombination[],
   context: FamilyContext,
   selectionContext?: SelectionContext | null,
+  scoredPool?: ScoredCombination[],
 ): Promise<AIRecommendationOutput> {
 
   const FALLBACK: AIRecommendationOutput = {
@@ -596,45 +597,51 @@ One sentence. 25 words max.`,
 
   // split_carrier pushed after allInTrap is computed — see below
 
-  // All-in trap: cheapest base fare ≠ cheapest all-in
-  // Find combination with lowest outbound_fare_gbp on same dates
+  // All-in trap: lower headline fare but higher all-in cost than winner
+  // Uses the full scored pool (128+ combos), not the shortlist
   const allInTrap = (() => {
-    const sameDates = combinationsForPrompt.filter(
-      c => c.outbound_date === recommended.outbound_date &&
-           c.return_date   === recommended.return_date &&
-           c.origin_iata !== recommended.origin_iata
-    );
-    if (!sameDates.length) return null;
+    const pool = scoredPool ?? [];
+    if (!pool.length) return null;
 
-    const cheapestFarCombo = sameDates.reduce((best, c) =>
-      (c.outbound_fare_gbp ?? Infinity) <
-      (best.outbound_fare_gbp ?? Infinity) ? c : best
-    , sameDates[0]);
+    const winnerBaseFare = (recommended.outbound_fare_gbp ?? 0) + (recommended.return_fare_gbp ?? 0);
+    const winnerAllin = round(recommended.total_cost_gbp);
 
-    const cheapestFare = cheapestFarCombo.outbound_fare_gbp;
-    const cheapestFareAllin = round(cheapestFarCombo.total_cost_gbp);
-    const recAllin = round(recommended.total_cost_gbp);
-    const allinDiff = cheapestFareAllin - recAllin;
+    // Find candidates: lower base fare than winner, but higher all-in, saving >= £50
+    const candidates = pool.filter(c => {
+      if ((c as any).is_baseline) return false;
+      const baseFare = (c.outbound_fare_gbp ?? 0) + (c.return_fare_gbp ?? 0);
+      const allinDiff = round(c.total_cost_gbp) - winnerAllin;
+      return baseFare < winnerBaseFare && allinDiff >= 50;
+    });
 
-    // Only surface if cheaper fare ends up MORE expensive all-in by at least £20
-    if (allinDiff < 20) return null;
+    if (!candidates.length) return null;
 
-    const cheapDestTransfer   = round(cheapestFarCombo.destination_transfer_cost_gbp ?? 0);
-    const recBaseFare         = round((recommended.outbound_fare_gbp ?? 0) + (recommended.return_fare_gbp ?? 0));
+    // Pick the most dramatic trap — highest all-in saving
+    const trapCombo = candidates.reduce((best, c) =>
+      round(c.total_cost_gbp) - winnerAllin >
+      round(best.total_cost_gbp) - winnerAllin ? c : best
+    , candidates[0]);
+
+    const trapBaseFare = round((trapCombo.outbound_fare_gbp ?? 0) + (trapCombo.return_fare_gbp ?? 0));
+    const trapAllin = round(trapCombo.total_cost_gbp);
+    const allinDiff = trapAllin - winnerAllin;
+    const cheapDestTransfer = round(trapCombo.destination_transfer_cost_gbp ?? 0);
     const hasExpensiveTransfer = cheapDestTransfer > 50;
 
     return {
-      cheap_description:      `${cn(cheapestFarCombo.outbound_carrier)} from ${cheapestFarCombo.origin_iata} on ${fmtD(cheapestFarCombo.outbound_date)}, returning ${fmtD(cheapestFarCombo.return_date)}`,
-      cheap_fare:             round(cheapestFare ?? 0),
-      cheap_allin:            cheapestFareAllin,
+      cheap_description:      `${cn(trapCombo.outbound_carrier)} from ${trapCombo.origin_iata} on ${fmtD(trapCombo.outbound_date)}, returning ${fmtD(trapCombo.return_date)}`,
+      cheap_fare:             trapBaseFare,
+      cheap_allin:            trapAllin,
       cheap_dest_transfer:    cheapDestTransfer,
-      cheap_dest_transfer_duration_mins: cheapestFarCombo.destination_transit_duration_mins ?? null,
+      cheap_dest_transfer_duration_mins: trapCombo.destination_transit_duration_mins ?? null,
       has_expensive_transfer: hasExpensiveTransfer,
-      cheap_dest_iata:        cheapestFarCombo.out_dest_iata,
-      cheap_origin_iata:      cheapestFarCombo.origin_iata,
+      cheap_dest_iata:        trapCombo.out_dest_iata,
+      cheap_origin_iata:      trapCombo.origin_iata,
+      cheap_carrier_iata:     trapCombo.outbound_carrier,
+      cheap_cabin_bag_cost:   trapCombo.cabin_bag_cost_gbp ?? 0,
       rec_description:        `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
-      rec_base_fare:          recBaseFare,
-      rec_allin:              recAllin,
+      rec_base_fare:          round(winnerBaseFare),
+      rec_allin:              winnerAllin,
       allin_saving:           allinDiff,
     };
   })();
@@ -647,16 +654,12 @@ One sentence. 25 words max.`,
     const durMins = allInTrap.cheap_dest_transfer_duration_mins;
     const transferCost = allInTrap.cheap_dest_transfer;
     const transferAlarming = durMins != null && durMins > 60 && transferCost > 50;
-    const cheapCombo = combinationsForPrompt.find(
-      c => c.out_dest_iata === allInTrap.cheap_dest_iata &&
-           c.origin_iata === allInTrap.cheap_origin_iata
-    );
-    const bagsNotIncluded = cheapCombo != null && (cheapCombo.cabin_bag_cost_gbp ?? 0) > 0;
+    const bagsNotIncluded = allInTrap.cheap_cabin_bag_cost > 0;
     if (transferAlarming) {
       return `the ${allInTrap.cheap_dest_iata} transfer alone takes ${durMins} minutes and costs £${transferCost}`;
     }
     if (bagsNotIncluded) {
-      return `cabin bags aren't included on ${cn(cheapCombo.outbound_carrier)} — add them and the cost jumps`;
+      return `cabin bags aren't included on ${cn(allInTrap.cheap_carrier_iata)} — add them and the cost jumps`;
     }
     return `bags and transfers add £${allInTrap.cheap_allin - allInTrap.cheap_fare} to the headline fare`;
   })();

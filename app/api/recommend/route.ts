@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
       scenarios,
       savingCategory: body.savingCategory ?? 'found_saving',
       combinationCount: body.combinationCount ?? 0,
-    }, selectionContext);
+    }, selectionContext, assembled.scoredPool);
 
     return NextResponse.json({
       ...aiResult,
