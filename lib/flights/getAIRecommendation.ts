@@ -641,6 +641,26 @@ One sentence. 25 words max.`,
 
   console.log('[airport-debug] allInTrap:', JSON.stringify(allInTrap));
 
+  // Derived: trap_alarming_reason — single pre-computed string for Card 1
+  const trapAlarmingReason: string | null = (() => {
+    if (!allInTrap) return null;
+    const durMins = allInTrap.cheap_dest_transfer_duration_mins;
+    const transferCost = allInTrap.cheap_dest_transfer;
+    const transferAlarming = durMins != null && durMins > 60 && transferCost > 50;
+    const cheapCombo = combinationsForPrompt.find(
+      c => c.out_dest_iata === allInTrap.cheap_dest_iata &&
+           c.origin_iata === allInTrap.cheap_origin_iata
+    );
+    const bagsNotIncluded = cheapCombo != null && (cheapCombo.cabin_bag_cost_gbp ?? 0) > 0;
+    if (transferAlarming) {
+      return `the ${allInTrap.cheap_dest_iata} transfer alone takes ${durMins} minutes and costs £${transferCost}`;
+    }
+    if (bagsNotIncluded) {
+      return `cabin bags aren't included on ${cn(cheapCombo.outbound_carrier)} — add them and the cost jumps`;
+    }
+    return `bags and transfers add £${allInTrap.cheap_allin - allInTrap.cheap_fare} to the headline fare`;
+  })();
+
   if (splitSaving) {
     moneyCards.push({
       lever: 'split_carrier',
@@ -1117,14 +1137,18 @@ One sentence. Specific. No carrier saving numbers.`,
       const insetRetTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
       const insetDelta = round(insetFromPool.total_cost_gbp - blAllin);
       const insetMoreOrLess = insetDelta >= 0 ? `£${insetDelta} more` : `£${Math.abs(insetDelta)} less`;
-      // Derive approximate hotel checkout: return departure minus ~2.5 hours
+      // Derive hotel checkout window: dep - 2h30m (floor) to dep - 2h00m (ceiling), rounded to 5 min
       let checkoutLabel = '';
       if (insetRetTime) {
         const [rh, rm] = insetRetTime.split(':').map(Number);
-        const checkoutMins = (rh * 60 + rm) - 150;
-        const cH = Math.floor((checkoutMins + 1440) % 1440 / 60);
-        const cM = (checkoutMins + 1440) % 1440 % 60;
-        checkoutLabel = `approximately ${String(cH).padStart(2, '0')}:${String(cM).padStart(2, '0')} hotel checkout`;
+        const totalMins = rh * 60 + rm;
+        const floorMins = Math.round((totalMins - 150) / 5) * 5;
+        const ceilMins  = Math.round((totalMins - 120) / 5) * 5;
+        const fmt5 = (m: number) => {
+          const wrapped = ((m % 1440) + 1440) % 1440;
+          return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+        };
+        checkoutLabel = `a ${fmt5(floorMins)}–${fmt5(ceilMins)} hotel checkout`;
       }
       baselineCards.push({
         lever: 'inset_day_option',
