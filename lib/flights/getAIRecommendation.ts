@@ -1094,7 +1094,7 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'quality_validation',
         headline_hint: 'The schedule works',
-        voice: `Copy each sentence from facts VERBATIM. Assembly only.`,
+        voice: `Copy each sentence from facts VERBATIM. Assembly only. Include all three elements: arrival implication, return timing with specific times, and honest trade-off on early departure. Do not truncate.`,
         facts: {
           locked_headline: 'The schedule works',
           ...Object.fromEntries(qualityParts.map((s, i) => [`sentence_${i + 1}`, s])),
@@ -1123,7 +1123,7 @@ One sentence. Specific. No carrier saving numbers.`,
       baselineCards.push({
         lever: 'inset_day_option',
         headline_hint: 'Inset day option',
-        voice: `Copy sentences from facts VERBATIM. Assembly only.`,
+        voice: `Copy sentences from facts VERBATIM. Assembly only. Always include: outbound departure time, date, all-in cost, delta vs Saturday, return departure time from Barcelona, the resulting hotel checkout time range, and close with 'We're not recommending it, but it's there if you want it.' These are all required — do not truncate any element.`,
         facts: {
           locked_headline: 'Inset day option',
           sentence_1: `Flying ${insetFromPool.outbound_departure_time?.slice(0, 5) ?? ''} on ${fmtD(insetFromPool.outbound_date)} (the inset day) costs £${round(insetFromPool.total_cost_gbp)} all-in — ${insetMoreOrLess} than Saturday.`,
@@ -1319,7 +1319,7 @@ The CARDS array below has already been chosen. Do not add, drop, or reorder card
 For EACH card write only:
   "i":       the card's index (0-based)
   "headline": "Copy locked_headline from facts EXACTLY — do not rephrase, do not shorten, do not add words. If locked_headline is not in facts, write 5 words max."
-  "insight":  ONE sentence, 25 words max, ONE fact, guided by the card's "voice" instruction
+  "insight":  Guided by the card's "voice" instruction. DEFAULT: ONE sentence, 25 words max, ONE fact. EXCEPTION: if "voice" says to include multiple elements or copy all sentences, output ALL of them — no word limit applies.
 
 Rules:
 - Use ONLY values from that card's "facts". Never invent a number.
