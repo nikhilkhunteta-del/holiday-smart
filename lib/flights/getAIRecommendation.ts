@@ -77,6 +77,8 @@ export interface FamilyContext {
   baseline_return_date?:     string;
   baseline_trip_nights?:     number;
   baseline_carrier?:         string;
+  baseline_out_transit_mode?: string;
+  baseline_ret_transit_mode?: string;
   // Best inset option from the full scored pool (not limited to shortlist)
   bestInsetFromPool?: {
     outbound_date: string;
@@ -189,6 +191,7 @@ export async function getAIRecommendation(
     return_uber_high_gbp: c.return_transit?.uber?.high_pence
       ? Math.round(c.return_transit.uber.high_pence / 100) : null,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
+    destination_transit_duration_mins: c.destination_transit_duration_mins ?? null,
     baggage_is_estimate: c.baggage_is_estimate,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
@@ -270,6 +273,7 @@ export async function getAIRecommendation(
       return_uber_high_gbp: w.return_transit?.uber?.high_pence
         ? Math.round(w.return_transit.uber.high_pence / 100) : null,
       destination_transfer_cost_gbp: w.destination_transfer_cost_gbp,
+      destination_transit_duration_mins: w.destination_transit_duration_mins ?? null,
       baggage_is_estimate: w.baggage_is_estimate,
       total_cost_gbp: w.total_cost_gbp,
       total_inc_fine: w.total_inc_fine,
@@ -624,8 +628,10 @@ One sentence. 25 words max.`,
       cheap_fare:             round(cheapestFare ?? 0),
       cheap_allin:            cheapestFareAllin,
       cheap_dest_transfer:    cheapDestTransfer,
+      cheap_dest_transfer_duration_mins: cheapestFarCombo.destination_transit_duration_mins ?? null,
       has_expensive_transfer: hasExpensiveTransfer,
       cheap_dest_iata:        cheapestFarCombo.out_dest_iata,
+      cheap_origin_iata:      cheapestFarCombo.origin_iata,
       rec_description:        `${cn(recommended.outbound_carrier)} from ${recommended.origin_iata}`,
       rec_base_fare:          recBaseFare,
       rec_allin:              recAllin,
