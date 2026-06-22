@@ -1206,6 +1206,30 @@ export async function assembleRecommendation(
       return blS?.trip_nights ?? undefined;
     })(),
     baseline_carrier:         base.baselineAsCombination?.outbound_carrier ?? undefined,
+    baseline_out_transit_mode: (() => {
+      const t = base.baselineAsCombination?.outbound_transit;
+      if (!t) return undefined;
+      if (t.recommended_mode === 'uber') return 'Uber';
+      const r = t.transit?.route_summary ?? '';
+      if (/piccadilly|underground|tube/i.test(r)) return 'tube';
+      if (/train|rail|thameslink|gatwick express|stansted express/i.test(r)) return 'train';
+      if (/elizabeth|crossrail/i.test(r)) return 'Elizabeth line';
+      if (/bus/i.test(r)) return 'bus';
+      if (/coach/i.test(r)) return 'coach';
+      return 'public transport';
+    })(),
+    baseline_ret_transit_mode: (() => {
+      const t = base.baselineAsCombination?.return_transit;
+      if (!t) return undefined;
+      if (t.recommended_mode === 'uber') return 'Uber';
+      const r = t.transit?.route_summary ?? '';
+      if (/piccadilly|underground|tube/i.test(r)) return 'tube';
+      if (/train|rail|thameslink|gatwick express|stansted express/i.test(r)) return 'train';
+      if (/elizabeth|crossrail/i.test(r)) return 'Elizabeth line';
+      if (/bus/i.test(r)) return 'bus';
+      if (/coach/i.test(r)) return 'coach';
+      return 'public transport';
+    })(),
     bestInsetFromPool: (() => {
       const insets = base.scoredPool
         .filter((c: any) => c.is_inset_day && !c.is_baseline)
