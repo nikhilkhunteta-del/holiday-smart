@@ -415,7 +415,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   }
   columns.push(...shortlistColumns);
 
-  const destAirportCount = new Set(columns.map(c => c.out_dest_iata)).size;
+  const destAirportCount = new Set(scoredPool.map(c => c.out_dest_iata)).size;
 
   if (columns.length < 2) return null;
 
