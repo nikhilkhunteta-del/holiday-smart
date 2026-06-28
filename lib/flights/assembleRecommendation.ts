@@ -907,6 +907,7 @@ export async function assembleCombinationsOnly(
   const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
 
   let assembled: AssembledCombination[] = combinations.map((c: any) => {
+    console.log('[pre-map-keys]', c.outbound_date, 'has transit_notes:', 'destination_transit_notes' in c, c.destination_transit_notes);
     const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
     const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
     return mapCombination(c, transitCache.get(outKey)!, transitCache.get(retKey)!);
