@@ -487,19 +487,23 @@ BEGIN
     with_dest_transfer AS (
       SELECT
         wf.*,
-        -- Use transit cost for transfer (public transit is what most
-        -- families use for short transfers; taxi used for long transfers
-        -- like REU/GRO). Transit fares are per person — multiply by
-        -- party size as well as × 2 for round trip.
-        COALESCE(
-          da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants),
-          0
-        )                                                                 AS destination_transfer_cost_gbp,
-        da.transit_cost_gbp IS NOT NULL                                  AS destination_transfer_known,
+        -- Switch to taxi when transit is long (>60 min) or unavailable.
+        -- Transit fares are per person — multiply by party size × 2 for round trip.
+        -- Taxi is a flat rate (already per-trip, not per-person) × 2 for round trip.
+        CASE
+          WHEN da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL
+          THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+          ELSE COALESCE(da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants), 0)
+        END                                                               AS destination_transfer_cost_gbp,
+        (da.transit_cost_gbp IS NOT NULL OR da.taxi_cost_gbp IS NOT NULL) AS destination_transfer_known,
+        (da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL)    AS destination_transfer_is_taxi,
         da.transit_duration_mins                                        AS destination_transit_duration_mins,
         da.transit_changes                                              AS destination_transit_changes,
         da.taxi_duration_mins                                           AS destination_taxi_duration_mins,
-        da.taxi_cost_gbp                                                AS destination_taxi_cost_gbp
+        da.taxi_cost_gbp                                                AS destination_taxi_cost_gbp,
+        da.transit_notes                                                AS destination_transit_notes,
+        da.taxi_cost_low_gbp                                            AS destination_taxi_cost_low_gbp,
+        da.taxi_cost_high_gbp                                           AS destination_taxi_cost_high_gbp
       FROM with_fine wf
       LEFT JOIN destination_airports da
              ON da.destination_id = v_dest_id
@@ -547,10 +551,14 @@ BEGIN
         -- ── Destination transfer ──────────────────────────────────────────────
         'destination_transfer_cost_gbp', ROUND(f.destination_transfer_cost_gbp::numeric,         2),
         'destination_transfer_known',    f.destination_transfer_known,
+        'destination_transfer_is_taxi',  f.destination_transfer_is_taxi,
         'destination_transit_duration_mins', f.destination_transit_duration_mins,
         'destination_transit_changes',       f.destination_transit_changes,
         'destination_taxi_duration_mins',    f.destination_taxi_duration_mins,
         'destination_taxi_cost_gbp',         ROUND(f.destination_taxi_cost_gbp::numeric,        2),
+        'destination_transit_notes',         f.destination_transit_notes,
+        'destination_taxi_cost_low_gbp',     ROUND(f.destination_taxi_cost_low_gbp::numeric,    2),
+        'destination_taxi_cost_high_gbp',    ROUND(f.destination_taxi_cost_high_gbp::numeric,   2),
         -- ── Absence & fine ────────────────────────────────────────────────────
         'requires_absence',              f.requires_absence,
         'absence_days',                  f.absence_days,
@@ -692,15 +700,20 @@ BEGIN
           a.family_seating_notes                                          AS family_seating_notes,
           a.bundle_price_delta_gbp                                        AS bundle_delta,
           a.bundle_includes_checked                                       AS bundle_inc_checked,
-          COALESCE(
-            da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants),
-            0
-          )                                                               AS dest_transfer_cost,
-          da.transit_cost_gbp IS NOT NULL                                AS dest_transfer_known,
+          CASE
+            WHEN da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL
+            THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+            ELSE COALESCE(da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants), 0)
+          END                                                             AS dest_transfer_cost,
+          (da.transit_cost_gbp IS NOT NULL OR da.taxi_cost_gbp IS NOT NULL) AS dest_transfer_known,
+          (da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL)  AS dest_transfer_is_taxi,
           da.transit_duration_mins                                       AS dest_transit_duration_mins,
           da.transit_changes                                             AS dest_transit_changes,
           da.taxi_duration_mins                                          AS dest_taxi_duration_mins,
-          da.taxi_cost_gbp                                               AS dest_taxi_cost_gbp
+          da.taxi_cost_gbp                                               AS dest_taxi_cost_gbp,
+          da.transit_notes                                               AS dest_transit_notes,
+          da.taxi_cost_low_gbp                                           AS dest_taxi_cost_low_gbp,
+          da.taxi_cost_high_gbp                                          AS dest_taxi_cost_high_gbp
         FROM (SELECT 1 AS dummy) d
         LEFT JOIN bl_abf     a  ON true
         LEFT JOIN destination_airports da
@@ -735,10 +748,14 @@ BEGIN
         ),
         'destination_transfer_cost_gbp', ROUND(bc.dest_transfer_cost::numeric,              2),
         'destination_transfer_known',    bc.dest_transfer_known,
+        'destination_transfer_is_taxi',  bc.dest_transfer_is_taxi,
         'destination_transit_duration_mins', bc.dest_transit_duration_mins,
         'destination_transit_changes',       bc.dest_transit_changes,
         'destination_taxi_duration_mins',    bc.dest_taxi_duration_mins,
         'destination_taxi_cost_gbp',         ROUND(bc.dest_taxi_cost_gbp::numeric,         2),
+        'destination_transit_notes',         bc.dest_transit_notes,
+        'destination_taxi_cost_low_gbp',     ROUND(bc.dest_taxi_cost_low_gbp::numeric,     2),
+        'destination_taxi_cost_high_gbp',    ROUND(bc.dest_taxi_cost_high_gbp::numeric,    2),
         'outbound_departure_time',       to_char(v_baseline_dep_time, 'HH24:MI'),
         'baseline_is_fallback',          v_baseline_fallback,
         'family_seating_notes',          bc.family_seating_notes

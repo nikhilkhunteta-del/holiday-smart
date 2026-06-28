@@ -38,10 +38,14 @@ export type AssembledCombination = {
   checked_bag_cost_max_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transfer_is_taxi: boolean;
   destination_transit_duration_mins: number | null;
   destination_transit_changes:       number | null;
   destination_taxi_duration_mins:    number | null;
   destination_taxi_cost_gbp:         number | null;
+  destination_transit_notes:         string | null;
+  destination_taxi_cost_low_gbp:     number | null;
+  destination_taxi_cost_high_gbp:    number | null;
   requires_absence: boolean;
   absence_days: number;
   fine_gbp: number | null;
@@ -80,10 +84,14 @@ export type AssembledBaseline = {
   fare_plus_ancillary_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  destination_transfer_is_taxi: boolean;
   destination_transit_duration_mins: number | null;
   destination_transit_changes:       number | null;
   destination_taxi_duration_mins:    number | null;
   destination_taxi_cost_gbp:         number | null;
+  destination_transit_notes:         string | null;
+  destination_taxi_cost_low_gbp:     number | null;
+  destination_taxi_cost_high_gbp:    number | null;
   outbound_departure_time: string | null;
   outbound_departure_time_parsed: string; // HH:MM
   return_departure_time_assumed:  string; // HH:MM
@@ -169,10 +177,14 @@ function mapCombination(
     checked_bag_cost_max_gbp: c.checked_bag_cost_max_gbp ?? c.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     destination_transfer_known: c.destination_transfer_known,
+    destination_transfer_is_taxi: c.destination_transfer_is_taxi ?? false,
     destination_transit_duration_mins: c.destination_transit_duration_mins ?? null,
     destination_transit_changes:       c.destination_transit_changes ?? null,
     destination_taxi_duration_mins:    c.destination_taxi_duration_mins ?? null,
     destination_taxi_cost_gbp:         c.destination_taxi_cost_gbp ?? null,
+    destination_transit_notes:         c.destination_transit_notes ?? null,
+    destination_taxi_cost_low_gbp:     c.destination_taxi_cost_low_gbp ?? null,
+    destination_taxi_cost_high_gbp:    c.destination_taxi_cost_high_gbp ?? null,
     requires_absence: c.requires_absence,
     absence_days: c.absence_days,
     fine_gbp: c.fine_gbp,
@@ -266,6 +278,7 @@ function applyDestTransferFlip(
   return {
     ...c,
     destination_transfer_cost_gbp: newTransferCost,
+    destination_transfer_is_taxi: true,
     destination_transit_duration_mins: c.destination_taxi_duration_mins,
     total_cost_gbp: c.total_cost_gbp + delta,
     total_inc_fine: c.total_inc_fine + delta,
@@ -526,10 +539,14 @@ function buildAssembledBaseline(
     fare_plus_ancillary_gbp: baseline.fare_plus_ancillary_gbp,
     destination_transfer_cost_gbp: baseline.destination_transfer_cost_gbp,
     destination_transfer_known: baseline.destination_transfer_known,
+    destination_transfer_is_taxi: baseline.destination_transfer_is_taxi ?? false,
     destination_transit_duration_mins: baseline.destination_transit_duration_mins ?? null,
     destination_transit_changes:       baseline.destination_transit_changes ?? null,
     destination_taxi_duration_mins:    baseline.destination_taxi_duration_mins ?? null,
     destination_taxi_cost_gbp:         baseline.destination_taxi_cost_gbp ?? null,
+    destination_transit_notes:         baseline.destination_transit_notes ?? null,
+    destination_taxi_cost_low_gbp:     baseline.destination_taxi_cost_low_gbp ?? null,
+    destination_taxi_cost_high_gbp:    baseline.destination_taxi_cost_high_gbp ?? null,
     outbound_departure_time: baseline.outbound_departure_time ?? null,
     outbound_departure_time_parsed: outboundDepTime,
     return_departure_time_assumed:  returnDepTime,
@@ -700,10 +717,14 @@ async function buildBaselineAsCombination(
     checked_bag_cost_max_gbp: assembledBaseline.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: assembledBaseline.destination_transfer_cost_gbp,
     destination_transfer_known:    assembledBaseline.destination_transfer_known,
+    destination_transfer_is_taxi:  assembledBaseline.destination_transfer_is_taxi,
     destination_transit_duration_mins: assembledBaseline.destination_transit_duration_mins,
     destination_transit_changes:       assembledBaseline.destination_transit_changes,
     destination_taxi_duration_mins:    assembledBaseline.destination_taxi_duration_mins,
     destination_taxi_cost_gbp:         assembledBaseline.destination_taxi_cost_gbp,
+    destination_transit_notes:         assembledBaseline.destination_transit_notes,
+    destination_taxi_cost_low_gbp:     assembledBaseline.destination_taxi_cost_low_gbp,
+    destination_taxi_cost_high_gbp:    assembledBaseline.destination_taxi_cost_high_gbp,
     // The baseline departs the Saturday before the holiday week — by
     // definition never requires absence and is never an inset-day departure.
     requires_absence: false,
