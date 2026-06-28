@@ -912,6 +912,7 @@ export async function assembleCombinationsOnly(
     const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
     return mapCombination(c, transitCache.get(outKey)!, transitCache.get(retKey)!);
   });
+  console.log('[post-map]', assembled[0]?.destination_transit_notes);
 
   // ── Bag cost recalculation ───────────────────────────────────────────────
   // When this call's bag params differ from the SQL-baked originals (bag
@@ -1128,6 +1129,8 @@ export async function assembleCombinationsOnly(
     total_cost_gbp: assembledBaseline.total_cost_gbp,
     outbound_departure_time: assembledBaseline.outbound_departure_time,
   };
+
+  console.log('[shortlist-0]', shortlistWithWinner[0]?.destination_transit_notes);
 
   return {
     combinations: assembled,
