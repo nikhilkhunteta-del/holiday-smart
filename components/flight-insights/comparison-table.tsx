@@ -274,11 +274,11 @@ function destTransferDetail(col: ColumnData): ReactNode {
   if (duration == null && col.dest_transfer_known && !col.dest_transit_notes) return null;
 
   const parts: string[] = [];
+  if (col.dest_transit_notes) parts.push(col.dest_transit_notes);
   if (duration != null) parts.push(`~${duration} min`);
   if (col.dest_transit_changes != null && col.dest_transit_changes > 0) {
     parts.push(`${col.dest_transit_changes} change${col.dest_transit_changes > 1 ? 's' : ''}`);
   }
-  if (col.dest_transit_notes) parts.push(col.dest_transit_notes);
   if (!col.dest_transfer_known) parts.push('(estimate)');
   if (parts.length === 0) return null;
 
@@ -299,8 +299,6 @@ const ROWS: RowDef[] = [
   // Itinerary (dates and carrier now live in the column header)
   { key: 'nights', label: 'Nights', group: 'itinerary',
     renderNode: c => `${c.trip_nights}` },
-  { key: 'inset', label: 'Inset day', group: 'itinerary',
-    renderNode: c => c.is_inset_day ? 'Yes' : 'No' },
   { key: 'route', label: 'Route', group: 'itinerary',
     renderNode: c => {
       if (c.origin_iata === c.ret_dest_iata) {
@@ -436,15 +434,10 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   for (const col of columns) {
     if (col.isWinner) {
       col.label = 'Recommended';
-    } else if (col.is_inset_day) {
+    } else if (col.is_inset_day && !usedLabels.has('Inset day option')) {
       col.label = 'Inset day option';
     } else if (winnerOrigin && col.origin_iata !== winnerOrigin) {
       col.label = 'Different airport';
-    } else if (
-      (col.outbound_departure_quality === 'ideal' || col.outbound_departure_quality === 'good') &&
-      !usedLabels.has('Best departure')
-    ) {
-      col.label = 'Best departure';
     } else if (col.total_cost_gbp === lowestNonWinnerCost && !usedLabels.has('Lowest fare')) {
       col.label = 'Lowest fare';
     } else {
@@ -452,6 +445,21 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
       optionIdx++;
     }
     usedLabels.add(col.label);
+  }
+
+  if (columns.length > 0) {
+    const c0 = columns[0];
+    console.log('[comparison-table] dest transfer fields (col 0):', {
+      dest_transfer_is_taxi: c0.dest_transfer_is_taxi,
+      dest_transfer_known: c0.dest_transfer_known,
+      dest_transfer_gbp: c0.dest_transfer_gbp,
+      dest_transit_notes: c0.dest_transit_notes,
+      dest_transit_duration_mins: c0.dest_transit_duration_mins,
+      dest_transit_changes: c0.dest_transit_changes,
+      dest_taxi_duration_mins: c0.dest_taxi_duration_mins,
+      dest_taxi_cost_low_gbp: c0.dest_taxi_cost_low_gbp,
+      dest_taxi_cost_high_gbp: c0.dest_taxi_cost_high_gbp,
+    });
   }
 
   const destAirportCount = new Set(scoredPool.map(c => c.out_dest_iata)).size;
