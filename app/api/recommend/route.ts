@@ -221,6 +221,8 @@ export async function POST(request: NextRequest) {
       winner_outbound_date:    selectionContext.winner.outbound_date,
       winner_return_date:      selectionContext.winner.return_date,
       winner_outbound_carrier: selectionContext.winner.outbound_carrier,
+    }, {
+      headers: { 'Cache-Control': 'no-store' },
     });
 
   } catch (err) {

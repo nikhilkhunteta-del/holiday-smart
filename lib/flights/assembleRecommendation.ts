@@ -138,6 +138,13 @@ function mapCombination(
   outTransit: AirportTransitCost,
   retTransit: AirportTransitCost,
 ): AssembledCombination {
+  console.log('[mapCombination] dest transfer raw fields:', {
+    destination_transit_notes: c.destination_transit_notes,
+    destination_transfer_is_taxi: c.destination_transfer_is_taxi,
+    destination_taxi_cost_low_gbp: c.destination_taxi_cost_low_gbp,
+    destination_taxi_cost_high_gbp: c.destination_taxi_cost_high_gbp,
+    outbound_date: c.outbound_date,
+  });
   const outTransitGbp = outTransit.recommended_cost_pence / 100;
   const retTransitGbp = retTransit.recommended_cost_pence / 100;
   const transitCostGbp = outTransitGbp + retTransitGbp;
