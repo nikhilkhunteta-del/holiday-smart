@@ -123,6 +123,7 @@ interface ColumnData {
   dest_transit_notes: string | null;
   dest_taxi_cost_low_gbp: number | null;
   dest_taxi_cost_high_gbp: number | null;
+  requires_absence: boolean;
   total_cost_gbp: number;
   total_inc_fine: number;
   fine_gbp: number;
@@ -174,6 +175,7 @@ function extractColumn(
     dest_transit_notes: c.destination_transit_notes,
     dest_taxi_cost_low_gbp: c.destination_taxi_cost_low_gbp,
     dest_taxi_cost_high_gbp: c.destination_taxi_cost_high_gbp,
+    requires_absence: c.requires_absence,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
     fine_gbp: c.fine_gbp ?? 0,
@@ -192,6 +194,8 @@ interface RowDef {
   group: 'itinerary' | 'quality' | 'costs';
   renderNode: (col: ColumnData) => ReactNode;
   bold?: boolean;
+  dynamicLabel?: (cols: ColumnData[]) => string;
+  mergeable?: boolean;
 }
 
 function roundTo5(mins: number): number {
@@ -321,14 +325,14 @@ const ROWS: RowDef[] = [
     renderNode: c => gbp(c.base_fare_gbp) },
   { key: 'cabin_bags', label: 'Cabin bags', group: 'costs',
     renderNode: c => bagCell(c.cabin_bag_cost_gbp, c.cabin_bag_cost_gbp === 0) },
-  { key: 'checked_bags', label: 'Checked bags', group: 'costs',
+  { key: 'checked_bags', label: 'Checked bags', group: 'costs', mergeable: true,
     renderNode: c => c.checked_bag_cost_gbp === 0
       ? (<>
           <span className="text-[#6f797a]">0 assumed</span>
           <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Change baggage selection above to recalculate.</span>
         </>)
       : gbp(c.checked_bag_cost_gbp) },
-  { key: 'seats', label: 'Seats', group: 'costs',
+  { key: 'seats', label: 'Seats', group: 'costs', mergeable: true,
     renderNode: c => c.seat_cost_gbp === 0
       ? (<>
           <span className="text-[#6f797a]">Allocated at check-in</span>
@@ -341,14 +345,18 @@ const ROWS: RowDef[] = [
         {gbp(c.out_transit_cost_gbp)}
         {londonTransitDetail(c.outbound_transit)}
       </>
-    ) },
+    ),
+    dynamicLabel: (cols) => `To ${cols.find(c => c.isWinner)?.outbound_transit?.airport_iata ?? 'airport'}`,
+  },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
     renderNode: c => (
       <>
         {gbp(c.ret_transit_cost_gbp)}
         {londonTransitDetail(c.return_transit)}
       </>
-    ) },
+    ),
+    dynamicLabel: (cols) => `From ${cols.find(c => c.isWinner)?.return_transit?.airport_iata ?? 'airport'}`,
+  },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
     renderNode: c => (
       <>
@@ -416,27 +424,35 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
     shownKeys.add(key);
   }
 
-  // Derive shortlist labels from combination properties
-  const lowestFare = Math.min(...shortlistColumns.map(c => c.base_fare_gbp));
-  const goodQualities = new Set(['excellent', 'ideal', 'good']);
+  columns.push(...shortlistColumns);
+
+  // Re-derive all column labels using slot priority rules
+  const winnerCol = columns.find(c => c.isWinner);
+  const winnerOrigin = winnerCol?.origin_iata;
+  const usedLabels = new Set<string>();
+  const nonWinnerCosts = columns.filter(c => !c.isWinner).map(c => c.total_cost_gbp);
+  const lowestNonWinnerCost = nonWinnerCosts.length > 0 ? Math.min(...nonWinnerCosts) : Infinity;
   let optionIdx = 1;
-  for (const col of shortlistColumns) {
-    if (col.is_inset_day) {
+  for (const col of columns) {
+    if (col.isWinner) {
+      col.label = 'Recommended';
+    } else if (col.is_inset_day) {
       col.label = 'Inset day option';
+    } else if (winnerOrigin && col.origin_iata !== winnerOrigin) {
+      col.label = 'Different airport';
     } else if (
-      goodQualities.has(col.outbound_departure_quality ?? '') &&
-      goodQualities.has(col.arrival_quality ?? '') &&
-      goodQualities.has(col.return_departure_quality ?? '')
+      (col.outbound_departure_quality === 'ideal' || col.outbound_departure_quality === 'good') &&
+      !usedLabels.has('Best departure')
     ) {
-      col.label = 'Best timing';
-    } else if (col.base_fare_gbp === lowestFare) {
+      col.label = 'Best departure';
+    } else if (col.total_cost_gbp === lowestNonWinnerCost && !usedLabels.has('Lowest fare')) {
       col.label = 'Lowest fare';
     } else {
       col.label = `Option ${optionIdx}`;
+      optionIdx++;
     }
-    optionIdx++;
+    usedLabels.add(col.label);
   }
-  columns.push(...shortlistColumns);
 
   const destAirportCount = new Set(scoredPool.map(c => c.out_dest_iata)).size;
 
@@ -498,6 +514,11 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                         ? carrierName(col.outbound_carrier)
                         : `${carrierName(col.outbound_carrier)} · ${carrierName(col.return_carrier)}`}
                     </span>
+                    {(col.fine_gbp > 0 || col.requires_absence) && (
+                      <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#ba1a1a' }}>
+                        School absence required
+                      </span>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -506,10 +527,17 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
               {ROWS.map((row) => {
                 const showGroupHeader = row.group !== lastGroup;
                 lastGroup = row.group;
+                const rowLabel = row.dynamicLabel ? row.dynamicLabel(columns) : row.label;
+
+                const isUniform = row.mergeable && columns.length > 1 &&
+                  columns.every(c => {
+                    const key = row.key === 'checked_bags' ? c.checked_bag_cost_gbp : c.seat_cost_gbp;
+                    const firstKey = row.key === 'checked_bags' ? columns[0].checked_bag_cost_gbp : columns[0].seat_cost_gbp;
+                    return key === firstKey;
+                  });
 
                 return (
                   <tr key={row.key}>
-                    {/* Row label — with group header inline */}
                     <td className={`py-2 px-3 text-[#3f484a] ${row.bold ? 'font-semibold' : ''} ${
                       showGroupHeader ? 'pt-5' : ''
                     }`}>
@@ -518,20 +546,31 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                           {GROUP_LABELS[row.group]}
                         </span>
                       )}
-                      {row.label}
+                      {rowLabel}
                     </td>
-                    {columns.map((col, i) => (
+                    {isUniform ? (
                       <td
-                        key={i}
-                        className={`py-2 px-3 text-center ${
-                          row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
-                        } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
+                        colSpan={columns.length}
+                        className={`py-2 px-3 text-center text-[#3f484a] ${
                           showGroupHeader ? 'pt-5' : ''
                         }`}
                       >
-                        {row.renderNode(col)}
+                        {row.renderNode(columns[0])}
                       </td>
-                    ))}
+                    ) : (
+                      columns.map((col, i) => (
+                        <td
+                          key={i}
+                          className={`py-2 px-3 text-center ${
+                            row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
+                          } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
+                            showGroupHeader ? 'pt-5' : ''
+                          }`}
+                        >
+                          {row.renderNode(col)}
+                        </td>
+                      ))
+                    )}
                   </tr>
                 );
               })}
