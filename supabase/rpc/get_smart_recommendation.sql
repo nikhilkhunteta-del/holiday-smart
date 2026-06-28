@@ -547,7 +547,10 @@ BEGIN
         -- ── Ancillary totals — combined + per-leg (new) ───────────────────────
         'fare_plus_ancillary_gbp',       ROUND(f.fare_plus_ancillary::numeric,                   2),
         'outbound_ancillary_gbp',        ROUND(f.out_ancillary::numeric,                         2),
-        'return_ancillary_gbp',          ROUND(f.ret_ancillary::numeric,                         2),
+        'return_ancillary_gbp',          ROUND(f.ret_ancillary::numeric,                         2)
+      )
+      ||
+      jsonb_build_object(
         -- ── Destination transfer ──────────────────────────────────────────────
         'destination_transfer_cost_gbp', ROUND(f.destination_transfer_cost_gbp::numeric,         2),
         'destination_transfer_known',    f.destination_transfer_known,
