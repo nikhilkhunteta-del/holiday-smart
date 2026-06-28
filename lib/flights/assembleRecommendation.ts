@@ -880,6 +880,7 @@ export async function assembleCombinationsOnly(
   const combinations: any[] = rawResult?.combinations ?? [];
   const baseline: any = rawResult?.baseline ?? {};
 
+  console.log('[rpc-raw-keys]', Object.keys(combinations[0] ?? {}));
   console.log('[assembly] called, combinations count:', combinations.length);
 
   const nearestAirport = precomputed?.nearestAirport
