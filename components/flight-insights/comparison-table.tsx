@@ -116,9 +116,13 @@ interface ColumnData {
   ret_transit_cost_gbp: number;
   dest_transfer_gbp: number;
   dest_transfer_known: boolean;
+  dest_transfer_is_taxi: boolean;
   dest_transit_duration_mins: number | null;
   dest_transit_changes: number | null;
   dest_taxi_duration_mins: number | null;
+  dest_transit_notes: string | null;
+  dest_taxi_cost_low_gbp: number | null;
+  dest_taxi_cost_high_gbp: number | null;
   total_cost_gbp: number;
   total_inc_fine: number;
   fine_gbp: number;
@@ -163,9 +167,13 @@ function extractColumn(
     ret_transit_cost_gbp: c.return_transit_cost_gbp,
     dest_transfer_gbp: c.destination_transfer_cost_gbp,
     dest_transfer_known: c.destination_transfer_known,
+    dest_transfer_is_taxi: c.destination_transfer_is_taxi,
     dest_transit_duration_mins: c.destination_transit_duration_mins,
     dest_transit_changes: c.destination_transit_changes,
     dest_taxi_duration_mins: c.destination_taxi_duration_mins,
+    dest_transit_notes: c.destination_transit_notes,
+    dest_taxi_cost_low_gbp: c.destination_taxi_cost_low_gbp,
+    dest_taxi_cost_high_gbp: c.destination_taxi_cost_high_gbp,
     total_cost_gbp: c.total_cost_gbp,
     total_inc_fine: c.total_inc_fine,
     fine_gbp: c.fine_gbp ?? 0,
@@ -244,14 +252,29 @@ function londonTransitDetail(
 }
 
 function destTransferDetail(col: ColumnData): ReactNode {
+  if (col.dest_transfer_is_taxi) {
+    const parts: string[] = ['Taxi'];
+    if (col.dest_taxi_duration_mins != null) parts.push(`~${col.dest_taxi_duration_mins} min`);
+    if (col.dest_taxi_cost_low_gbp != null && col.dest_taxi_cost_high_gbp != null) {
+      parts.push(`£${Math.round(col.dest_taxi_cost_low_gbp)}–£${Math.round(col.dest_taxi_cost_high_gbp)}`);
+    }
+    if (!col.dest_transfer_known) parts.push('(estimate)');
+    return (
+      <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+        {parts.join(' · ')}
+      </span>
+    );
+  }
+
   const duration = col.dest_transit_duration_mins ?? col.dest_taxi_duration_mins;
-  if (duration == null && col.dest_transfer_known) return null;
+  if (duration == null && col.dest_transfer_known && !col.dest_transit_notes) return null;
 
   const parts: string[] = [];
   if (duration != null) parts.push(`~${duration} min`);
   if (col.dest_transit_changes != null && col.dest_transit_changes > 0) {
     parts.push(`${col.dest_transit_changes} change${col.dest_transit_changes > 1 ? 's' : ''}`);
   }
+  if (col.dest_transit_notes) parts.push(col.dest_transit_notes);
   if (!col.dest_transfer_known) parts.push('(estimate)');
   if (parts.length === 0) return null;
 
