@@ -304,7 +304,16 @@ function bagCell(cost: number, cabinIncluded: boolean): ReactNode {
 const ROWS: RowDef[] = [
   // Itinerary
   { key: 'dates', label: 'Dates', group: 'itinerary',
-    renderNode: c => `${formatDate(c.outbound_date)} → ${formatDate(c.return_date)}` },
+    renderNode: c => (
+      <>
+        {formatDate(c.outbound_date)} → {formatDate(c.return_date)}
+        {(c.requires_absence || c.fine_gbp > 0) && (
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#ba1a1a' }}>
+            School absence required
+          </span>
+        )}
+      </>
+    ) },
   { key: 'carrier', label: 'Carrier', group: 'itinerary',
     renderNode: c => c.outbound_carrier === c.return_carrier
       ? carrierName(c.outbound_carrier)
@@ -520,11 +529,6 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                     <span className={`block font-semibold text-sm ${col.isWinner ? 'text-[#004349]' : 'text-[#191c1d]'}`}>
                       {col.label}
                     </span>
-                    {(col.fine_gbp > 0 || col.requires_absence) && (
-                      <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#ba1a1a' }}>
-                        School absence required
-                      </span>
-                    )}
                   </th>
                 ))}
               </tr>
