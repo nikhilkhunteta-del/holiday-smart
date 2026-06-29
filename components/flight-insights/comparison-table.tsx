@@ -204,14 +204,16 @@ function roundTo5(mins: number): number {
 
 function londonTransitDetail(
   transit: AssembledCombination['outbound_transit'] | null,
+  showIata: boolean = false,
 ): ReactNode {
   if (!transit) return null;
 
   const modeLabel = transitModeLabel(transit);
+  const iataPre = showIata && transit.airport_iata ? `${transit.airport_iata} · ` : '';
 
   if (transit.recommended_mode === 'uber') {
     const duration = roundTo5(transit.uber.duration_mins);
-    const parts: string[] = [modeLabel, `~${duration} min`];
+    const parts: string[] = [`${iataPre}${modeLabel}`, `~${duration} min`];
     const low = gbp(transit.uber.low_pence / 100);
     const high = gbp(transit.uber.high_pence / 100);
     return (
@@ -236,7 +238,7 @@ function londonTransitDetail(
 
   const duration = roundTo5(t.duration_mins);
   const parts: string[] = [];
-  parts.push(modeLabel === 'Transit' ? 'Train' : modeLabel);
+  parts.push(`${iataPre}${modeLabel === 'Transit' ? 'Train' : modeLabel}`);
   parts.push(`~${duration} min`);
   if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
   if (t.confidence === 'estimated') parts.push('(estimate)');
@@ -341,19 +343,17 @@ const ROWS: RowDef[] = [
     renderNode: c => (
       <>
         {gbp(c.out_transit_cost_gbp)}
-        {londonTransitDetail(c.outbound_transit)}
+        {londonTransitDetail(c.outbound_transit, true)}
       </>
     ),
-    dynamicLabel: (cols) => `To ${cols.find(c => c.isWinner)?.outbound_transit?.airport_iata ?? 'airport'}`,
   },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
     renderNode: c => (
       <>
         {gbp(c.ret_transit_cost_gbp)}
-        {londonTransitDetail(c.return_transit)}
+        {londonTransitDetail(c.return_transit, true)}
       </>
     ),
-    dynamicLabel: (cols) => `From ${cols.find(c => c.isWinner)?.return_transit?.airport_iata ?? 'airport'}`,
   },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
     renderNode: c => (
