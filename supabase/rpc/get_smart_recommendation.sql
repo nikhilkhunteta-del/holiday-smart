@@ -487,16 +487,24 @@ BEGIN
     with_dest_transfer AS (
       SELECT
         wf.*,
-        -- Switch to taxi when transit is long (>60 min) or unavailable.
-        -- Transit fares are per person — multiply by party size × 2 for round trip.
-        -- Taxi is a flat rate (already per-trip, not per-person) × 2 for round trip.
+        -- Taxi when transit unavailable or >=2 changes and taxi within £50 of transit.
         CASE
-          WHEN da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL
-          THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+          WHEN da.transit_cost_gbp IS NULL
+            THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+          WHEN da.transit_changes >= 2
+            AND (da.taxi_cost_gbp - da.transit_cost_gbp * (p_adults + p_children + p_infants)) <= 50
+            THEN COALESCE(da.taxi_cost_gbp * 2, 0)
           ELSE COALESCE(da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants), 0)
         END                                                               AS destination_transfer_cost_gbp,
         (da.transit_cost_gbp IS NOT NULL OR da.taxi_cost_gbp IS NOT NULL) AS destination_transfer_known,
-        (da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL)    AS destination_transfer_is_taxi,
+        CASE
+          WHEN da.transit_cost_gbp IS NULL
+            THEN true
+          WHEN da.transit_changes >= 2
+            AND (da.taxi_cost_gbp - da.transit_cost_gbp * (p_adults + p_children + p_infants)) <= 50
+            THEN true
+          ELSE false
+        END                                                               AS destination_transfer_is_taxi,
         da.transit_duration_mins                                        AS destination_transit_duration_mins,
         da.transit_changes                                              AS destination_transit_changes,
         da.taxi_duration_mins                                           AS destination_taxi_duration_mins,
@@ -707,12 +715,22 @@ BEGIN
           a.bundle_price_delta_gbp                                        AS bundle_delta,
           a.bundle_includes_checked                                       AS bundle_inc_checked,
           CASE
-            WHEN da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL
-            THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+            WHEN da.transit_cost_gbp IS NULL
+              THEN COALESCE(da.taxi_cost_gbp * 2, 0)
+            WHEN da.transit_changes >= 2
+              AND (da.taxi_cost_gbp - da.transit_cost_gbp * (p_adults + p_children + p_infants)) <= 50
+              THEN COALESCE(da.taxi_cost_gbp * 2, 0)
             ELSE COALESCE(da.transit_cost_gbp * 2 * (p_adults + p_children + p_infants), 0)
           END                                                             AS dest_transfer_cost,
           (da.transit_cost_gbp IS NOT NULL OR da.taxi_cost_gbp IS NOT NULL) AS dest_transfer_known,
-          (da.transit_duration_mins > 60 OR da.transit_cost_gbp IS NULL)  AS dest_transfer_is_taxi,
+          CASE
+            WHEN da.transit_cost_gbp IS NULL
+              THEN true
+            WHEN da.transit_changes >= 2
+              AND (da.taxi_cost_gbp - da.transit_cost_gbp * (p_adults + p_children + p_infants)) <= 50
+              THEN true
+            ELSE false
+          END                                                             AS dest_transfer_is_taxi,
           da.transit_duration_mins                                       AS dest_transit_duration_mins,
           da.transit_changes                                             AS dest_transit_changes,
           da.taxi_duration_mins                                          AS dest_taxi_duration_mins,

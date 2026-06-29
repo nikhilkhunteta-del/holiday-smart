@@ -7,25 +7,29 @@ import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 
-const AMBER_QUALITIES = new Set(['very_early', 'poor', 'early', 'acceptable']);
+const GREEN_QUALITIES = new Set(['excellent', 'ideal', 'good']);
+const AMBER_QUALITIES = new Set(['very_early', 'early', 'acceptable']);
+const RED_QUALITIES = new Set(['poor', 'late']);
 
 function qualityPill(label: string, q: string | null, time: string | null): ReactNode {
   const timeStr = time ? ` (${time})` : '';
   if (!q) return '—';
-  if (AMBER_QUALITIES.has(q)) {
-    return (
-      <span>
-        <span
-          className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
-          style={{ background: '#fef3c7', color: '#92400e' }}
-        >
-          {label}
-        </span>
-        {timeStr && <span className="text-[#6f797a] text-[11px] ml-1">{timeStr}</span>}
+  let bg: string; let fg: string;
+  if (GREEN_QUALITIES.has(q)) { bg = '#e8f5e9'; fg = '#2e7d32'; }
+  else if (AMBER_QUALITIES.has(q)) { bg = '#fff8e1'; fg = '#f57f17'; }
+  else if (RED_QUALITIES.has(q)) { bg = '#ffebee'; fg = '#c62828'; }
+  else return <span className="text-[#3f484a]">{label}{timeStr}</span>;
+  return (
+    <span>
+      <span
+        className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
+        style={{ background: bg, color: fg }}
+      >
+        {label}
       </span>
-    );
-  }
-  return <span className="text-[#3f484a]">{label}{timeStr}</span>;
+      {timeStr && <span className="text-[#6f797a] text-[11px] ml-1">{timeStr}</span>}
+    </span>
+  );
 }
 
 function arrivalNode(q: string | null, time: string | null): ReactNode {
@@ -204,14 +208,16 @@ function roundTo5(mins: number): number {
 
 function londonTransitDetail(
   transit: AssembledCombination['outbound_transit'] | null,
+  showIata: boolean = false,
 ): ReactNode {
   if (!transit) return null;
 
   const modeLabel = transitModeLabel(transit);
+  const iataPre = showIata && transit.airport_iata ? `${transit.airport_iata} · ` : '';
 
   if (transit.recommended_mode === 'uber') {
     const duration = roundTo5(transit.uber.duration_mins);
-    const parts: string[] = [modeLabel, `~${duration} min`];
+    const parts: string[] = [`${iataPre}${modeLabel}`, `~${duration} min`];
     const low = gbp(transit.uber.low_pence / 100);
     const high = gbp(transit.uber.high_pence / 100);
     return (
@@ -236,7 +242,7 @@ function londonTransitDetail(
 
   const duration = roundTo5(t.duration_mins);
   const parts: string[] = [];
-  parts.push(modeLabel === 'Transit' ? 'Train' : modeLabel);
+  parts.push(`${iataPre}${modeLabel === 'Transit' ? 'Train' : modeLabel}`);
   parts.push(`~${duration} min`);
   if (t.changes > 0) parts.push(`${t.changes} change${t.changes > 1 ? 's' : ''}`);
   if (t.confidence === 'estimated') parts.push('(estimate)');
@@ -296,9 +302,13 @@ function bagCell(cost: number, cabinIncluded: boolean): ReactNode {
 }
 
 const ROWS: RowDef[] = [
-  // Itinerary (dates and carrier now live in the column header)
-  { key: 'nights', label: 'Nights', group: 'itinerary',
-    renderNode: c => `${c.trip_nights}` },
+  // Itinerary
+  { key: 'dates', label: 'Dates', group: 'itinerary',
+    renderNode: c => `${formatDate(c.outbound_date)} → ${formatDate(c.return_date)}` },
+  { key: 'carrier', label: 'Carrier', group: 'itinerary',
+    renderNode: c => c.outbound_carrier === c.return_carrier
+      ? carrierName(c.outbound_carrier)
+      : `${carrierName(c.outbound_carrier)} · ${carrierName(c.return_carrier)}` },
   { key: 'route', label: 'Route', group: 'itinerary',
     renderNode: c => {
       if (c.origin_iata === c.ret_dest_iata) {
@@ -341,19 +351,17 @@ const ROWS: RowDef[] = [
     renderNode: c => (
       <>
         {gbp(c.out_transit_cost_gbp)}
-        {londonTransitDetail(c.outbound_transit)}
+        {londonTransitDetail(c.outbound_transit, true)}
       </>
     ),
-    dynamicLabel: (cols) => `To ${cols.find(c => c.isWinner)?.outbound_transit?.airport_iata ?? 'airport'}`,
   },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
     renderNode: c => (
       <>
         {gbp(c.ret_transit_cost_gbp)}
-        {londonTransitDetail(c.return_transit)}
+        {londonTransitDetail(c.return_transit, true)}
       </>
     ),
-    dynamicLabel: (cols) => `From ${cols.find(c => c.isWinner)?.return_transit?.airport_iata ?? 'airport'}`,
   },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
     renderNode: c => (
@@ -365,7 +373,7 @@ const ROWS: RowDef[] = [
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
     renderNode: c => (
       <>
-        {gbp(c.total_inc_fine)}
+        <span style={{ color: '#784722', fontWeight: 600 }}>{gbp(c.total_inc_fine)}</span>
         {c.fine_gbp > 0 && (
           <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#92400e' }}>
             Includes {gbp(c.fine_gbp)} school absence fine
@@ -504,23 +512,13 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                 {columns.map((col, i) => (
                   <th
                     key={i}
-                    className={`text-center py-3 px-3 align-bottom ${
-                      col.isWinner
-                        ? 'bg-[#f0f7f7]'
-                        : ''
-                    }`}
-                    style={col.isWinner ? { borderTop: '3px solid #004349' } : undefined}
+                    className="text-center py-3 px-3 align-bottom"
+                    style={{
+                      ...(col.isWinner ? { borderTop: '3px solid #004349', background: 'rgba(0, 67, 73, 0.04)' } : {}),
+                    }}
                   >
                     <span className={`block font-semibold text-sm ${col.isWinner ? 'text-[#004349]' : 'text-[#191c1d]'}`}>
                       {col.label}
-                    </span>
-                    <span className="block text-xs text-[#3f484a] font-medium mt-1">
-                      {formatDate(col.outbound_date)} → {formatDate(col.return_date)}
-                    </span>
-                    <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
-                      {col.outbound_carrier === col.return_carrier
-                        ? carrierName(col.outbound_carrier)
-                        : `${carrierName(col.outbound_carrier)} · ${carrierName(col.return_carrier)}`}
                     </span>
                     {(col.fine_gbp > 0 || col.requires_absence) && (
                       <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#ba1a1a' }}>
@@ -536,6 +534,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                 const showGroupHeader = row.group !== lastGroup;
                 lastGroup = row.group;
                 const rowLabel = row.dynamicLabel ? row.dynamicLabel(columns) : row.label;
+                const isTotal = row.key === 'total';
 
                 const isUniform = row.mergeable && columns.length > 1 &&
                   columns.every(c => {
@@ -545,12 +544,12 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                   });
 
                 return (
-                  <tr key={row.key}>
-                    <td className={`py-2 px-3 text-[#3f484a] ${row.bold ? 'font-semibold' : ''} ${
+                  <tr key={row.key} style={showGroupHeader ? { borderTop: '2px solid #e1e3e3' } : undefined}>
+                    <td className={`py-2 px-3 ${row.bold ? 'font-semibold' : ''} ${
                       showGroupHeader ? 'pt-5' : ''
-                    }`}>
+                    }`} style={isTotal ? { color: '#784722', fontWeight: 600 } : { color: '#3f484a' }}>
                       {showGroupHeader && (
-                        <span className="block text-[10px] uppercase tracking-widest text-[#6f797a] font-medium mb-1">
+                        <span className="block font-medium mb-1" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#3f484a' }}>
                           {GROUP_LABELS[row.group]}
                         </span>
                       )}
@@ -570,10 +569,13 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                         <td
                           key={i}
                           className={`py-2 px-3 text-center ${
-                            row.bold ? 'font-bold text-[#191c1d]' : 'text-[#3f484a]'
-                          } ${col.isWinner ? 'bg-[#f0f7f7]/50' : ''} ${
-                            showGroupHeader ? 'pt-5' : ''
-                          }`}
+                            row.bold ? 'font-bold' : ''
+                          } ${showGroupHeader ? 'pt-5' : ''}`}
+                          style={{
+                            color: isTotal ? '#784722' : (row.bold ? '#191c1d' : '#3f484a'),
+                            ...(isTotal ? { fontWeight: 600 } : {}),
+                            ...(col.isWinner ? { background: 'rgba(0, 67, 73, 0.04)' } : {}),
+                          }}
                         >
                           {row.renderNode(col)}
                         </td>
