@@ -96,6 +96,13 @@ export async function POST(request: NextRequest) {
 
     const recommendation = assembled.recommendation;
 
+    console.log('[api-route] recommendation dest fields:', {
+      destination_transit_notes: recommendation.destination_transit_notes,
+      destination_transfer_is_taxi: recommendation.destination_transfer_is_taxi,
+      destination_taxi_cost_low_gbp: recommendation.destination_taxi_cost_low_gbp,
+      destination_taxi_cost_high_gbp: recommendation.destination_taxi_cost_high_gbp,
+    });
+
     const scenarios = buildScenarioResults(
       recommendation, assembled,
       { light: scenarioLightResult, checked: scenarioCheckedResult,
@@ -221,6 +228,8 @@ export async function POST(request: NextRequest) {
       winner_outbound_date:    selectionContext.winner.outbound_date,
       winner_return_date:      selectionContext.winner.return_date,
       winner_outbound_carrier: selectionContext.winner.outbound_carrier,
+    }, {
+      headers: { 'Cache-Control': 'no-store' },
     });
 
   } catch (err) {

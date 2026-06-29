@@ -510,9 +510,9 @@ BEGIN
             AND da.iata_code       = wf.out_dest_iata
             AND da.excluded        = false
     )
-  SELECT COALESCE(
-    jsonb_agg(
-      jsonb_build_object(
+  , with_json AS (
+    SELECT
+      (jsonb_build_object(
         -- ── Dates & routing ───────────────────────────────────────────────────
         'outbound_date',                 f.dep_date,
         'return_date',                   f.ret_date,
@@ -547,7 +547,10 @@ BEGIN
         -- ── Ancillary totals — combined + per-leg (new) ───────────────────────
         'fare_plus_ancillary_gbp',       ROUND(f.fare_plus_ancillary::numeric,                   2),
         'outbound_ancillary_gbp',        ROUND(f.out_ancillary::numeric,                         2),
-        'return_ancillary_gbp',          ROUND(f.ret_ancillary::numeric,                         2),
+        'return_ancillary_gbp',          ROUND(f.ret_ancillary::numeric,                         2)
+      )
+      ||
+      jsonb_build_object(
         -- ── Destination transfer ──────────────────────────────────────────────
         'destination_transfer_cost_gbp', ROUND(f.destination_transfer_cost_gbp::numeric,         2),
         'destination_transfer_known',    f.destination_transfer_known,
@@ -575,13 +578,16 @@ BEGIN
         'baggage_is_estimate',           f.baggage_is_estimate,
         'family_split_risk',             f.family_split_risk,
         'split_risk_carriers',           f.split_risk_carriers
-      )
-      ORDER BY (f.fare_plus_ancillary + COALESCE(f.fine_gbp, 0)) ASC NULLS LAST
-    ),
+      )) AS row_json,
+      (f.fare_plus_ancillary + COALESCE(f.fine_gbp, 0)) AS sort_key
+    FROM with_dest_transfer f
+  )
+  SELECT COALESCE(
+    jsonb_agg(row_json ORDER BY sort_key ASC NULLS LAST),
     '[]'::jsonb
   )
   INTO v_combinations
-  FROM with_dest_transfer f;
+  FROM with_json;
 
   -- ── 9. Baseline object ───────────────────────────────────────────────────────
 
