@@ -83,10 +83,20 @@ BEGIN
       dat.transit_offpeak_duration_mins AS transit_duration_mins,
       dat.transit_changes,
       dat.uber_duration_offpeak_mins,
-      -- Family-adjusted transit cost is computed in TypeScript by the canonical
-      -- lib/flights/transitCost.ts (age-aware child fares, early-flight/Uber
-      -- rules) from the raw fields above — not duplicated here.
-      COALESCE(da.transfer_cost_gbp, 0) * 2 AS destination_transfer_gbp,
+      -- Destination transfer: one-way share (half round-trip) so outbound +
+      -- return leg totals sum to the correct round-trip amount without
+      -- double-counting.  Taxi-vs-transit logic mirrors get_smart_recommendation.
+      CASE
+        WHEN da.transit_cost_gbp IS NULL
+          THEN COALESCE(da.taxi_cost_gbp, 0)
+        WHEN da.transit_changes >= 2
+          AND (da.taxi_cost_gbp - da.transit_cost_gbp * (p_adults + p_children)) <= 50
+          THEN COALESCE(da.taxi_cost_gbp, 0)
+        ELSE COALESCE(da.transit_cost_gbp * (p_adults + p_children), 0)
+      END AS destination_transfer_gbp,
+      da.transit_cost_gbp   AS dest_transit_cost_gbp,
+      da.taxi_cost_gbp      AS dest_taxi_cost_gbp,
+      da.transit_changes    AS dest_transit_changes,
       fs.airline_iata IN ('FR', 'W6') AS baggage_is_estimate,
       fs.airline_iata = 'FR' AND p_adults >= 2 AND NOT p_seats_together AS family_split_risk
     FROM fare_snapshots fs
@@ -158,6 +168,9 @@ BEGIN
       'transit_duration_mins',      transit_duration_mins,
       'transit_changes',            transit_changes,
       'destination_transfer_gbp',   destination_transfer_gbp,
+      'dest_transit_cost_gbp',      dest_transit_cost_gbp,
+      'dest_taxi_cost_gbp',         dest_taxi_cost_gbp,
+      'dest_transit_changes',       dest_transit_changes,
       'baggage_is_estimate',        baggage_is_estimate,
       'family_split_risk',          family_split_risk,
       'seating_notes',              seating_notes
