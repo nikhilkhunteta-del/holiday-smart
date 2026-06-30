@@ -1,9 +1,10 @@
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState } from 'react';
 import { useFlightInsights, isAIPick } from './flight-insights-context';
 import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
+import { LegOptionsModal, type SelectedCell } from './leg-options-modal';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,9 @@ interface ComplianceCalculatorProps {
   windowStart: string;
   windowEnd: string;
   partySize: number;
+  adults: number;
+  children: number;
+  infants: number;
   pCabinBags: number;
   pCheckedBags: number;
   seatsTogether: boolean;
@@ -92,6 +96,10 @@ interface ComplianceCalculatorProps {
   selectedOutbound?: string;
   selectedReturn?: string;
   combinationRange?: number | null;
+  destinationSlug: string;
+  schoolUrn: string;
+  transportMode: string;
+  postcodeDistrict: string;
 }
 
 // ── Baseline cell ──────────────────────────────────────────────────────────────
@@ -256,6 +264,9 @@ export function ComplianceCalculator({
   windowStart,
   windowEnd,
   partySize,
+  adults,
+  children,
+  infants,
   pCabinBags,
   pCheckedBags,
   seatsTogether,
@@ -263,11 +274,16 @@ export function ComplianceCalculator({
   selectedOutbound,
   selectedReturn,
   combinationRange,
+  destinationSlug,
+  schoolUrn,
+  transportMode,
+  postcodeDistrict,
 }: ComplianceCalculatorProps) {
-  const router        = useRouter();
-  const currentParams = useSearchParams();
   const { aiResult }  = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
+
+  const [modalOpen, setModalOpen]       = useState(false);
+  const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
 
   const baselineTotal = baseline.total_cost_gbp;
 
@@ -294,11 +310,29 @@ export function ComplianceCalculator({
   const blOrigin  = baseline.origin_iata ?? 'LHR';
 
   function handleCellClick(outbound_date: string, return_date: string) {
-    const params = new URLSearchParams(currentParams?.toString() ?? '');
-    params.set('selected_outbound', outbound_date);
-    params.set('selected_return', return_date);
-    router.push(`?${params.toString()}#leg-options`);
+    const combo = cellMap.get(`${outbound_date}|${return_date}`);
+    const isBaseline = outbound_date === baseline.outbound_date && return_date === baseline.return_date;
+    const totalIncFine = combo?.total_inc_fine ?? (isBaseline ? baseline.total_cost_gbp : 0);
+    const fineGbp = combo?.fine_gbp ?? 0;
+    const requiresAbsence = combo?.requires_absence ?? false;
+    setSelectedCell({
+      outboundDate: outbound_date,
+      returnDate: return_date,
+      totalIncFine,
+      fineGbp,
+      requiresAbsence,
+      label: `${fmtShort(outbound_date)} → ${fmtShort(return_date)}`,
+    });
+    setModalOpen(true);
   }
+
+  const modalRecommendation = recommendation ? {
+    outbound_carrier: recommendation.outbound_carrier ?? '',
+    origin_iata:      recommendation.origin_iata ?? '',
+    out_dest_iata:    recommendation.out_dest_iata ?? '',
+    return_carrier:   recommendation.return_carrier ?? '',
+    ret_dest_iata:    recommendation.ret_dest_iata ?? '',
+  } : null;
 
   return (
     <section
@@ -515,6 +549,23 @@ export function ComplianceCalculator({
           </div>
         </>
       )}
+
+      <LegOptionsModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        selectedCell={selectedCell}
+        destinationSlug={destinationSlug}
+        schoolUrn={schoolUrn}
+        adults={adults}
+        children={children}
+        infants={infants}
+        cabinBags={pCabinBags}
+        checkedBags={pCheckedBags}
+        seatsTogether={seatsTogether}
+        transportMode={transportMode}
+        postcodeDistrict={postcodeDistrict}
+        recommendation={modalRecommendation}
+      />
     </section>
   );
 }
