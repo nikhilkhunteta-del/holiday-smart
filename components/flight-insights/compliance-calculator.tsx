@@ -109,7 +109,7 @@ function BaselineCell({ total, isSelected, onClick }: { total: number; isSelecte
     <td
       onClick={onClick}
       style={{
-        minWidth: 80, padding: 8, verticalAlign: 'top',
+        padding: 8, verticalAlign: 'top',
         background: '#f2f4f4',
         border: isSelected ? '2px solid #004349' : '1px solid #bfc8c9',
         borderRadius: 6,
@@ -166,7 +166,7 @@ function DataCell({
   return (
     <td
       onClick={onClick}
-      style={{ minWidth: 80, padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
+      style={{ padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
     >
       {(showOurPick || showViewing) ? (
         <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
@@ -221,7 +221,6 @@ function InvalidCell({ dep, ret }: { dep: string; ret: string }) {
         opacity: 0.5,
         borderRadius: 6,
         minHeight: 48,
-        minWidth: 80,
         padding: 8,
         verticalAlign: 'top',
       }}
@@ -380,7 +379,7 @@ export function ComplianceCalculator({
             }} />
 
             <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-              <table style={{ borderCollapse: 'separate', borderSpacing: '4px' }}>
+              <table style={{ borderCollapse: 'separate', borderSpacing: '4px', width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
                     <th style={{ ...STICKY, minWidth: 110, padding: '0 16px 8px 0', verticalAlign: 'bottom', fontWeight: 'normal' }} />
@@ -390,7 +389,7 @@ export function ComplianceCalculator({
                       const absenceDays = allAbsence ? Math.max(...retCombos.map(c => c.absence_days)) : null;
                       const isBaselineRet = ret === baseline.return_date;
                       return (
-                        <th key={ret} style={{ minWidth: 80, width: 80, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
+                        <th key={ret} style={{ padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
                           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: isBaselineRet ? '#6f797a' : '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(ret)}
                           </span>
@@ -464,7 +463,7 @@ export function ComplianceCalculator({
                                 key={ret}
                                 onClick={() => handleCellClick(dep, ret)}
                                 style={{
-                                  minWidth: 80, padding: 8, verticalAlign: 'top',
+                                  padding: 8, verticalAlign: 'top',
                                   background: '#0d5c63',
                                   border: isSelected ? '2px solid #004349' : 'none',
                                   borderRadius: 6, cursor: 'pointer',

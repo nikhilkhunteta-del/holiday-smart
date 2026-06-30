@@ -4,7 +4,6 @@ import { ComplianceCalculator } from '@/components/flight-insights/compliance-ca
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
-import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { ComparisonTable } from '@/components/flight-insights/comparison-table';
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
@@ -341,16 +340,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
                 postcodeDistrict={postcodeDistrict}
               />
             )}
-
-            {/* 7. HSValueSummary */}
-            <HSValueSummary
-              saving={hsSaving}
-              hasInsetDay={hasInsetDay}
-              schoolName={schoolName}
-              outboundCarrier={recommendation?.outbound_carrier ?? ''}
-              returnCarrier={recommendation?.return_carrier ?? ''}
-              combinationCount={combinationCount}
-            />
 
 
           </AIRecommendationClient>
