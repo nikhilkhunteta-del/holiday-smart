@@ -2,16 +2,13 @@ import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { SavingsBreakdown } from '@/components/flight-insights/savings-breakdown';
 import { ComplianceCalculator } from '@/components/flight-insights/compliance-calculator';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
-import { LegOptions } from '@/components/flight-insights/leg-options';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { HSValueSummary } from '@/components/flight-insights/hs-value-summary';
 import { ComparisonTable } from '@/components/flight-insights/comparison-table';
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
-import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
-import { attachTransitCost } from '@/lib/flights/attachTransitCost';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +25,6 @@ interface PageProps {
     checked_bags?: string;
     seats?: string;
     transit?: string;
-    selected_outbound?: string;
-    selected_return?: string;
   };
 }
 
@@ -190,60 +185,16 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     ? assembled.baseline.return_date
     : assembled?.recommendation?.return_date ?? windowEnd;
 
-  const selectedOutbound = searchParams.selected_outbound ?? smartOutboundDate;
-  const selectedReturn   = searchParams.selected_return   ?? smartReturnDate;
-
-  // ── Leg options — parallel ────────────────────────────────────────────────
-  const [openJawResult, outboundLegResult, returnLegResult] = await Promise.all([
-    supabase.rpc('get_open_jaw', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_outbound_date:    smartOutboundDate,
-      p_return_date:      smartReturnDate,
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-    }),
-    supabase.rpc('get_leg_options', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_date:             selectedOutbound,
-      p_direction:        'outbound',
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-      p_cabin_bags:       cabinBags,
-      p_checked_bags:     checkedBags,
-      p_seats_together:   seatsTogether,
-    }),
-    supabase.rpc('get_leg_options', {
-      p_destination_slug: destinationSlug,
-      p_school_urn:       urn,
-      p_date:             selectedReturn,
-      p_direction:        'return',
-      p_adults:           adults,
-      p_children:         children,
-      p_infants:          infants,
-      p_cabin_bags:       cabinBags,
-      p_checked_bags:     checkedBags,
-      p_seats_together:   seatsTogether,
-    }),
-  ]);
-
-  const outboundLegData = attachTransitCost(
-    outboundLegResult, 'outbound', selectedOutbound, postcodeDistrict,
-    adults, children, infants, checkedBags, transitPreference,
-  );
-  const returnLegData = attachTransitCost(
-    returnLegResult, 'return', selectedReturn, postcodeDistrict,
-    adults, children, infants, checkedBags, transitPreference,
-  );
-
-  function formatDate(iso: string): string {
-    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const d = new Date(iso + 'T00:00:00');
-    return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
-  }
+  // ── Open jaw ─────────────────────────────────────────────────────────────
+  const openJawResult = await supabase.rpc('get_open_jaw', {
+    p_destination_slug: destinationSlug,
+    p_school_urn:       urn,
+    p_outbound_date:    smartOutboundDate,
+    p_return_date:      smartReturnDate,
+    p_adults:           adults,
+    p_children:         children,
+    p_infants:          infants,
+  });
 
   const savingsData       = savingsResult.data as any;
   const recommendation    = assembled?.recommendation  ?? null;
@@ -376,55 +327,20 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
                 windowStart={windowStart}
                 windowEnd={windowEnd}
                 partySize={adults + children}
+                adults={adults}
+                children={children}
+                infants={infants}
                 pCabinBags={cabinBags}
                 pCheckedBags={checkedBags}
                 seatsTogether={seatsTogether}
                 baselineIsRecommended={assembled.baselineIsRecommended}
-                selectedOutbound={selectedOutbound}
-                selectedReturn={selectedReturn}
                 combinationRange={combinationRange}
+                destinationSlug={destinationSlug}
+                schoolUrn={urn}
+                transportMode={searchParams.transit ?? 'auto'}
+                postcodeDistrict={postcodeDistrict}
               />
             )}
-
-            {/* 5. LegOptions outbound */}
-            <div id="leg-options">
-              <LegOptions
-                data={outboundLegData}
-                title={`Outbound options · ${formatDate(smartOutboundDate)}`}
-                adults={adults}
-                children={children}
-                infants={infants}
-                transitPreference={transitPreference}
-                postcodeDistrict={postcodeDistrict}
-                selectedDate={selectedOutbound}
-                smartDate={smartOutboundDate}
-                recommendedOption={recommendation ? {
-                  airline_iata:     recommendation.outbound_carrier,
-                  origin_iata:      recommendation.origin_iata,
-                  destination_iata: recommendation.out_dest_iata,
-                  departure_time:   recommendation.outbound_departure_time ?? '',
-                } : null}
-              />
-            </div>
-
-            {/* 6. LegOptions return */}
-            <LegOptions
-              data={returnLegData}
-              title={`Return options · ${formatDate(smartReturnDate)}`}
-              adults={adults}
-              children={children}
-              infants={infants}
-              transitPreference={transitPreference}
-              postcodeDistrict={postcodeDistrict}
-              selectedDate={selectedReturn}
-              smartDate={smartReturnDate}
-              recommendedOption={recommendation ? {
-                airline_iata:     recommendation.return_carrier,
-                origin_iata:      recommendation.out_dest_iata,
-                destination_iata: recommendation.ret_dest_iata,
-                departure_time:   recommendation.return_arrival_time ?? '',
-              } : null}
-            />
 
             {/* 7. HSValueSummary */}
             <HSValueSummary
