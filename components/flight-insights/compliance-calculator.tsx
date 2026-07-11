@@ -145,21 +145,21 @@ function DataCell({
 }) {
   const saving    = baselineTotal - c.total_inc_fine;
   const { bg, color } = cellColour(saving);
-  const starColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
+  const labelColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
   const border    = isSelected ? '2px solid #004349' : isRec ? '1.5px solid #004349' : 'none';
   const hasFine   = c.requires_absence && (c.fine_gbp ?? 0) > 0;
 
+  // ── 5. Fine badge: label-sm (12px, 500) ───────────────────────────────────
   const fineBadge = hasFine ? (
     <span style={{
       display: 'inline-block', marginTop: 4,
-      fontFamily: 'Inter, sans-serif', fontSize: 10, fontWeight: 500,
+      fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 500,
       color: '#5c310d', background: '#fdba49', borderRadius: 9999, padding: '1px 6px',
     }}>
       Fine: {gbp(c.fine_gbp ?? 0)}
     </span>
   ) : null;
 
-  // Label to show above price: OUR PICK takes priority, then VIEWING
   const showOurPick = isRec;
   const showViewing = isSelected && !isRec;
 
@@ -169,22 +169,24 @@ function DataCell({
       style={{ padding: 8, verticalAlign: 'top', background: bg, border, borderRadius: 6, cursor: 'pointer' }}
     >
       {(showOurPick || showViewing) ? (
-        <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
+        <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 16 }}>
+          {/* ── 4. Cheapest badge: no star, label-sm uppercase ────────────── */}
           <div style={{
             position: 'absolute', top: 0, left: 0,
-            fontSize: 9, fontWeight: 600,
-            color: showOurPick ? starColor : '#004349',
-            letterSpacing: '0.04em', textTransform: 'uppercase' as const,
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 12, fontWeight: 500,
+            color: showOurPick ? labelColor : '#004349',
+            letterSpacing: '0.02em', textTransform: 'uppercase' as const,
             whiteSpace: 'nowrap' as const,
           }}>
-            {showOurPick ? '★ Cheapest' : 'Viewing'}
+            {showOurPick ? 'Cheapest' : 'Viewing'}
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_inc_fine)}
           </span>
           {fineBadge}
           {baselineNote !== undefined && (
-            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: starColor === '#004349' ? '#6f797a' : 'rgba(255,255,255,0.7)', display: 'block', marginTop: 3 }}>
+            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: labelColor === '#004349' ? '#6f797a' : 'rgba(255,255,255,0.7)', display: 'block', marginTop: 3 }}>
               vs baseline {gbp(baselineNote)}
             </span>
           )}
@@ -212,6 +214,8 @@ function invalidReason(dep: string, ret: string): string {
   return 'No flights found for this combination';
 }
 
+// ── 3. InvalidCell: blank, no dash ────────────────────────────────────────────
+
 function InvalidCell({ dep, ret }: { dep: string; ret: string }) {
   return (
     <td
@@ -224,9 +228,7 @@ function InvalidCell({ dep, ret }: { dep: string; ret: string }) {
         padding: 8,
         verticalAlign: 'top',
       }}
-    >
-      <span style={{ fontSize: 10, color: '#bfc8c9' }}>—</span>
-    </td>
+    />
   );
 }
 
@@ -301,12 +303,20 @@ export function ComplianceCalculator({
   if (baseline.return_date) allRetDates.add(baseline.return_date);
   const retDates = Array.from(allRetDates).sort();
 
-  const STICKY = { position: 'sticky' as const, left: 0, background: '#ffffff', zIndex: 10 };
+  // ── 7. Row label column: 128px; secondary labels use on-surface-variant ──
+  const LABEL_COL_WIDTH = 128;
+  const STICKY = { position: 'sticky' as const, left: 0, zIndex: 10 };
 
   const blOut     = baseline.outbound_date ? fmtShort(baseline.outbound_date) : '';
   const blRet     = baseline.return_date   ? fmtShort(baseline.return_date)   : '';
   const blCarrier = carrierName(baseline.carrier ?? '');
   const blOrigin  = baseline.origin_iata ?? 'LHR';
+
+  // ── 2. Dynamic price spread for subtitle ─────────────────────────────────
+  const allTotals = combinations.map(c => c.total_inc_fine);
+  const priceSpread = allTotals.length >= 2
+    ? Math.round(Math.max(...allTotals) - Math.min(...allTotals))
+    : null;
 
   function handleCellClick(outbound_date: string, return_date: string) {
     const combo = cellMap.get(`${outbound_date}|${return_date}`);
@@ -337,24 +347,22 @@ export function ComplianceCalculator({
     <section
       className="bg-white rounded-lg"
       style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
-      aria-labelledby="when-you-fly-heading"
+      aria-labelledby="find-cheapest-dates-heading"
     >
+      {/* ── 1. Title ── */}
       <h2
-        id="when-you-fly-heading"
+        id="find-cheapest-dates-heading"
         className="font-newsreader text-2xl font-medium mb-xs"
         style={{ color: '#004349' }}
       >
-        When you fly changes everything.
+        Find your cheapest dates
       </h2>
+
+      {/* ── 2. Subtitle — dynamic price spread ── */}
       <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
-        <>
-          Every viable departure and return combination for your half-term, fully priced — flights, bags, seats and transfers included.
-          {combinationRange != null && combinationRange > 0 && (
-            <>
-              {' '}The difference between cheapest and most expensive this half-term: £{Math.round(combinationRange)}. Fines shown where school absence applies.
-            </>
-          )}
-        </>
+        {priceSpread != null && priceSpread > 0
+          ? `£${priceSpread.toLocaleString('en-GB')} separates the cheapest and most expensive dates this half-term. Click any cell to see your options.`
+          : 'Click any cell to see your flight options.'}
       </p>
 
       {combinations.length === 0 ? (
@@ -382,7 +390,8 @@ export function ComplianceCalculator({
               <table style={{ borderCollapse: 'separate', borderSpacing: '4px', width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th style={{ ...STICKY, minWidth: 110, padding: '0 16px 8px 0', verticalAlign: 'bottom', fontWeight: 'normal' }} />
+                    {/* ── 7. Row label column: fixed 128px ── */}
+                    <th style={{ ...STICKY, background: '#ffffff', width: LABEL_COL_WIDTH, padding: '0 16px 8px 0', verticalAlign: 'bottom', fontWeight: 'normal' }} />
                     {retDates.map((ret) => {
                       const retCombos   = combinations.filter(c => c.return_date === ret);
                       const allAbsence  = retCombos.length > 0 && retCombos.every(c => c.requires_absence);
@@ -390,7 +399,7 @@ export function ComplianceCalculator({
                       const isBaselineRet = ret === baseline.return_date;
                       return (
                         <th key={ret} style={{ padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
-                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: isBaselineRet ? '#6f797a' : '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(ret)}
                           </span>
                           {absenceDays !== null && (
@@ -404,47 +413,55 @@ export function ComplianceCalculator({
                   </tr>
                 </thead>
                 <tbody>
-                  {depDates.map((dep) => {
+                  {depDates.map((dep, rowIdx) => {
                     const depCombos     = combinations.filter(c => c.outbound_date === dep);
                     const hasInset      = depCombos.some(c => c.is_inset_day);
                     const isWindowStart = dep === windowStart;
                     const isWindowEnd   = dep === windowEnd;
+                    const daysAbsent    = dep < windowStart ? weekdaysBetween(dep, windowStart) : 0;
 
-                    const daysAbsent = dep < windowStart ? weekdaysBetween(dep, windowStart) : 0;
+                    // ── 6. Zebra striping: even rows (0-indexed) get surface-container-low ──
+                    const rowBg = rowIdx % 2 === 1 ? '#f2f4f4' : 'transparent';
 
                     return (
-                      <tr key={dep}>
-                        <td style={{ ...STICKY, padding: '8px 16px 8px 0', verticalAlign: 'top', minWidth: 110 }}>
+                      <tr key={dep} style={{ background: rowBg }}>
+                        {/* ── 7. Row label cell ── */}
+                        <td style={{
+                          ...STICKY,
+                          background: rowBg,
+                          width: LABEL_COL_WIDTH,
+                          padding: '8px 12px 8px 0',
+                          verticalAlign: 'top',
+                        }}>
                           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#191c1d', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(dep)}
                           </span>
+                          {/* ── 7. Secondary labels: label-sm, on-surface-variant ── */}
                           {hasInset && (
-                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#004349', display: 'block' }}>
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 500, color: '#3f484a', display: 'block' }}>
                               Inset day
                             </span>
                           )}
                           {daysAbsent > 0 && (
-                            <span style={AMBER_LABEL}>
+                            <span style={{ ...AMBER_LABEL, fontSize: 12, fontWeight: 500 }}>
                               {daysAbsent} absence {daysAbsent === 1 ? 'day' : 'days'}
                             </span>
                           )}
                           {isWindowStart && (
-                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 500, color: '#3f484a', display: 'block' }}>
                               Window opens
                             </span>
                           )}
                           {isWindowEnd && (
-                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block' }}>
+                            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 500, color: '#3f484a', display: 'block' }}>
                               Window closes
                             </span>
                           )}
                         </td>
                         {retDates.map((ret) => {
                           const c             = cellMap.get(`${dep}|${ret}`);
-                          const cellKey       = `${dep}|${ret}`;
                           const isBaselinePos = dep === baseline.outbound_date && ret === baseline.return_date;
 
-                          // When baseline is recommended: baseline pos = OUR PICK, no other cell gets star
                           const isRec = baselineIsRecommended
                             ? false
                             : !!(isAIPick(
@@ -457,7 +474,6 @@ export function ComplianceCalculator({
                           const isSelected = dep === selectedOutbound && ret === selectedReturn;
 
                           if (isBaselinePos && baselineIsRecommended) {
-                            // Render baseline position as OUR PICK (dark teal, white text)
                             return (
                               <td
                                 key={ret}
@@ -469,14 +485,17 @@ export function ComplianceCalculator({
                                   borderRadius: 6, cursor: 'pointer',
                                 }}
                               >
-                                <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
+                                <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 16 }}>
+                                  {/* ── 4. Cheapest badge on baseline-rec cell ── */}
                                   <div style={{
                                     position: 'absolute', top: 0, left: 0,
-                                    fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.85)',
-                                    letterSpacing: '0.04em', textTransform: 'uppercase' as const,
+                                    fontFamily: 'Inter, sans-serif',
+                                    fontSize: 12, fontWeight: 500,
+                                    color: 'rgba(255,255,255,0.85)',
+                                    letterSpacing: '0.02em', textTransform: 'uppercase' as const,
                                     whiteSpace: 'nowrap' as const,
                                   }}>
-                                    ★ Cheapest
+                                    Cheapest
                                   </div>
                                   <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#ffffff', display: 'block' }}>
                                     {gbp(baselineTotal)}
@@ -529,22 +548,18 @@ export function ComplianceCalculator({
             </div>
           </div>
 
-          {/* Legend */}
+          {/* ── Legend ── */}
           <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #e6e8e8' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+            {/* ── 8. Swatches 16×16, legend text on-surface-variant ── */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
               {LEGEND.map(({ bg, label }) => (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 14, height: 14, borderRadius: 3, background: bg, flexShrink: 0 }} />
-                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a' }}>{label}</span>
+                  <div style={{ width: 16, height: 16, borderRadius: 3, background: bg, flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 500, color: '#3f484a' }}>{label}</span>
                 </div>
               ))}
             </div>
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', margin: 0 }}>
-              Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates.
-            </p>
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', margin: '4px 0 0' }}>
-              Bag fees and transport costs are estimates. Actual prices may vary.
-            </p>
+            {/* ── 9. Small-print lines removed ── */}
           </div>
         </>
       )}
