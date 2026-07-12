@@ -251,7 +251,7 @@ export function LegOptionsModal({
                   marginTop: 6,
                   marginBottom: 0,
                 }}>
-                  Holiday Smart does not recommend term-time absence.
+                  This combination includes term-time absence. Schools apply penalty notices inconsistently. We don't recommend unauthorised absence — this is shown so you can decide.
                 </p>
               )}
             </>
