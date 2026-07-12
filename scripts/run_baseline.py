@@ -2,10 +2,10 @@
 """
 Holiday Smart — Round-trip baseline price collector (Crawlio via RapidAPI).
 
-Makes one round-trip call per destination × composition (12 calls total) using
-the Crawlio /api/v1/roundtrip endpoint. Stores only the cheapest result per call
-in baseline_snapshots. Origin is always LHR (not LON — round-trip endpoint
-requires a single IATA code, not a city code).
+Makes one round-trip call per airport × destination × composition (60 calls total)
+using the Crawlio /api/v1/roundtrip endpoint. Stores only the cheapest result per
+call in baseline_snapshots. Skips combinations already present. Origin cycles over
+all 5 London airports (LGW, LHR, STN, LTN, LCY).
 
 No run bookkeeping — baseline collection is lightweight and append-only.
 
@@ -70,6 +70,8 @@ COMPOSITIONS = [
     {'adults': 2, 'children': 2, 'infants': 0, 'label': '2A+2C'},
     {'adults': 2, 'children': 0, 'infants': 1, 'label': '2A+1inf'},
 ]
+
+LONDON_AIRPORTS = ['LGW', 'LHR', 'STN', 'LTN', 'LCY']
 
 AIRLINE_IATA = {
     'Vueling': 'VY',
@@ -229,85 +231,113 @@ def test_single_call() -> None:
 
 # ── Full baseline run ─────────────────────────────────────────────────────────
 
+def already_collected(supabase: Client, origin: str, destination: str,
+                       outbound_date: str, return_date: str,
+                       adults: int, children: int, infants: int) -> bool:
+    resp = (
+        supabase.table("baseline_snapshots")
+        .select("id", count="exact")
+        .eq("origin_iata",      origin)
+        .eq("destination_iata", destination)
+        .eq("outbound_date",    outbound_date)
+        .eq("return_date",      return_date)
+        .eq("adults",           adults)
+        .eq("children",         children)
+        .eq("infants",          infants)
+        .limit(1)
+        .execute()
+    )
+    return (resp.count or 0) > 0
+
+
 def run_baseline() -> None:
     """
-    Collect round-trip baseline prices for all pilot destinations × compositions.
-    3 destinations × 4 compositions = 12 API calls.
-    Stores one row per call (cheapest result only) in baseline_snapshots.
+    Collect round-trip baseline prices for all London airports × destinations × compositions.
+    5 airports × 3 destinations × 4 compositions = 60 API calls.
+    Skips any combination already present in baseline_snapshots.
+    Stores one row per call (cheapest result only).
 
     Call from a Colab cell: run_baseline()
     """
     supabase = get_supabase()
 
-    total = success = failed = 0
+    total = success = failed = skipped = 0
 
-    for slug, config in BASELINE_CONFIG.items():
-        airport = config['primary_airport']
-        outbound_date = config['outbound_date']
-        return_date = config['return_date']
+    for origin in LONDON_AIRPORTS:
+        for slug, config in BASELINE_CONFIG.items():
+            airport = config['primary_airport']
+            outbound_date = config['outbound_date']
+            return_date = config['return_date']
 
-        for comp in COMPOSITIONS:
-            label = comp['label']
-            total += 1
-            time.sleep(API_DELAY_SECS)
+            for comp in COMPOSITIONS:
+                label = comp['label']
+                total += 1
 
-            try:
-                raw = crawlio_roundtrip(
-                    origin="LHR",
-                    destination=airport,
-                    outbound_date=outbound_date,
-                    return_date=return_date,
-                    adults=comp['adults'],
-                    children=comp['children'],
-                    infants=comp['infants'],
-                )
-
-                results = raw.get("results", [])
-
-                if not results:
-                    log.warning(f"[baseline] {slug} {airport} {label}: no results returned")
-                    failed += 1
+                if already_collected(supabase, origin, airport, outbound_date, return_date,
+                                     comp['adults'], comp['children'], comp['infants']):
+                    log.info(f"[baseline] {origin}→{airport} {slug} {label}: already exists, skipping")
+                    skipped += 1
                     continue
 
-                best_result = results[0]
-                airline_name = (best_result.get("airlines") or [None])[0]
-                airline_iata = lookup_airline_iata(airline_name)
-                price = best_result.get("price")
-                stops = best_result.get("stops", 0)
-                duration_min = best_result.get("duration_min")
+                time.sleep(API_DELAY_SECS)
 
-                row = {
-                    "destination_slug":  slug,
-                    "outbound_date":     outbound_date,
-                    "return_date":       return_date,
-                    "origin_iata":       "LHR",
-                    "destination_iata":  airport,
-                    "adults":            comp['adults'],
-                    "children":          comp['children'],
-                    "infants":           comp['infants'],
-                    "party_total_gbp":   price,
-                    "airline_iata":      airline_iata,
-                    "stops":             stops,
-                    "duration_min":      duration_min,
-                    "raw_json":          {"result": best_result},
-                }
+                try:
+                    raw = crawlio_roundtrip(
+                        origin=origin,
+                        destination=airport,
+                        outbound_date=outbound_date,
+                        return_date=return_date,
+                        adults=comp['adults'],
+                        children=comp['children'],
+                        infants=comp['infants'],
+                    )
 
-                insert_baseline(supabase, row)
-                log.info(
-                    f"[baseline] {slug} {airport} {label}: "
-                    f"£{price} ({airline_name}, {stops} stop{'s' if stops != 1 else ''})"
-                )
-                success += 1
+                    results = raw.get("results", [])
 
-            except Exception as exc:
-                log.error(f"[baseline] {slug} {airport} {label}: {exc}")
-                failed += 1
+                    if not results:
+                        log.warning(f"[baseline] {origin}→{airport} {slug} {label}: no results returned")
+                        failed += 1
+                        continue
 
-    log.info(f"baseline complete  total={total}  success={success}  failed={failed}")
+                    best_result = results[0]
+                    airline_name = (best_result.get("airlines") or [None])[0]
+                    airline_iata = lookup_airline_iata(airline_name)
+                    price = best_result.get("price")
+                    stops = best_result.get("stops", 0)
+                    duration_min = best_result.get("duration_min")
+
+                    row = {
+                        "destination_slug":  slug,
+                        "outbound_date":     outbound_date,
+                        "return_date":       return_date,
+                        "origin_iata":       origin,
+                        "destination_iata":  airport,
+                        "adults":            comp['adults'],
+                        "children":          comp['children'],
+                        "infants":           comp['infants'],
+                        "party_total_gbp":   price,
+                        "airline_iata":      airline_iata,
+                        "stops":             stops,
+                        "duration_min":      duration_min,
+                        "raw_json":          {"result": best_result},
+                    }
+
+                    insert_baseline(supabase, row)
+                    log.info(
+                        f"[baseline] {origin}→{airport} {slug} {label}: "
+                        f"£{price} ({airline_name}, {stops} stop{'s' if stops != 1 else ''})"
+                    )
+                    success += 1
+
+                except Exception as exc:
+                    log.error(f"[baseline] {origin}→{airport} {slug} {label}: {exc}")
+                    failed += 1
+
+    log.info(f"baseline complete  total={total}  success={success}  skipped={skipped}  failed={failed}")
 
 
 # ── Usage (Colab) ─────────────────────────────────────────────────────────────
 # Run this file as a cell to define all functions, then call manually:
 #
 #   test_single_call()   # validate API + print raw response
-#   run_baseline()       # collect all 12 baseline prices
+#   run_baseline()       # collect all 60 baseline prices (5 airports × 3 dest × 4 comp)
