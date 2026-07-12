@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useFlightInsights } from './flight-insights-context';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -66,14 +65,6 @@ function ancillaryGbp(opt: LegOption): number {
   return opt.cabin_bag_cost_gbp + opt.checked_bag_cost_gbp + opt.seat_cost_gbp;
 }
 
-function isRecommended(opt: LegOption, rec: RecommendedOption | null | undefined): boolean {
-  if (!rec) return false;
-  return (
-    opt.airline_iata     === rec.airline_iata &&
-    opt.origin_iata      === rec.origin_iata &&
-    opt.destination_iata === rec.destination_iata
-  );
-}
 
 function gbp(n: number): string {
   return `£${Math.round(n).toLocaleString('en-GB')}`;
@@ -214,7 +205,6 @@ interface LeverTableProps {
   getDestIata: (o: ProcessedOption) => string;
   direction: 'outbound' | 'return';
   transitPreference: 'auto' | 'uber' | 'transit';
-  isSmartDate: boolean;
 }
 
 function LeverTable({
@@ -223,7 +213,6 @@ function LeverTable({
   getDestIata,
   direction,
   transitPreference,
-  isSmartDate,
 }: LeverTableProps) {
   return (
     <table style={{
@@ -284,11 +273,8 @@ function LeverTable({
             airportIata={getAirportIata(group.displayRow)}
             destCityIata={getDestIata(group.displayRow)}
             isCheapestRow={i === 0}
-            isRec={group.isRec}
-            notCheapestNote={group.notCheapestNote}
             isFirst={i === 0}
             transitPreference={transitPreference}
-            isSmartDate={isSmartDate}
             direction={direction}
           />
         ))}
@@ -304,22 +290,16 @@ function LeverRow({
   airportIata,
   destCityIata,
   isCheapestRow,
-  isRec,
-  notCheapestNote,
   isFirst,
   transitPreference,
-  isSmartDate,
   direction,
 }: {
   opt: LegOption;
   airportIata: string;
   destCityIata: string;
   isCheapestRow: boolean;
-  isRec: boolean;
-  notCheapestNote: boolean;
   isFirst: boolean;
   transitPreference: 'auto' | 'uber' | 'transit';
-  isSmartDate: boolean;
   direction: 'outbound' | 'return';
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -327,9 +307,7 @@ function LeverRow({
   const anc  = ancillaryGbp(opt);
   const cost = (opt as ProcessedOption).transit_cost_gbp ?? 0;
 
-  const showOurPick  = isSmartDate && isRec;
-  const showCheapest = !isSmartDate && isCheapestRow;
-  const bg           = isCheapestRow ? '#f0f8f9' : undefined;
+  const bg = isCheapestRow ? '#f0f8f9' : undefined;
   const toggle       = () => setExpanded((v: boolean) => !v);
 
   const tdBase = {
@@ -349,8 +327,8 @@ function LeverRow({
         </tr>
       )}
 
-      {/* OUR PICK / CHEAPEST label row */}
-      {(showOurPick || showCheapest) && (
+      {/* CHEAPEST badge row — driven solely by isCheapestRow */}
+      {isCheapestRow && (
         <tr>
           <td colSpan={7} style={{
             backgroundColor: bg,
@@ -364,19 +342,7 @@ function LeverRow({
             paddingLeft: 4,
             verticalAlign: 'middle',
           }}>
-            {showOurPick ? 'Cheapest' : 'Cheapest'}
-            {showOurPick && notCheapestNote && (
-              <span style={{
-                fontSize: 9,
-                fontWeight: 400,
-                color: '#6f797a',
-                fontStyle: 'italic',
-                marginLeft: 8,
-                textTransform: 'none' as const,
-              }}>
-                Not cheapest for this airport — chosen for overall trip cost.
-              </span>
-            )}
+            Cheapest
           </td>
         </tr>
       )}
@@ -491,16 +457,13 @@ function LeverRow({
 type ProcessedOption = LegOption & { transit_cost_gbp: number; total_gbp: number };
 
 interface LeverGroup {
-  airportIata:      string;
-  displayRow:       ProcessedOption;
-  isRec:            boolean;
-  notCheapestNote:  boolean;
+  airportIata: string;
+  displayRow:  ProcessedOption;
 }
 
 function buildLeverGroups(
   opts:       ProcessedOption[],
   getAirport: (o: ProcessedOption) => string,
-  recOption:  ProcessedOption | null,
 ): LeverGroup[] {
   const groupMap = new Map<string, ProcessedOption[]>();
   for (const opt of opts) {
@@ -511,29 +474,8 @@ function buildLeverGroups(
 
   const groups: LeverGroup[] = [];
   for (const [airportIata, members] of groupMap) {
-    const sorted   = [...members].sort((a, b) => a.total_gbp - b.total_gbp);
-    const cheapest = sorted[0];
-    const recInGroup = recOption && members.some(
-      o => o.airline_iata     === recOption.airline_iata &&
-           o.origin_iata      === recOption.origin_iata  &&
-           o.destination_iata === recOption.destination_iata,
-    ) ? recOption : null;
-
-    if (recInGroup) {
-      groups.push({
-        airportIata,
-        displayRow:      recInGroup,
-        isRec:           true,
-        notCheapestNote: recInGroup.total_gbp > cheapest.total_gbp,
-      });
-    } else {
-      groups.push({
-        airportIata,
-        displayRow:      cheapest,
-        isRec:           false,
-        notCheapestNote: false,
-      });
-    }
+    const cheapest = [...members].sort((a, b) => a.total_gbp - b.total_gbp)[0];
+    groups.push({ airportIata, displayRow: cheapest });
   }
 
   groups.sort((a, b) => a.displayRow.total_gbp - b.displayRow.total_gbp);
@@ -545,16 +487,12 @@ function buildLeverGroups(
 export function LegOptions({
   data,
   title,
-  recommendedOption,
   adults,
   children,
   transitPreference,
   selectedDate,
   smartDate,
 }: LegOptionsProps) {
-  const { aiResult }  = useFlightInsights();
-  const aiRecommended = aiResult?.recommendedCombination ?? null;
-
   // Default open — the data is the product
   const [open, setOpen] = useState(true);
 
@@ -584,29 +522,10 @@ export function LegOptions({
     return direction === 'outbound' ? o.destination_iata : o.origin_iata;
   }
 
-  // Use AI pick if available, fall back to prop
-  const recOption = (() => {
-    if (aiRecommended) {
-      // Match on carrier + airport for this direction
-      const aiMatch = processedOptions.find(o =>
-        direction === 'outbound'
-          ? o.airline_iata === aiRecommended.outbound_carrier &&
-            o.origin_iata  === aiRecommended.origin_iata &&
-            o.destination_iata === aiRecommended.out_dest_iata
-          : o.airline_iata === aiRecommended.return_carrier &&
-            o.origin_iata  === aiRecommended.out_dest_iata &&
-            o.destination_iata === aiRecommended.ret_dest_iata,
-      );
-      if (aiMatch) return aiMatch;
-    }
-    return processedOptions.find(o => isRecommended(o, recommendedOption)) ?? null;
-  })();
-
-  const londonGroups = buildLeverGroups(processedOptions, getLondonIata, recOption);
-  const destGroups   = buildLeverGroups(processedOptions, getDestIata,   recOption);
+  const isSmartDate   = selectedDate === smartDate;
+  const londonGroups  = buildLeverGroups(processedOptions, getLondonIata);
+  const destGroups    = buildLeverGroups(processedOptions, getDestIata);
   const showDestTable = new Set(processedOptions.map(getDestIata)).size >= 2;
-
-  const isSmartDate = selectedDate === smartDate;
 
   const table1Title = direction === 'outbound'
     ? 'Cheapest from each London airport'
@@ -677,7 +596,6 @@ export function LegOptions({
                 getDestIata={getDestIata}
                 direction={direction}
                 transitPreference={transitPreference}
-                isSmartDate={isSmartDate}
               />
 
               {/* Table 2 — Destination airport lever */}
@@ -708,7 +626,6 @@ export function LegOptions({
                     getDestIata={getLondonIata}
                     direction={direction}
                     transitPreference={transitPreference}
-                    isSmartDate={isSmartDate}
                   />
                 </>
               )}

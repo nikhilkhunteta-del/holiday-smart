@@ -54,16 +54,12 @@ export const LONDON_TRANSIT_PENALTY = (
 };
 
 // ── Viability filter ─────────────────────────────────────────────────────
-// Absence combinations are never recommended (shown in matrix only).
 // Quality issues (poor arrival/departure) are handled as penalties in
 // effectiveCost(), not hard exclusions — a poor outbound on an inset day
 // is still a legitimate option the parent may have already chosen to take.
 // Hard exclusions are reserved for genuinely unbookable/impossible cases.
 export function viable(c: ScoredCombination): boolean {
-  return (
-    !c.requires_absence &&
-    c.trip_nights >= 1
-  );
+  return c.trip_nights >= 1;
 }
 
 // ── Effective cost ────────────────────────────────────────────────────────
