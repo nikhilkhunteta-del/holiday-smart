@@ -69,12 +69,12 @@ function transportDetail(transit: AirportTransitCost, airport: string, dir: '↑
 
 // ── Colour coding ─────────────────────────────────────────────────────────────
 
-function cellColour(saving: number): { bg: string; color: string } {
-  if (saving > 100)   return { bg: '#0d5c63', color: '#ffffff' };
-  if (saving >= 50)   return { bg: '#1a7a82', color: '#ffffff' };
-  if (saving >= 1)    return { bg: '#a8d5d9', color: '#004349' };
-  if (saving > -0.5)  return { bg: '#e1e3e3', color: '#3f484a' };
-  return                     { bg: '#fff3e0', color: '#5c310d' };
+// excess = c.total_cost_gbp - minCost (0 = cheapest → amber; higher = more expensive → teal)
+function cellColour(excess: number): { bg: string; color: string } {
+  if (excess < 1)    return { bg: '#fff3e0', color: '#5c310d' };
+  if (excess < 50)   return { bg: '#a8d5d9', color: '#004349' };
+  if (excess < 100)  return { bg: '#1a7a82', color: '#ffffff' };
+  return                    { bg: '#0d5c63', color: '#ffffff' };
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -134,16 +134,16 @@ function BaselineCell({ total, isSelected, onClick }: { total: number; isSelecte
 // ── Data cell ──────────────────────────────────────────────────────────────────
 
 function DataCell({
-  c, baselineTotal, isRec, isSelected, onClick, baselineNote,
+  c, minCost, isRec, isSelected, onClick, baselineNote,
 }: {
   c: AssembledCombination;
-  baselineTotal: number;
+  minCost: number;
   isRec: boolean;
   isSelected: boolean;
   onClick: () => void;
   baselineNote?: number;
 }) {
-  const saving    = baselineTotal - c.total_inc_fine;
+  const saving    = c.total_cost_gbp - minCost;
   const { bg, color } = cellColour(saving);
   const labelColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
   const border    = isSelected ? '2px solid #004349' : isRec ? '1.5px solid #004349' : 'none';
@@ -182,7 +182,7 @@ function DataCell({
             {showOurPick ? 'Cheapest' : 'Viewing'}
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
-            {gbp(c.total_inc_fine)}
+            {gbp(c.total_cost_gbp)}
           </span>
           {fineBadge}
           {baselineNote !== undefined && (
@@ -194,7 +194,7 @@ function DataCell({
       ) : (
         <>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
-            {gbp(c.total_inc_fine)}
+            {gbp(c.total_cost_gbp)}
           </span>
           {fineBadge}
           {baselineNote !== undefined && (
@@ -312,8 +312,11 @@ export function ComplianceCalculator({
   const blCarrier = carrierName(baseline.carrier ?? '');
   const blOrigin  = baseline.origin_iata ?? 'LHR';
 
+  // ── Cheapest cost across all combinations (for colour coding) ────────────
+  const minCost = Math.min(...combinations.map(c => c.total_cost_gbp));
+
   // ── 2. Dynamic price spread for subtitle ─────────────────────────────────
-  const allTotals = combinations.map(c => c.total_inc_fine);
+  const allTotals = combinations.map(c => c.total_cost_gbp);
   const priceSpread = allTotals.length >= 2
     ? Math.round(Math.max(...allTotals) - Math.min(...allTotals))
     : null;
@@ -520,7 +523,7 @@ export function ComplianceCalculator({
                               <DataCell
                                 key={ret}
                                 c={c}
-                                baselineTotal={baselineTotal}
+                                minCost={minCost}
                                 isRec={isRec}
                                 isSelected={isSelected}
                                 onClick={() => handleCellClick(c.outbound_date, c.return_date)}
