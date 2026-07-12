@@ -238,7 +238,7 @@ const LEGEND = [
   { bg: '#0d5c63', label: '£100+ saving' },
   { bg: '#1a7a82', label: '£50–100 saving' },
   { bg: '#a8d5d9', label: 'up to £50 saving' },
-  { bg: '#fff3e0', label: 'costs more than baseline' },
+  { bg: '#fff3e0', label: 'more than cheapest option' },
 ];
 
 // ── Amber label (shared style) ────────────────────────────────────────────────

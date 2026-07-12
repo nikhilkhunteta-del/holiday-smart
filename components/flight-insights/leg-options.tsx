@@ -364,7 +364,7 @@ function LeverRow({
             paddingLeft: 4,
             verticalAlign: 'middle',
           }}>
-            {showOurPick ? '★ Our pick' : '★ Cheapest'}
+            {showOurPick ? 'Cheapest' : 'Cheapest'}
             {showOurPick && notCheapestNote && (
               <span style={{
                 fontSize: 9,
@@ -609,11 +609,11 @@ export function LegOptions({
   const isSmartDate = selectedDate === smartDate;
 
   const table1Title = direction === 'outbound'
-    ? 'Does your departure airport matter?'
-    : 'Does your arrival airport matter?';
+    ? 'Cheapest from each London airport'
+    : 'Cheapest into each London airport';
   const table2Title = direction === 'outbound'
-    ? 'Does the arrival airport matter?'
-    : 'Does the departure airport matter?';
+    ? 'Cheapest into each arrival airport'
+    : 'Cheapest from each departure airport';
 
   return (
     <div style={{

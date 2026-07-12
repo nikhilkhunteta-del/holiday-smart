@@ -232,6 +232,17 @@ export function LegOptionsModal({
                 )}
               </div>
 
+              {/* ── 5. Context line ── */}
+              <p style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 14,
+                color: '#3f484a',
+                marginTop: 4,
+                marginBottom: 0,
+              }}>
+                Cheapest all-in combination for these dates
+              </p>
+
               {selectedCell.requiresAbsence && (
                 <p style={{
                   fontFamily: 'Inter, sans-serif',
@@ -330,7 +341,7 @@ export function LegOptionsModal({
             margin: 0,
             lineHeight: 1.5,
           }}>
-            Holiday Smart does not recommend term-time absence. Fines shown are estimates based on current borough penalty notice rates. Bag fees and transport costs are estimates. Actual prices may vary.
+            Fines are estimates based on current borough penalty notice rates. Bag fees and transport costs are estimates.
           </p>
         </div>
       </DialogContent>
