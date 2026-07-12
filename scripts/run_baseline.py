@@ -4,8 +4,9 @@ Holiday Smart — Round-trip baseline price collector (Crawlio via RapidAPI).
 
 Makes one round-trip call per airport × destination × composition (60 calls total)
 using the Crawlio /api/v1/roundtrip endpoint. Stores only the cheapest result per
-call in baseline_snapshots. Skips combinations already present. Origin cycles over
-all 5 London airports (LGW, LHR, STN, LTN, LCY).
+call in baseline_snapshots. Origin cycles over all 5 London airports (LGW, LHR,
+STN, LTN, LCY — not always LHR). Skip check is today-scoped: re-running on the
+same day is safe and will produce no duplicate rows.
 
 No run bookkeeping — baseline collection is lightweight and append-only.
 
@@ -231,23 +232,24 @@ def test_single_call() -> None:
 
 # ── Full baseline run ─────────────────────────────────────────────────────────
 
-def already_collected(supabase: Client, origin: str, destination: str,
-                       outbound_date: str, return_date: str,
-                       adults: int, children: int, infants: int) -> bool:
-    resp = (
-        supabase.table("baseline_snapshots")
-        .select("id", count="exact")
-        .eq("origin_iata",      origin)
-        .eq("destination_iata", destination)
-        .eq("outbound_date",    outbound_date)
-        .eq("return_date",      return_date)
-        .eq("adults",           adults)
-        .eq("children",         children)
-        .eq("infants",          infants)
-        .limit(1)
+def already_collected_today(supabase: Client, origin: str, destination_slug: str,
+                             airport: str, outbound_date: str, return_date: str,
+                             adults: int, children: int, infants: int) -> bool:
+    from datetime import date
+    result = supabase.table("baseline_snapshots")\
+        .select("id")\
+        .eq("origin_iata",      origin)\
+        .eq("destination_slug", destination_slug)\
+        .eq("destination_iata", airport)\
+        .eq("outbound_date",    outbound_date)\
+        .eq("return_date",      return_date)\
+        .eq("adults",           adults)\
+        .eq("children",         children)\
+        .eq("infants",          infants)\
+        .gte("observed_at",     date.today().isoformat())\
+        .limit(1)\
         .execute()
-    )
-    return (resp.count or 0) > 0
+    return bool(result.data)
 
 
 def run_baseline() -> None:
@@ -273,9 +275,9 @@ def run_baseline() -> None:
                 label = comp['label']
                 total += 1
 
-                if already_collected(supabase, origin, airport, outbound_date, return_date,
-                                     comp['adults'], comp['children'], comp['infants']):
-                    log.info(f"[baseline] {origin}→{airport} {slug} {label}: already exists, skipping")
+                if already_collected_today(supabase, origin, slug, airport, outbound_date, return_date,
+                                           comp['adults'], comp['children'], comp['infants']):
+                    log.info(f"[baseline] skip (already collected today): {origin}→{airport} {slug} {comp['label']}")
                     skipped += 1
                     continue
 
