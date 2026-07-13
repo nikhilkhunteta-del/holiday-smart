@@ -95,6 +95,9 @@ DECLARE
 
   -- Result
   v_combinations      jsonb;
+
+  -- Nearest airport
+  v_nearest_airport   text;
 BEGIN
 
   -- ── 1. Destination + airport pool ──────────────────────────────────────────
@@ -119,6 +122,24 @@ BEGIN
   SELECT postcode_district, borough
     INTO v_postcode_district, v_borough
     FROM all_schools WHERE urn = p_school_urn;
+
+  -- Determine nearest major London airport for this school's postcode district.
+  -- Only LHR and LGW are considered — these are the airports an uninformed parent
+  -- defaults to. LTN, STN, LCY require knowledge the product reveals as options.
+  SELECT dat.airport_code INTO v_nearest_airport
+    FROM district_airport_transit dat
+   WHERE dat.postcode_district = v_postcode_district
+     AND dat.airport_code IN ('LHR', 'LGW')
+   ORDER BY
+     dat.transit_offpeak_duration_mins ASC NULLS LAST,
+     CASE WHEN dat.airport_code = 'LHR' THEN 0 ELSE 1 END ASC,
+     dat.transit_offpeak_fare_pence ASC NULLS LAST
+   LIMIT 1;
+
+  -- Fallback to LHR if no transit data found for this postcode district
+  IF v_nearest_airport IS NULL THEN
+    v_nearest_airport := 'LHR';
+  END IF;
 
   -- ── 3. Composition matching ─────────────────────────────────────────────────
 
@@ -626,7 +647,7 @@ BEGIN
   FROM baseline_snapshots bs
   WHERE bs.destination_slug = p_destination_slug
     AND bs.outbound_date   = v_baseline_sat
-    AND bs.origin_iata      = 'LHR'
+    AND bs.origin_iata      = v_nearest_airport
     AND bs.adults    = v_adults
     AND bs.children  = v_children
     AND bs.infants   = v_infants
@@ -688,7 +709,7 @@ BEGIN
       AND bs.adults    = v_adults
       AND bs.children  = v_children
       AND bs.infants   = v_infants
-    ORDER BY (bs.origin_iata = 'LHR') DESC, bs.party_total_gbp ASC
+    ORDER BY (bs.origin_iata = v_nearest_airport) DESC, bs.party_total_gbp ASC
     LIMIT 1;
   END IF;
 
