@@ -973,27 +973,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                 </div>
               )}
 
-              {/* Absence notice */}
-              {(rec as any)?.requires_absence && (
-                <div style={{
-                  borderLeft: '2px solid #fdba49',
-                  background: 'rgba(253,186,73,0.08)',
-                  borderRadius: 8,
-                  padding: 12,
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: 14,
-                  color: '#3f484a',
-                  lineHeight: 1.6,
-                }}>
-                  {(() => {
-                    const days = aiResult?.winner_absence_days;
-                    const fine = aiResult?.winner_fine_gbp;
-                    if (days == null || fine == null) return null;
-                    return `This trip includes ${days} school day${days !== 1 ? 's' : ''} of absence. Your borough's penalty notice is £${Math.round(fine)}. Schools apply this inconsistently. Holiday Smart does not recommend unauthorised absence — we share this so you can make your own decision.`;
-                  })()}
-                </div>
-              )}
-
               {/* Book buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {isSplit ? (
