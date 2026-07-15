@@ -655,8 +655,10 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             );
           })}
 
-          {/* Final step — Total Advantage (always shown if aiSaving > 0) */}
-          {aiSaving > 0 && (
+          {/* Final step — Total Advantage. Only for baseline_cheapest — the
+              headline and problem statement already carry this for
+              significant/found_saving, so this card would just repeat it. */}
+          {fetchParams.baselineIsRecommended && aiSaving > 0 && (
             <div className="relative flex gap-lg pb-xl hs-step-line-last">
               <div
                 className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white z-10 animate-pulse"
