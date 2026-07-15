@@ -1579,13 +1579,8 @@ IF is_baseline_cheapest is true:
   "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''} — early start, and you gain the whole day."
   Do not repeat the cost. No comparison language.
 
-OTHERWISE, SUBHEADLINE varies by saving_category:
-
-IF saving_category = 'significant':
-  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}. All-in: fare + bags + transit + transfer."
-
-IF saving_category = 'found_saving':
-  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${recommended.outbound_date}, with better timing than the obvious choice."
+OTHERWISE (saving_category = 'significant' or 'found_saving'), write EXACTLY this sentence, no changes:
+  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${fmtDLong(recommended.outbound_date)}, returning ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — fare, bags, transit, and transfers included."
 
 Do not repeat the cost. One sentence max.
 
