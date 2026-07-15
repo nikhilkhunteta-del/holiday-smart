@@ -26,6 +26,7 @@ export interface AIRecommendationOutput {
   winner_outbound_carrier?: string;
   winner_absence_days?:     number;
   winner_fine_gbp?:         number;
+  winner_fine_wipes_saving?: boolean;
   right_column_cards?: Array<{
     lever: string;
     headline?: string;
@@ -193,6 +194,7 @@ export async function getAIRecommendation(
     outbound_early_warning: c.outbound_transit?.transit?.early_flight_warning ?? false,
     return_transit_cost_gbp: c.return_transit_cost_gbp,
     return_transit_route: c.return_transit?.transit?.route_summary ?? null,
+    return_transit_mode: c.return_transit?.recommended_mode ?? null,
     return_transit_changes: c.return_transit?.transit?.changes ?? null,
     return_uber_cost_gbp: c.return_transit?.uber?.mean_pence
       ? Math.round(c.return_transit.uber.mean_pence / 100) : null,
@@ -275,6 +277,7 @@ export async function getAIRecommendation(
       outbound_early_warning: w.outbound_transit?.transit?.early_flight_warning ?? false,
       return_transit_cost_gbp: w.return_transit_cost_gbp,
       return_transit_route: w.return_transit?.transit?.route_summary ?? null,
+      return_transit_mode: w.return_transit?.recommended_mode ?? null,
       return_transit_changes: w.return_transit?.transit?.changes ?? null,
       return_uber_cost_gbp: w.return_transit?.uber?.mean_pence
         ? Math.round(w.return_transit.uber.mean_pence / 100) : null,
@@ -451,7 +454,8 @@ export async function getAIRecommendation(
       })
     : null;
   const winnerIsInsetOption = insetKey !== null && insetKey === winnerKey;
-  const showInsetCard = insetFromPool !== null && !winnerIsInsetOption;
+  const showInsetCard = insetFromPool !== null && !winnerIsInsetOption &&
+    insetFromPool.total_cost_gbp < recommended.total_cost_gbp;
 
   // ── LEAD CARD — only when no inset day ───────────────────────────────
   if (!recommended.is_inset_day) {
@@ -1296,15 +1300,20 @@ One sentence. Specific. No carrier saving numbers.`,
 
       if (tradeoffType === 'early_return') {
         const checkout = checkoutWindowFor(retDepTime);
+        const returnArrivalAirport = recommended.ret_dest_iata ?? recommended.origin_iata;
+        const transitHomeSentence = recommended.return_transit_mode === 'uber'
+          ? `An Uber home from ${returnArrivalAirport} costs £${recommended.return_uber_low_gbp != null ? round5(round(recommended.return_uber_low_gbp)) : 'X'}–£${recommended.return_uber_high_gbp != null ? round5(round(recommended.return_uber_high_gbp)) : 'Y'} — worth considering with tired kids after an early flight.`
+          : `The ${simplifyRoute(recommended.return_transit_route)} home is already included in your cost.`;
         nonBaselineCards.push({
           lever: 'early_return',
           headline_hint: 'The one trade-off that matters most',
-          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Use these exact times. Do not mention other trade-offs.`,
+          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Use these exact times and costs. Do not mention other trade-offs.`,
           facts: {
             locked_headline: 'The one trade-off that matters most',
             sentence_1: `The return departs ${destinationName} at ${retDepTime} — plan to leave the hotel around ${checkout.from}–${checkout.to}.`,
             sentence_2: `You land at ${retArrTime}.`,
-            sentence_3: `If that's too early, the date matrix below shows alternatives.`,
+            sentence_3: transitHomeSentence,
+            sentence_4: `If that's too early, the date matrix below shows alternatives.`,
           },
           verified_field: 'return_departure_time',
           verified_value: retDepTime,
@@ -1358,57 +1367,54 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 3 — Why not the cheapest headline fare (only when the trap is material)
-    if (allInTrap && allInTrap.allin_saving >= 50) {
-      const saving = allInTrap.allin_saving;
-      const cheapCarrier = cn(allInTrap.cheap_description.split(' from ')[0] ?? '');
-      const cheapOrigin  = allInTrap.cheap_origin_iata;
-      const trapReason   = trapAlarmingReason ?? `bags and transfers add £${allInTrap.cheap_allin - allInTrap.cheap_fare} to the headline fare`;
-      const winnerCarrierName = cn(recommended.outbound_carrier);
-      const winnerOriginIata  = recommended.origin_iata;
+    // Card 3 — Penalty notice (replaces the deleted sidebar absence notice;
+    // only fires when the winner actually requires absence).
+    if (absenceDays > 0) {
+      const outboundDateFormatted = fmtDLong(recommended.outbound_date);
+      const dayWord = absenceDays === 1 ? 'day' : 'days';
 
-      let trapHeadline: string;
-      let trapVoice: string;
-      if (saving >= 150) {
-        trapHeadline = "The fare isn't the cost";
-        trapVoice = `Write this card in four beats — do not reorder, do not add detail beyond what is given, do not truncate: Beat 1 (hook): '${cheapCarrier} from ${cheapOrigin} shows £${allInTrap.cheap_fare}.' Beat 2 (reveal): 'All-in it's £${allInTrap.cheap_allin}.' Beat 3 (reason): '${trapReason}.' Beat 4 (payoff): '${winnerCarrierName} from ${winnerOriginIata} at £${winnerTotalRounded} is £${saving} less — despite the higher headline fare.' Write as flowing prose, not a list. Four sentences maximum.`;
-      } else if (saving >= 50) {
-        trapHeadline = "What the fare doesn't show";
-        trapVoice = `Write this card in four beats — do not reorder, do not add detail beyond what is given: Beat 1 (hook): '${cheapCarrier} shows £${allInTrap.cheap_fare}.' Beat 2 (reveal): 'Once bags and transfers are counted, it's £${allInTrap.cheap_allin}.' Beat 3 (reason): '${trapReason}.' Beat 4 (payoff): '${winnerCarrierName} at £${winnerTotalRounded} is £${saving} less once everything's counted.' Write as flowing prose. Four sentences maximum.`;
+      if (fineWipesSaving) {
+        nonBaselineCards.push({
+          lever: 'penalty_notice',
+          headline_hint: 'Penalty notice',
+          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
+          facts: {
+            locked_headline: 'Penalty notice',
+            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
+            sentence_2: `If your school issues a penalty notice, that's £${fineGbp}.`,
+            sentence_3: `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`,
+            sentence_4: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers before you book.`,
+          },
+          verified_field: 'fine_gbp',
+          verified_value: fineGbp,
+          saving_gbp: null,
+        });
       } else {
-        trapHeadline = 'Every option priced all-in';
-        trapVoice = `Write this card in three beats: Beat 1: 'The cheapest headline fare on this route is £${allInTrap.cheap_fare} with ${cheapCarrier}.' Beat 2: 'Once bags, transit, and transfers are included, it comes to £${allInTrap.cheap_allin}.' Beat 3: '${winnerCarrierName} from ${winnerOriginIata} at £${winnerTotalRounded} came out best on total cost — not just fare.' Three sentences. Do not add anything else.`;
+        const savingAfterFine = savingForCards - fineGbp;
+        nonBaselineCards.push({
+          lever: 'penalty_notice',
+          headline_hint: 'Penalty notice',
+          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
+          facts: {
+            locked_headline: 'Penalty notice',
+            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
+            sentence_2: `If your school issues a penalty notice, that's £${fineGbp} — your net saving drops to £${savingAfterFine}.`,
+            sentence_3: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers.`,
+          },
+          verified_field: 'fine_gbp',
+          verified_value: fineGbp,
+          saving_gbp: savingAfterFine,
+        });
       }
-
-      nonBaselineCards.push({
-        lever: 'allin_trap',
-        headline_hint: trapHeadline,
-        voice: trapVoice,
-        facts: {
-          locked_headline: trapHeadline,
-          cheap_carrier: cheapCarrier,
-          cheap_origin_iata: cheapOrigin,
-          cheap_fare: allInTrap.cheap_fare,
-          cheap_allin: allInTrap.cheap_allin,
-          trap_alarming_reason: trapReason,
-          winner_carrier: winnerCarrierName,
-          winner_origin_iata: winnerOriginIata,
-          winner_total: winnerTotalRounded,
-          allin_saving: saving,
-        },
-        verified_field: 'total_cost_gbp',
-        verified_value: winnerTotalRounded,
-        saving_gbp: saving,
-      });
     }
 
-    // Card 4 — Inset day option (only when the winner isn't already the inset option)
+    // Card 4 — Inset day option (only when it exists, is cheaper than the
+    // winner, and isn't the winner itself — see showInsetCard above)
     if (showInsetCard && insetFromPool) {
       const insetRetDepTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
       const insetDateFormatted = fmtDLong(insetFromPool.outbound_date);
       const insetTotal = round(insetFromPool.total_cost_gbp);
-      const insetDelta = round(insetFromPool.total_cost_gbp - recommended.total_cost_gbp);
-      const insetDeltaLabel = `£${Math.abs(insetDelta)} ${insetDelta >= 0 ? 'more' : 'less'}`;
+      const insetDelta = round(recommended.total_cost_gbp - insetFromPool.total_cost_gbp);
       const checkout = checkoutWindowFor(insetRetDepTime);
 
       nonBaselineCards.push({
@@ -1417,7 +1423,7 @@ One sentence. Specific. No carrier saving numbers.`,
         voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. All three required — close with sentence_3 exactly as given.`,
         facts: {
           locked_headline: 'Inset day option',
-          sentence_1: `Flying on ${insetDateFormatted} (the inset day) costs £${insetTotal} all-in — ${insetDeltaLabel} than this recommendation.`,
+          sentence_1: `Flying on ${insetDateFormatted} (the inset day) costs £${insetTotal} all-in — £${insetDelta} less than this recommendation.`,
           sentence_2: `The return departs ${destinationName} at ${insetRetDepTime}, which means a ${checkout.from}–${checkout.to} hotel checkout.`,
           sentence_3: `We're not recommending it, but it's there if you want it.`,
         },

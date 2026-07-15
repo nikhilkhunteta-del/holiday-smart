@@ -734,15 +734,27 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             className="bg-white rounded-xl border border-outline-variant relative overflow-hidden"
             style={{ padding: 32, boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)' }}
           >
-            {/* Badge — context-dependent */}
-            <div className="absolute top-0 right-0 p-lg">
-              <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
-                <span className="material-symbols-outlined text-[18px]">verified</span>
-                <span className="font-label-sm text-label-sm font-bold uppercase tracking-tighter">
-                  {fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip'}
-                </span>
-              </div>
-            </div>
+            {/* Badge — context-dependent; suppressed entirely when the fine
+                wipes out the saving, relabelled when absence is involved
+                but the saving survives. */}
+            {(() => {
+              const days  = aiResult?.winner_absence_days ?? 0;
+              const wipes = aiResult?.winner_fine_wipes_saving ?? false;
+              if (days > 0 && wipes) return null;
+              const label = days > 0
+                ? 'Saving Found'
+                : (fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip');
+              return (
+                <div className="absolute top-0 right-0 p-lg">
+                  <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
+                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                    <span className="font-label-sm text-label-sm font-bold uppercase tracking-tighter">
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {fetchParams.baselineIsRecommended && baseline ? (
               /* ── Baseline sidebar (BA Heathrow round-trip) ── */

@@ -243,6 +243,7 @@ export async function POST(request: NextRequest) {
       ...aiResult,
       winner_absence_days:     selectionContext.winner.absence_days,
       winner_fine_gbp:         selectionContext.winner.fine_gbp,
+      winner_fine_wipes_saving: fineWipesSaving,
       winner_outbound_date:    selectionContext.winner.outbound_date,
       winner_return_date:      selectionContext.winner.return_date,
       winner_outbound_carrier: selectionContext.winner.outbound_carrier,
