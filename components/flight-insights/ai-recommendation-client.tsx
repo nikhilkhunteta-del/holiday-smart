@@ -525,8 +525,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   // Right column notes come from right_column_cards
   // (set by getAIRecommendation) — not lever_insights
   const rightColCards = aiResult?.right_column_cards ?? [];
-  const earlyReturnNote = rightColCards
-    .find(c => c.lever === 'early_return_warning') ?? null;
   const transitNote = rightColCards
     .find(c => c.lever === 'transit_changes') ?? null;
 
@@ -655,8 +653,10 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             );
           })}
 
-          {/* Final step — Total Advantage (always shown if aiSaving > 0) */}
-          {aiSaving > 0 && (
+          {/* Final step — Total Advantage. Only for baseline_cheapest — the
+              headline and problem statement already carry this for
+              significant/found_saving, so this card would just repeat it. */}
+          {fetchParams.baselineIsRecommended && aiSaving > 0 && (
             <div className="relative flex gap-lg pb-xl hs-step-line-last">
               <div
                 className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white z-10 animate-pulse"
@@ -734,15 +734,27 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             className="bg-white rounded-xl border border-outline-variant relative overflow-hidden"
             style={{ padding: 32, boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)' }}
           >
-            {/* Badge — context-dependent */}
-            <div className="absolute top-0 right-0 p-lg">
-              <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
-                <span className="material-symbols-outlined text-[18px]">verified</span>
-                <span className="font-label-sm text-label-sm font-bold uppercase tracking-tighter">
-                  {fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip'}
-                </span>
-              </div>
-            </div>
+            {/* Badge — context-dependent; suppressed entirely when the fine
+                wipes out the saving, relabelled when absence is involved
+                but the saving survives. */}
+            {(() => {
+              const days  = aiResult?.winner_absence_days ?? 0;
+              const wipes = aiResult?.winner_fine_wipes_saving ?? false;
+              if (days > 0 && wipes) return null;
+              const label = days > 0
+                ? 'Saving Found'
+                : (fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip');
+              return (
+                <div className="absolute top-0 right-0 p-lg">
+                  <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
+                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                    <span className="font-label-sm text-label-sm font-bold uppercase tracking-tighter">
+                      {label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {fetchParams.baselineIsRecommended && baseline ? (
               /* ── Baseline sidebar (BA Heathrow round-trip) ── */
@@ -973,27 +985,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                 </div>
               )}
 
-              {/* Absence notice */}
-              {(rec as any)?.requires_absence && (
-                <div style={{
-                  borderLeft: '2px solid #fdba49',
-                  background: 'rgba(253,186,73,0.08)',
-                  borderRadius: 8,
-                  padding: 12,
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: 14,
-                  color: '#3f484a',
-                  lineHeight: 1.6,
-                }}>
-                  {(() => {
-                    const days = ((rec as any).departure_absence_days ?? 0) +
-                                 ((rec as any).return_absence_days ?? 0);
-                    const fine = (rec as any).fine_gbp ?? 0;
-                    return `This trip includes ${days} school day${days !== 1 ? 's' : ''} of absence. Your borough's penalty notice is £${Math.round(fine)}. Schools apply this inconsistently. Holiday Smart does not recommend unauthorised absence — we share this so you can make your own decision.`;
-                  })()}
-                </div>
-              )}
-
               {/* Book buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {isSplit ? (
@@ -1081,38 +1072,21 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           </div>
 
           {/* Right column notes */}
-          {(earlyReturnNote || transitNote) && (
+          {transitNote && (
             <div className="flex flex-col gap-md mt-lg">
-              {earlyReturnNote && (
-                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
-                  <span className="material-symbols-outlined text-secondary">
-                    schedule
-                  </span>
-                  <div>
-                    <div className="font-label-sm text-label-sm font-bold uppercase text-secondary mb-1">
-                      Early departure
-                    </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-                      {earlyReturnNote.insight}
-                    </p>
+              <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
+                <span className="material-symbols-outlined text-primary">
+                  transfer_within_a_station
+                </span>
+                <div>
+                  <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
+                    Getting home
                   </div>
+                  <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
+                    {transitNote.insight}
+                  </p>
                 </div>
-              )}
-              {transitNote && (
-                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
-                  <span className="material-symbols-outlined text-primary">
-                    transfer_within_a_station
-                  </span>
-                  <div>
-                    <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
-                      Getting home
-                    </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-                      {transitNote.insight}
-                    </p>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           )}
 

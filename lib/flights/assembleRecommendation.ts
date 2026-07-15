@@ -1181,6 +1181,19 @@ export async function assembleRecommendation(
     seatsTogether,
   );
 
+  // ── Fine/absence-aware saving fields ────────────────────────────────────
+  // Computed here (not in getAIRecommendation) so the warning logic is
+  // testable independent of the LLM call.
+  const winner         = base.recommendation;
+  const baselineAllin  = base.baseline.total_cost_gbp;
+  const winnerTotal    = winner.total_cost_gbp;
+  const fineGbp        = winner.fine_gbp ?? 0;
+  const absenceDays    = winner.absence_days ?? 0;
+  const savingVsBaseline = baselineAllin - winnerTotal;
+  const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
+  const netCost  = winnerTotal + fineGbp;
+  const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
+
   // AI receives shortlist — not all 128 combinations
   const aiRecommendation = await getAIRecommendation(base.shortlist, {
     schoolName,
@@ -1197,6 +1210,11 @@ export async function assembleRecommendation(
     benchmarkCost: base.benchmark,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
+    absence_days:        absenceDays,
+    fine_gbp:             fineGbp,
+    fine_wipes_saving:    fineWipesSaving,
+    net_cost_with_fine:   netCost,
+    net_delta_with_fine:  netDelta,
     trueCheapest_total_cost:  base.cheapestViable?.total_cost_gbp,
     trueCheapest_trip_nights: base.cheapestViable
       ? Math.round(
@@ -1280,6 +1298,7 @@ export async function assembleRecommendation(
         outbound_carrier: best.outbound_carrier,
         return_carrier: best.return_carrier,
         origin_iata: best.origin_iata,
+        out_dest_iata: best.out_dest_iata,
       };
     })(),
     lcc_cabin_bag_min_fee: undefined,

@@ -178,8 +178,19 @@ export async function POST(request: NextRequest) {
         outbound_carrier: best.outbound_carrier,
         return_carrier: best.return_carrier,
         origin_iata: best.origin_iata,
+        out_dest_iata: best.out_dest_iata,
       };
     })();
+
+    // ── Fine/absence-aware saving fields ────────────────────────────────────
+    const baselineAllin = assembled.baseline?.total_cost_gbp ?? 0;
+    const winnerTotal    = recommendation.total_cost_gbp;
+    const fineGbp        = recommendation.fine_gbp ?? 0;
+    const absenceDays    = recommendation.absence_days ?? 0;
+    const savingVsBaseline = baselineAllin - winnerTotal;
+    const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
+    const netCost  = winnerTotal + fineGbp;
+    const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
 
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
@@ -210,6 +221,11 @@ export async function POST(request: NextRequest) {
       baseline_trip_nights:     blScored?.trip_nights ?? undefined,
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
       bestInsetFromPool,
+      absence_days:        absenceDays,
+      fine_gbp:             fineGbp,
+      fine_wipes_saving:    fineWipesSaving,
+      net_cost_with_fine:   netCost,
+      net_delta_with_fine:  netDelta,
       lcc_cabin_bag_min_fee: lccCabinBagFees.min,
       lcc_cabin_bag_max_fee: lccCabinBagFees.max,
       partySize,
@@ -225,6 +241,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ...aiResult,
+      winner_absence_days:     selectionContext.winner.absence_days,
+      winner_fine_gbp:         selectionContext.winner.fine_gbp,
+      winner_fine_wipes_saving: fineWipesSaving,
       winner_outbound_date:    selectionContext.winner.outbound_date,
       winner_return_date:      selectionContext.winner.return_date,
       winner_outbound_carrier: selectionContext.winner.outbound_carrier,
