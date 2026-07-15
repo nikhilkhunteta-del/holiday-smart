@@ -24,6 +24,8 @@ export interface AIRecommendationOutput {
   winner_outbound_date?:    string;
   winner_return_date?:      string;
   winner_outbound_carrier?: string;
+  winner_absence_days?:     number;
+  winner_fine_gbp?:         number;
   right_column_cards?: Array<{
     lever: string;
     headline?: string;
