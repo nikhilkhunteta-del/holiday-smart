@@ -1,6 +1,6 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
-import { buildCandidateShortlist, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
+import { buildCandidateShortlist, combinationKey, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
 import { NIGHT_VALUE, ARRIVAL_PENALTY, OUT_DEP_PENALTY, RET_DEP_PENALTY, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
@@ -1194,6 +1194,38 @@ export async function assembleRecommendation(
   const netCost  = winnerTotal + fineGbp;
   const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
 
+  // ── Best alternative that avoids the fine (or just the runner-up) ────────
+  const winnerCombinationKey = combinationKey(winner);
+  const alternatives = base.scoredPool
+    .filter(c =>
+      !(c as any).is_baseline &&
+      combinationKey(c) !== winnerCombinationKey &&
+      (absenceDays > 0 ? c.absence_days === 0 : true),
+    )
+    .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+  const bestNoFineAlternative = alternatives[0] ?? null;
+
+  const fmtDateLong = (iso: string): string => {
+    const d = new Date(iso + 'T00:00:00');
+    const dayName = d.toLocaleDateString('en-GB', { weekday: 'long' });
+    return `${dayName} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
+  };
+
+  const altTotalCost = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp) : null;
+  const altCarrier = bestNoFineAlternative
+    ? (bestNoFineAlternative.outbound_carrier === bestNoFineAlternative.return_carrier
+        ? bestNoFineAlternative.outbound_carrier
+        : `${bestNoFineAlternative.outbound_carrier}+${bestNoFineAlternative.return_carrier}`)
+    : null;
+  const altOriginIata = bestNoFineAlternative?.origin_iata ?? null;
+  const altOutboundDateFormatted = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.outbound_date) : null;
+  const altReturnDateFormatted   = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.return_date) : null;
+  const altAbsenceDays = bestNoFineAlternative ? (bestNoFineAlternative.absence_days ?? 0) : null;
+  const altDeltaVsWinner = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp - winnerTotal) : null;
+  const altHasFine = bestNoFineAlternative ? (bestNoFineAlternative.absence_days ?? 0) > 0 : false;
+  const altRetDepTime = bestNoFineAlternative?.return_departure_time?.slice(0, 5) ?? null;
+  const altArrQ = bestNoFineAlternative?.arrival_quality ?? null;
+
   // AI receives shortlist — not all 128 combinations
   const aiRecommendation = await getAIRecommendation(base.shortlist, {
     schoolName,
@@ -1215,6 +1247,16 @@ export async function assembleRecommendation(
     fine_wipes_saving:    fineWipesSaving,
     net_cost_with_fine:   netCost,
     net_delta_with_fine:  netDelta,
+    alt_total_cost:               altTotalCost,
+    alt_carrier:                  altCarrier,
+    alt_origin_iata:               altOriginIata,
+    alt_outbound_date_formatted:  altOutboundDateFormatted,
+    alt_return_date_formatted:    altReturnDateFormatted,
+    alt_absence_days:              altAbsenceDays,
+    alt_delta_vs_winner:           altDeltaVsWinner,
+    alt_has_fine:                  altHasFine,
+    alt_ret_dep_time:              altRetDepTime,
+    alt_arr_q:                     altArrQ,
     trueCheapest_total_cost:  base.cheapestViable?.total_cost_gbp,
     trueCheapest_trip_nights: base.cheapestViable
       ? Math.round(

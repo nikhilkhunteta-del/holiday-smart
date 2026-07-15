@@ -65,6 +65,18 @@ export interface FamilyContext {
   fine_wipes_saving: boolean;
   net_cost_with_fine: number;  // winner total + fine
   net_delta_with_fine: number; // net_cost - baseline_allin, positive = worse off
+  // Best alternative option (avoids the fine when the winner has one,
+  // otherwise just the runner-up) — computed in assembleRecommendation.ts
+  alt_total_cost: number | null;
+  alt_carrier: string | null;
+  alt_origin_iata: string | null;
+  alt_outbound_date_formatted: string | null;
+  alt_return_date_formatted: string | null;
+  alt_absence_days: number | null;
+  alt_delta_vs_winner: number | null; // alt_total - winner_total, positive = more expensive
+  alt_has_fine: boolean;
+  alt_ret_dep_time: string | null;
+  alt_arr_q: string | null;
   trueCheapest_total_cost?:  number;
   trueCheapest_trip_nights?: number;
   trueCheapest_outbound?:    string;
@@ -1249,18 +1261,62 @@ One sentence. Specific. No carrier saving numbers.`,
 
   // ── Override card set for significant / found_saving ───────────────────
   // The problem statement, headline, and subheadline already carry the
-  // saving breakdown, so this card set starts at the trade-off: the single
+  // saving breakdown. Card set: the best alternative option (avoids the fine
+  // when the winner has one, otherwise the runner-up), the single
   // highest-priority trade-off, a penalty notice (when absence is involved),
   // and the inset-day alternative (when it's cheaper than the winner and
   // isn't the winner itself). Replaces the old split_carrier / transport /
-  // selection_story narration cards entirely. Card 1's old slot ("How the
-  // saving works") becomes the alternative-option card in a follow-up.
+  // selection_story narration cards entirely.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
     const blAllinForCards    = context.baseline_allin ?? round(recommended.total_cost_gbp);
     const winnerTotalRounded = round(recommended.total_cost_gbp);
     const savingForCards     = blAllinForCards - winnerTotalRounded;
+
+    // Card 1 — Alternative option (avoids the fine when the winner has one,
+    // otherwise just the runner-up). Only rendered when one exists.
+    if (context.alt_total_cost != null) {
+      const altTotalCost = context.alt_total_cost;
+      const altDelta = context.alt_delta_vs_winner ?? 0;
+      const altHeadline = absenceDays > 0
+        ? 'If you want to avoid the fine'
+        : 'Next best option';
+
+      const sentence1 = `${context.alt_carrier} on ${context.alt_outbound_date_formatted} → ${context.alt_return_date_formatted} costs £${altTotalCost} all-in — £${Math.abs(altDelta)} ${altDelta >= 0 ? 'more' : 'less'} than this recommendation.`;
+
+      const sentence2 = absenceDays > 0 && context.alt_absence_days === 0
+        ? 'No school days missed — avoids the penalty notice entirely.'
+        : context.alt_arr_q === 'excellent' || context.alt_arr_q === 'good'
+        ? `Better arrival timing — ${context.alt_arr_q} arrival quality.`
+        : 'Different dates with comparable timing.';
+
+      const altRetHour = context.alt_ret_dep_time ? parseInt(context.alt_ret_dep_time.slice(0, 2)) : null;
+      const sentence3 = altRetHour != null && altRetHour < 6
+        ? `The return also departs very early from ${destinationName} at ${context.alt_ret_dep_time}.`
+        : altDelta > 100
+        ? `The price gap is significant — worth checking the date matrix to see if it fits your window.`
+        : null;
+
+      const facts: Record<string, string | number | boolean | null> = {
+        locked_headline: altHeadline,
+        sentence_1: sentence1,
+        sentence_2: sentence2,
+      };
+      if (sentence3) facts.sentence_3 = sentence3;
+
+      nonBaselineCards.push({
+        lever: 'alternative_option',
+        headline_hint: altHeadline,
+        voice: sentence3
+          ? `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences maximum. Use exact figures. Do not add context beyond what is listed.`
+          : `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not add a third sentence. Use exact figures. Do not add context beyond what is listed.`,
+        facts,
+        verified_field: 'total_cost_gbp',
+        verified_value: altTotalCost,
+        saving_gbp: null,
+      });
+    }
 
     // Card 2 — The one trade-off that matters most
     {
