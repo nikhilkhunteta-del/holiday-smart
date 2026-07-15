@@ -1248,41 +1248,19 @@ One sentence. Specific. No carrier saving numbers.`,
   }
 
   // ── Override card set for significant / found_saving ───────────────────
-  // These categories get a fixed 4-card set: how the saving works, the single
-  // highest-priority trade-off, the all-in-trap explainer (when it fires),
-  // and the inset-day alternative (when the winner isn't already the inset
-  // option). Replaces the old split_carrier / transport / selection_story
-  // narration cards entirely.
+  // The problem statement, headline, and subheadline already carry the
+  // saving breakdown, so this card set starts at the trade-off: the single
+  // highest-priority trade-off, a penalty notice (when absence is involved),
+  // and the inset-day alternative (when it's cheaper than the winner and
+  // isn't the winner itself). Replaces the old split_carrier / transport /
+  // selection_story narration cards entirely. Card 1's old slot ("How the
+  // saving works") becomes the alternative-option card in a follow-up.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
-    const blOriginForCards   = context.baseline_origin_iata ?? 'LHR';
     const blAllinForCards    = context.baseline_allin ?? round(recommended.total_cost_gbp);
     const winnerTotalRounded = round(recommended.total_cost_gbp);
     const savingForCards     = blAllinForCards - winnerTotalRounded;
-    const cabinBagsCount     = context.cabinBags ?? 2;
-    const cabinBagWord       = cabinBagsCount === 1 ? 'cabin bag' : 'cabin bags';
-
-    // Card 1 — How the saving works
-    {
-      const s1 = `The Saturday ${blOriginForCards} option costs £${blAllinForCards} all-in — fare, ${cabinBagsCount} ${cabinBagWord}, transit to ${blOriginForCards}, and the ${destinationName} transfer.`;
-      const s2 = `Flying ${cn(recommended.outbound_carrier)} from ${recommended.origin_iata} on ${fmtD(recommended.outbound_date)} and returning ${cn(recommended.return_carrier)} on ${fmtD(recommended.return_date)} comes to £${winnerTotalRounded} under the same accounting.`;
-      const s3 = `That's £${savingForCards} less.`;
-      nonBaselineCards.push({
-        lever: 'saving_explainer',
-        headline_hint: 'How the saving works',
-        voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Do not mention carrier mixing, routing logic, or transit mode decisions. Three sentences only.`,
-        facts: {
-          locked_headline: 'How the saving works',
-          sentence_1: s1,
-          sentence_2: s2,
-          sentence_3: s3,
-        },
-        verified_field: 'total_cost_gbp',
-        verified_value: winnerTotalRounded,
-        saving_gbp: savingForCards,
-      });
-    }
 
     // Card 2 — The one trade-off that matters most
     {
