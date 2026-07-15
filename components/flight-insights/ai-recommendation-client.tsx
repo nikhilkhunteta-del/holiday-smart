@@ -525,8 +525,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   // Right column notes come from right_column_cards
   // (set by getAIRecommendation) — not lever_insights
   const rightColCards = aiResult?.right_column_cards ?? [];
-  const earlyReturnNote = rightColCards
-    .find(c => c.lever === 'early_return_warning') ?? null;
   const transitNote = rightColCards
     .find(c => c.lever === 'transit_changes') ?? null;
 
@@ -1083,38 +1081,21 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           </div>
 
           {/* Right column notes */}
-          {(earlyReturnNote || transitNote) && (
+          {transitNote && (
             <div className="flex flex-col gap-md mt-lg">
-              {earlyReturnNote && (
-                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
-                  <span className="material-symbols-outlined text-secondary">
-                    schedule
-                  </span>
-                  <div>
-                    <div className="font-label-sm text-label-sm font-bold uppercase text-secondary mb-1">
-                      Early departure
-                    </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-                      {earlyReturnNote.insight}
-                    </p>
+              <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
+                <span className="material-symbols-outlined text-primary">
+                  transfer_within_a_station
+                </span>
+                <div>
+                  <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
+                    Getting home
                   </div>
+                  <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
+                    {transitNote.insight}
+                  </p>
                 </div>
-              )}
-              {transitNote && (
-                <div className="p-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex gap-md items-start">
-                  <span className="material-symbols-outlined text-primary">
-                    transfer_within_a_station
-                  </span>
-                  <div>
-                    <div className="font-label-sm text-label-sm font-bold uppercase text-primary mb-1">
-                      Getting home
-                    </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-                      {transitNote.insight}
-                    </p>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           )}
 
