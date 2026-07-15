@@ -436,11 +436,6 @@ export async function getAIRecommendation(
   const fineWipesSaving  = context.fine_wipes_saving ?? false;
   const netCostWithFine  = context.net_cost_with_fine  ?? round(recommended.total_cost_gbp);
   const netDeltaWithFine = context.net_delta_with_fine ?? 0;
-  const dayWord = absenceDays === 1 ? 'day' : 'days';
-  const savingForBranches = context.baseline_allin != null
-    ? round(context.baseline_allin - recommended.total_cost_gbp)
-    : 0;
-  const netSavingAfterFine = savingForBranches - fineGbp;
 
   // ── Winner vs best-inset-in-pool identity check ─────────────────────────
   const winnerKey = combinationKey(recommended);
@@ -1467,23 +1462,16 @@ One sentence. Specific. No carrier saving numbers.`,
   })();
 
   // ── Problem statement for significant/found_saving — pre-resolved in TS ──
-  // Branch A: absence fine equals or exceeds the flight saving.
-  // Branch B: absence required but the fine doesn't wipe out the saving.
-  // Branch C: no absence involved — unmodified standard copy.
+  // Fixed three-sentence template. No fine mention — that lives in Card 3.
   const winnerTotalForPS = round(recommended.total_cost_gbp);
   const blOriginForPS    = context.baseline_origin_iata ?? 'LHR';
-  const insetAppendSentence = winnerIsInsetOption
-    ? ` Then append this exact sentence at the end: "This option departs on the inset day, giving your family an extra day in ${destinationName}."`
-    : '';
+  const BASELINE_CITY_NAMES: Record<string, string> = {
+    LHR: 'Heathrow', LGW: 'Gatwick', LTN: 'Luton', STN: 'Stansted', LCY: 'City airport',
+  };
+  const baselineOriginCity = BASELINE_CITY_NAMES[blOriginForPS] ?? blOriginForPS;
 
-  const otherwiseProblemStatement = fineWipesSaving
-    ? `Write the problem statement as EXACTLY this sentence, no changes:
-"We found ${destinationName} for £${winnerTotalForPS} all-in — £${savingForBranches} less on flights than the Saturday ${blOriginForPS} booking. But this option includes ${absenceDays} school ${dayWord} of absence. If your school issues a penalty notice (£${fineGbp} for ${absenceDays} ${dayWord}), the net cost becomes £${netCostWithFine} — £${netDeltaWithFine} more than doing nothing. Most parents take this risk. But you should know the numbers before you book."${insetAppendSentence}`
-    : absenceDays > 0
-    ? `Write the problem statement as EXACTLY this sentence, no changes:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${blOriginForPS} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${winnerTotalForPS} — £${savingForBranches} less, once bags, transit, and transfers are counted. This option includes ${absenceDays} school ${dayWord} of absence — your borough's penalty notice is £${fineGbp} if applied, leaving a net saving of £${netSavingAfterFine}."${insetAppendSentence}`
-    : `Write the problem statement as EXACTLY this sentence, no changes:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${blOriginForPS} to ${destinationName}, departing ${baselineDepartureLabel || 'the first Saturday'}. The real all-in cost is £${context.baseline_allin ?? 'unknown'}. We found a better-value option for £${winnerTotalForPS} — £${savingForBranches} less, once bags, transit, and transfers are counted."${insetAppendSentence}`;
+  const otherwiseProblemStatement = `Write the problem statement as EXACTLY this sentence, no changes:
+"The nearest airport to your school is ${baselineOriginCity} — what most ${context.borough ?? 'London'} families use. A Saturday return from ${blOriginForPS} to ${destinationName} costs £${context.baseline_allin ?? 'unknown'} all-in once bags, transit, and transfers are counted. We found a better option for £${winnerTotalForPS}."`;
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
