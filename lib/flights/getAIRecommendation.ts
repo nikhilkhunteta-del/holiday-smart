@@ -77,6 +77,29 @@ export interface FamilyContext {
   alt_has_fine: boolean;
   alt_ret_dep_time: string | null;
   alt_arr_q: string | null;
+  // Quality context for the "why this over the alternatives" card.
+  // Winner fields duplicate what's already on `recommended` inside
+  // getAIRecommendation, but are threaded through FamilyContext too since
+  // this is the shape assembleRecommendation.ts hands off.
+  winner_out_dep_time: string;
+  winner_out_dep_quality: string;
+  winner_arr_time: string;
+  winner_arr_quality: string;
+  winner_ret_dep_time: string;
+  winner_ret_dep_quality: string;
+  // baseline_out_dep_quality / baseline_arr_quality / baseline_out_arr_time
+  // already exist below — only the baseline's departure *time* was missing.
+  baseline_out_dep_time?: string;
+  // Best alternative quality — alt_arr_q / alt_ret_dep_time already exist
+  // above; these fill in the outbound side and the return quality tier
+  // needed by the departure/return contrast logic.
+  alt_out_dep_quality: string | null;
+  alt_out_dep_time: string | null;
+  alt_arr_time: string | null;
+  alt_ret_dep_quality: string | null;
+  // Pre-computed single most meaningful quality contrast — see
+  // winner_quality_advantage derivation in assembleRecommendation.ts.
+  winner_quality_advantage: string;
   trueCheapest_total_cost?:  number;
   trueCheapest_trip_nights?: number;
   trueCheapest_outbound?:    string;
@@ -1261,12 +1284,13 @@ One sentence. Specific. No carrier saving numbers.`,
 
   // ── Override card set for significant / found_saving ───────────────────
   // The problem statement, headline, and subheadline already carry the
-  // saving breakdown. Card set: the best alternative option (avoids the fine
-  // when the winner has one, otherwise the runner-up), the single
-  // highest-priority trade-off, a penalty notice (when absence is involved),
-  // and the inset-day alternative (when it's cheaper than the winner and
-  // isn't the winner itself). Replaces the old split_carrier / transport /
-  // selection_story narration cards entirely.
+  // saving breakdown. Card set: why this beats the alternatives on quality,
+  // the best alternative option (avoids the fine when the winner has one,
+  // otherwise the runner-up), the single highest-priority trade-off, a
+  // penalty notice (when absence is involved), and the inset-day
+  // alternative (when it's cheaper than the winner and isn't the winner
+  // itself). Replaces the old split_carrier / transport / selection_story
+  // narration cards entirely.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
@@ -1274,7 +1298,52 @@ One sentence. Specific. No carrier saving numbers.`,
     const winnerTotalRounded = round(recommended.total_cost_gbp);
     const savingForCards     = blAllinForCards - winnerTotalRounded;
 
-    // Card 1 — Alternative option (avoids the fine when the winner has one,
+    // Card 1 — Why this over the alternatives
+    {
+      const advantage = context.winner_quality_advantage;
+      const originCity = an(recommended.origin_iata);
+      const baselineOriginIata = context.baseline_origin_iata ?? 'LHR';
+      const humanize = (q: string) => q.replace(/_/g, ' ');
+
+      let sentence1: string;
+      let sentence2: string;
+      let sentence3: string;
+
+      if (advantage === 'departure_vs_baseline') {
+        sentence1 = `The ${context.winner_out_dep_time} departure from ${originCity} is the best timing we found for this window — no pre-dawn airport run.`;
+        sentence2 = `The Saturday ${baselineOriginIata} option departs at ${context.baseline_out_dep_time ?? 'unknown'} — a ${humanize(context.baseline_out_dep_quality ?? '')} start that means a very early taxi with the family.`;
+        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} by mid-afternoon with the whole day ahead.`;
+      } else if (advantage === 'arrival_vs_alternative') {
+        sentence1 = `This combination arrives ${destinationName} at ${context.winner_arr_time} — you're checked in and out for the afternoon.`;
+        sentence2 = `The next cheapest option arrives at ${context.alt_arr_time ?? 'much later'} — you lose most of your first day.`;
+        sentence3 = `The ${context.winner_out_dep_time} departure is the trade-off, but the arrival makes it worth it.`;
+      } else if (advantage === 'return_vs_alternative') {
+        sentence1 = `The return departs ${destinationName} at ${context.winner_ret_dep_time} — your last day stays intact.`;
+        sentence2 = `Cheaper alternatives return at ${context.alt_ret_dep_time ?? 'much earlier'} — a very early start that cuts your final day short.`;
+        sentence3 = `This combination keeps the cost down without sacrificing the return.`;
+      } else {
+        sentence1 = `We scored ${combCount} combinations on both cost and timing — departure hour, arrival quality, and transit changes.`;
+        sentence2 = `Quality was similar across the top options for this window.`;
+        sentence3 = `This combination came out best on total all-in cost once bags, transit, and transfers were counted.`;
+      }
+
+      nonBaselineCards.push({
+        lever: 'quality_advantage',
+        headline_hint: 'Why this over the alternatives',
+        voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Do not list all quality scores — the card is already built around the single most meaningful contrast. Three sentences only.`,
+        facts: {
+          locked_headline: 'Why this over the alternatives',
+          sentence_1: sentence1,
+          sentence_2: sentence2,
+          sentence_3: sentence3,
+        },
+        verified_field: 'arrival_quality',
+        verified_value: recommended.arrival_quality ?? '',
+        saving_gbp: null,
+      });
+    }
+
+    // Card 2 — Alternative option (avoids the fine when the winner has one,
     // otherwise just the runner-up). Only rendered when one exists.
     if (context.alt_total_cost != null) {
       const altTotalCost = context.alt_total_cost;
@@ -1318,7 +1387,7 @@ One sentence. Specific. No carrier saving numbers.`,
       });
     }
 
-    // Card 2 — The one trade-off that matters most
+    // Card 3 — The one trade-off that matters most
     {
       type TradeoffType = 'early_return' | 'early_outbound' | 'split_booking' | 'timing_summary';
       const tradeoffType: TradeoffType =
@@ -1401,7 +1470,7 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 3 — Penalty notice (replaces the deleted sidebar absence notice;
+    // Card 4 — Penalty notice (replaces the deleted sidebar absence notice;
     // only fires when the winner actually requires absence).
     if (absenceDays > 0) {
       const outboundDateFormatted = fmtDLong(recommended.outbound_date);
@@ -1442,7 +1511,7 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 4 — Inset day option (only when it exists, is cheaper than the
+    // Card 5 — Inset day option (only when it exists, is cheaper than the
     // winner, and isn't the winner itself — see showInsetCard above)
     if (showInsetCard && insetFromPool) {
       const insetRetDepTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';

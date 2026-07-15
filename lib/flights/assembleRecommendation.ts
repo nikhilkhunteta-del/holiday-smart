@@ -1226,6 +1226,44 @@ export async function assembleRecommendation(
   const altRetDepTime = bestNoFineAlternative?.return_departure_time?.slice(0, 5) ?? null;
   const altArrQ = bestNoFineAlternative?.arrival_quality ?? null;
 
+  // ── Quality context for the "why this over the alternatives" card ────────
+  // winner (AssembledCombination) doesn't carry quality fields at the type
+  // level, but the runtime object is always the scored-pool winner.
+  const winnerScored = winner as any;
+  const winnerOutDepTime    = winnerScored.outbound_departure_time?.toString().slice(0, 5) ?? '';
+  const winnerOutDepQuality = winnerScored.outbound_departure_quality ?? '';
+  const winnerArrTime       = winnerScored.outbound_arrival_time?.toString().slice(0, 5) ?? '';
+  const winnerArrQuality    = winnerScored.arrival_quality ?? '';
+  const winnerRetDepTime    = winnerScored.return_departure_time?.toString().slice(0, 5) ?? '';
+  const winnerRetDepQuality = winnerScored.return_departure_quality ?? '';
+
+  const blScored = base.scoredPool.find(c => (c as any).is_baseline);
+  const baselineOutDepTime    = base.baselineAsCombination?.outbound_departure_time?.toString().slice(0, 5) ?? undefined;
+  const baselineOutDepQuality = blScored?.outbound_departure_quality ?? undefined;
+
+  const altOutDepQuality = bestNoFineAlternative?.outbound_departure_quality ?? null;
+  const altOutDepTime    = bestNoFineAlternative?.outbound_departure_time?.toString().slice(0, 5) ?? null;
+  const altArrTime       = bestNoFineAlternative?.outbound_arrival_time?.toString().slice(0, 5) ?? null;
+  const altRetDepQuality = bestNoFineAlternative?.return_departure_quality ?? null;
+
+  // Single most meaningful quality contrast — first matching rule wins,
+  // falling through to cost_driven when nothing distinctive applies.
+  const winnerQualityAdvantage: string = (() => {
+    if (winnerOutDepQuality === 'ideal' && baselineOutDepQuality === 'very_early') {
+      return 'departure_vs_baseline';
+    }
+    if (
+      (winnerArrQuality === 'excellent' || winnerArrQuality === 'good') &&
+      (altArrQ === 'acceptable' || altArrQ === 'poor')
+    ) {
+      return 'arrival_vs_alternative';
+    }
+    if (winnerRetDepQuality !== 'very_early' && altRetDepQuality === 'very_early') {
+      return 'return_vs_alternative';
+    }
+    return 'cost_driven';
+  })();
+
   // AI receives shortlist — not all 128 combinations
   const aiRecommendation = await getAIRecommendation(base.shortlist, {
     schoolName,
@@ -1257,6 +1295,18 @@ export async function assembleRecommendation(
     alt_has_fine:                  altHasFine,
     alt_ret_dep_time:              altRetDepTime,
     alt_arr_q:                     altArrQ,
+    winner_out_dep_time:      winnerOutDepTime,
+    winner_out_dep_quality:   winnerOutDepQuality,
+    winner_arr_time:          winnerArrTime,
+    winner_arr_quality:       winnerArrQuality,
+    winner_ret_dep_time:      winnerRetDepTime,
+    winner_ret_dep_quality:   winnerRetDepQuality,
+    baseline_out_dep_time:    baselineOutDepTime,
+    alt_out_dep_quality:      altOutDepQuality,
+    alt_out_dep_time:         altOutDepTime,
+    alt_arr_time:             altArrTime,
+    alt_ret_dep_quality:      altRetDepQuality,
+    winner_quality_advantage: winnerQualityAdvantage,
     trueCheapest_total_cost:  base.cheapestViable?.total_cost_gbp,
     trueCheapest_trip_nights: base.cheapestViable
       ? Math.round(

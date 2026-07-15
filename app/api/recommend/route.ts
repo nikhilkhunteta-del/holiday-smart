@@ -225,6 +225,44 @@ export async function POST(request: NextRequest) {
     const altRetDepTime = bestNoFineAlternative?.return_departure_time?.slice(0, 5) ?? null;
     const altArrQ = bestNoFineAlternative?.arrival_quality ?? null;
 
+    // ── Quality context for the "why this over the alternatives" card ──────
+    // selectionContext.winner (ScoredCombination) carries the quality fields
+    // that assembled.recommendation's AssembledCombination type doesn't —
+    // same underlying object.
+    const winnerScored = selectionContext.winner;
+    const winnerOutDepTime    = winnerScored.outbound_departure_time?.toString().slice(0, 5) ?? '';
+    const winnerOutDepQuality = winnerScored.outbound_departure_quality ?? '';
+    const winnerArrTime       = winnerScored.outbound_arrival_time?.toString().slice(0, 5) ?? '';
+    const winnerArrQuality    = winnerScored.arrival_quality ?? '';
+    const winnerRetDepTime    = winnerScored.return_departure_time?.toString().slice(0, 5) ?? '';
+    const winnerRetDepQuality = winnerScored.return_departure_quality ?? '';
+
+    const baselineOutDepTime    = bl?.outbound_departure_time?.toString().slice(0, 5) ?? undefined;
+    const baselineOutDepQuality = blScored?.outbound_departure_quality ?? undefined;
+
+    const altOutDepQuality = bestNoFineAlternative?.outbound_departure_quality ?? null;
+    const altOutDepTime    = bestNoFineAlternative?.outbound_departure_time?.toString().slice(0, 5) ?? null;
+    const altArrTime       = bestNoFineAlternative?.outbound_arrival_time?.toString().slice(0, 5) ?? null;
+    const altRetDepQuality = bestNoFineAlternative?.return_departure_quality ?? null;
+
+    // Single most meaningful quality contrast — first matching rule wins,
+    // falling through to cost_driven when nothing distinctive applies.
+    const winnerQualityAdvantage: string = (() => {
+      if (winnerOutDepQuality === 'ideal' && baselineOutDepQuality === 'very_early') {
+        return 'departure_vs_baseline';
+      }
+      if (
+        (winnerArrQuality === 'excellent' || winnerArrQuality === 'good') &&
+        (altArrQ === 'acceptable' || altArrQ === 'poor')
+      ) {
+        return 'arrival_vs_alternative';
+      }
+      if (winnerRetDepQuality !== 'very_early' && altRetDepQuality === 'very_early') {
+        return 'return_vs_alternative';
+      }
+      return 'cost_driven';
+    })();
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -269,6 +307,18 @@ export async function POST(request: NextRequest) {
       alt_has_fine:                  altHasFine,
       alt_ret_dep_time:              altRetDepTime,
       alt_arr_q:                     altArrQ,
+      winner_out_dep_time:      winnerOutDepTime,
+      winner_out_dep_quality:   winnerOutDepQuality,
+      winner_arr_time:          winnerArrTime,
+      winner_arr_quality:       winnerArrQuality,
+      winner_ret_dep_time:      winnerRetDepTime,
+      winner_ret_dep_quality:   winnerRetDepQuality,
+      baseline_out_dep_time:    baselineOutDepTime,
+      alt_out_dep_quality:      altOutDepQuality,
+      alt_out_dep_time:         altOutDepTime,
+      alt_arr_time:             altArrTime,
+      alt_ret_dep_quality:      altRetDepQuality,
+      winner_quality_advantage: winnerQualityAdvantage,
       lcc_cabin_bag_min_fee: lccCabinBagFees.min,
       lcc_cabin_bag_max_fee: lccCabinBagFees.max,
       partySize,
