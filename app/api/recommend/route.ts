@@ -194,6 +194,8 @@ export async function POST(request: NextRequest) {
     const winnerTotal    = recommendation.total_cost_gbp;
     const fineGbp        = recommendation.fine_gbp ?? 0;
     const absenceDays    = recommendation.absence_days ?? 0;
+    const absenceOutDays = recommendation.absence_out_days ?? 0;
+    const absenceRetDays = recommendation.absence_ret_days ?? 0;
     const savingVsBaseline = baselineAllin - winnerTotal;
     const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
     const netCost  = winnerTotal + fineGbp;
@@ -292,6 +294,8 @@ export async function POST(request: NextRequest) {
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
       bestInsetFromPool,
       absence_days:        absenceDays,
+      absence_out_days:    absenceOutDays,
+      absence_ret_days:    absenceRetDays,
       fine_gbp:             fineGbp,
       fine_wipes_saving:    fineWipesSaving,
       net_cost_with_fine:   netCost,

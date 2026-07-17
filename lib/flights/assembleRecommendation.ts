@@ -48,6 +48,8 @@ export type AssembledCombination = {
   destination_taxi_cost_high_gbp:    number | null;
   requires_absence: boolean;
   absence_days: number;
+  absence_out_days: number; // departure before the window opens
+  absence_ret_days: number; // return after the window closes
   fine_gbp: number | null;
   outbound_departure_time: string | null;
   outbound_arrival_time: string | null;
@@ -194,6 +196,8 @@ function mapCombination(
     destination_taxi_cost_high_gbp:    c.destination_taxi_cost_high_gbp ?? null,
     requires_absence: c.requires_absence,
     absence_days: c.absence_days,
+    absence_out_days: c.absence_out_days ?? 0,
+    absence_ret_days: c.absence_ret_days ?? 0,
     fine_gbp: c.fine_gbp,
     outbound_departure_time: c.outbound_departure_time,
     outbound_arrival_time: c.outbound_arrival_time,
@@ -736,6 +740,8 @@ async function buildBaselineAsCombination(
     // definition never requires absence and is never an inset-day departure.
     requires_absence: false,
     absence_days: 0,
+    absence_out_days: 0,
+    absence_ret_days: 0,
     fine_gbp: 0,
     outbound_departure_time: assembledBaseline.outbound_departure_time_parsed,
     outbound_arrival_time:   outArrTime,
@@ -1189,6 +1195,8 @@ export async function assembleRecommendation(
   const winnerTotal    = winner.total_cost_gbp;
   const fineGbp        = winner.fine_gbp ?? 0;
   const absenceDays    = winner.absence_days ?? 0;
+  const absenceOutDays = winner.absence_out_days ?? 0;
+  const absenceRetDays = winner.absence_ret_days ?? 0;
   const savingVsBaseline = baselineAllin - winnerTotal;
   const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
   const netCost  = winnerTotal + fineGbp;
@@ -1280,6 +1288,8 @@ export async function assembleRecommendation(
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
     absence_days:        absenceDays,
+    absence_out_days:    absenceOutDays,
+    absence_ret_days:    absenceRetDays,
     fine_gbp:             fineGbp,
     fine_wipes_saving:    fineWipesSaving,
     net_cost_with_fine:   netCost,

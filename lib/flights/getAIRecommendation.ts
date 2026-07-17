@@ -61,6 +61,8 @@ export interface FamilyContext {
   combinationCount: number;
   // Fine/absence-aware warning fields — computed in assembleRecommendation.ts
   absence_days: number;
+  absence_out_days: number; // departure before the window opens
+  absence_ret_days: number; // return after the window closes
   fine_gbp: number;
   fine_wipes_saving: boolean;
   net_cost_with_fine: number;  // winner total + fine
@@ -1352,7 +1354,22 @@ One sentence. Specific. No carrier saving numbers.`,
     // only fires when the winner actually requires absence).
     if (absenceDays > 0) {
       const outboundDateFormatted = fmtDLong(recommended.outbound_date);
-      const dayWord = absenceDays === 1 ? 'day' : 'days';
+      const returnDateFormatted   = fmtDLong(recommended.return_date);
+      const absenceOutDays = context.absence_out_days ?? 0;
+      const absenceRetDays = context.absence_ret_days ?? 0;
+      const outWord = absenceOutDays === 1 ? 'day' : 'days';
+      const retWord = absenceRetDays === 1 ? 'day' : 'days';
+
+      // Absence can fall on the outbound side (departs before the window
+      // opens), the return side (lands after it closes), or both — never
+      // assume it's the departure just because absence_days > 0.
+      const outboundClause = `The outbound departs ${outboundDateFormatted} — ${absenceOutDays} school ${outWord} before term breaks up`;
+      const returnClause   = `The return lands ${returnDateFormatted} — ${absenceRetDays} school ${retWord} after term resumes`;
+      const absenceSentence1 = absenceOutDays > 0 && absenceRetDays > 0
+        ? `${outboundClause}, and ${returnClause.charAt(0).toLowerCase()}${returnClause.slice(1)}.`
+        : absenceOutDays > 0
+        ? `${outboundClause}.`
+        : `${returnClause}.`;
 
       if (fineWipesSaving) {
         nonBaselineCards.push({
@@ -1361,7 +1378,7 @@ One sentence. Specific. No carrier saving numbers.`,
           voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
           facts: {
             locked_headline: 'Penalty notice',
-            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
+            sentence_1: absenceSentence1,
             sentence_2: `If your school issues a penalty notice, that's £${fineGbp}.`,
             sentence_3: `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`,
             sentence_4: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers before you book.`,
@@ -1378,7 +1395,7 @@ One sentence. Specific. No carrier saving numbers.`,
           voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
           facts: {
             locked_headline: 'Penalty notice',
-            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
+            sentence_1: absenceSentence1,
             sentence_2: `If your school issues a penalty notice, that's £${fineGbp} — your net saving drops to £${savingAfterFine}.`,
             sentence_3: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers.`,
           },
