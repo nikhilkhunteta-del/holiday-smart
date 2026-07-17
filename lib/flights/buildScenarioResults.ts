@@ -125,29 +125,43 @@ export function buildScenarioResults(
     const w = scenarioResults.checked.recommendation;
     const scenarioTotal = round(w.total_cost_gbp);
     const extraCost = scenarioTotal - currentTotal;
+    const netDelta = Math.abs(extraCost);
 
     const expectedBagCost = round(params.firstCheckedBagGbp ?? 0) * 2;
-    const uberXlTriggered = expectedBagCost > 0 && Math.abs(extraCost) > expectedBagCost * 1.5;
-    const uberDelta = uberXlTriggered ? Math.abs(extraCost) - expectedBagCost : 0;
+    // The net delta can diverge from the raw bag fee once the extra bag
+    // shifts the Uber-XL threshold — either adding a surcharge (net > bag
+    // fee) or flipping the recommended transit mode and netting a saving
+    // elsewhere (net < bag fee). Reconcile explicitly in one pre-written
+    // body so the headline (always net) and body never show different
+    // bases — that mismatch was the bug.
+    const offsetAmount   = expectedBagCost > 0 ? expectedBagCost - netDelta : 0;
+    const uberXlTriggered = offsetAmount < 0;
+    const offsetIsSaving  = offsetAmount > 0;
+    const uberXlDelta     = Math.abs(offsetAmount);
+
+    const reconciledBody = uberXlTriggered
+      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — plus £${uberXlDelta} more from the Uber-XL surcharge. Net cost: £${netDelta} more, total £${scenarioTotal}.`
+      : offsetIsSaving
+      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — but changes the Uber-XL threshold, saving £${uberXlDelta} on transit. Net cost: £${netDelta} more, total £${scenarioTotal}.`
+      : `Adding one checked bag costs £${netDelta} more, total £${scenarioTotal}.`;
 
     results.push({
       lever:           'add_checked_bag',
-      locked_headline: uberXlTriggered
-        ? `Add checked bag — £${expectedBagCost} bag fees + £${uberDelta} Uber-XL`
-        : `Add checked bag — £${Math.abs(extraCost)} more`,
+      locked_headline: `Add checked bag — £${netDelta} more`,
       current_total:   currentTotal,
       scenario_total:  scenarioTotal,
       saving:          -extraCost,
       flight_changes:  flightChanged(currentWinner, w),
       facts: {
-        extra_cost:      Math.abs(extraCost),
+        extra_cost:      netDelta,
         scenario_total:  scenarioTotal,
         bags_added:      1,
         flight_changes:  flightChanged(currentWinner, w),
         scenario_carrier: cn(w.outbound_carrier),
         uber_xl_triggered: uberXlTriggered,
         bag_fee_cost:    expectedBagCost,
-        uber_xl_delta:   uberDelta,
+        uber_xl_delta:   uberXlDelta,
+        reconciled_body: reconciledBody,
       },
       url_params: {
         checked_bags: String(params.checkedBags + 1)

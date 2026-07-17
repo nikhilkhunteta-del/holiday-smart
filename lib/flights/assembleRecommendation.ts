@@ -1212,11 +1212,10 @@ export async function assembleRecommendation(
   };
 
   const altTotalCost = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp) : null;
-  const altCarrier = bestNoFineAlternative
-    ? (bestNoFineAlternative.outbound_carrier === bestNoFineAlternative.return_carrier
-        ? bestNoFineAlternative.outbound_carrier
-        : `${bestNoFineAlternative.outbound_carrier}+${bestNoFineAlternative.return_carrier}`)
-    : null;
+  // Raw IATA codes — getAIRecommendation.ts turns these into full carrier
+  // names ("Vueling outbound, Ryanair return") using its own cn() map.
+  const altOutboundCarrier = bestNoFineAlternative?.outbound_carrier ?? null;
+  const altReturnCarrier   = bestNoFineAlternative?.return_carrier ?? null;
   const altOriginIata = bestNoFineAlternative?.origin_iata ?? null;
   const altOutboundDateFormatted = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.outbound_date) : null;
   const altReturnDateFormatted   = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.return_date) : null;
@@ -1286,7 +1285,8 @@ export async function assembleRecommendation(
     net_cost_with_fine:   netCost,
     net_delta_with_fine:  netDelta,
     alt_total_cost:               altTotalCost,
-    alt_carrier:                  altCarrier,
+    alt_outbound_carrier:          altOutboundCarrier,
+    alt_return_carrier:            altReturnCarrier,
     alt_origin_iata:               altOriginIata,
     alt_outbound_date_formatted:  altOutboundDateFormatted,
     alt_return_date_formatted:    altReturnDateFormatted,
