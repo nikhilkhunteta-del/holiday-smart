@@ -475,6 +475,8 @@ BEGIN
         (wa.out_checked_cost_max + wa.ret_checked_cost_max)               AS checked_bag_cost_max,
         fine_calc.departure_absence_days
           + fine_calc.return_absence_days                                 AS absence_days,
+        fine_calc.departure_absence_days                                  AS absence_out_days,
+        fine_calc.return_absence_days                                     AS absence_ret_days,
         fine_calc.fine_gbp,
         fine_calc.requires_absence,
         EXISTS(
@@ -594,6 +596,8 @@ BEGIN
         -- ── Absence & fine ────────────────────────────────────────────────────
         'requires_absence',              f.requires_absence,
         'absence_days',                  f.absence_days,
+        'absence_out_days',              f.absence_out_days,
+        'absence_ret_days',              f.absence_ret_days,
         'fine_gbp',                      f.fine_gbp,
         -- ── Flight times ──────────────────────────────────────────────────────
         'outbound_departure_time',       to_char(f.out_dep_time, 'HH24:MI'),

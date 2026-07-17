@@ -1,6 +1,6 @@
 import { getTransitCost, type AirportTransitCost } from './transitCost';
 import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecommendation';
-import { buildCandidateShortlist, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
+import { buildCandidateShortlist, combinationKey, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
 import { NIGHT_VALUE, ARRIVAL_PENALTY, OUT_DEP_PENALTY, RET_DEP_PENALTY, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
@@ -48,6 +48,8 @@ export type AssembledCombination = {
   destination_taxi_cost_high_gbp:    number | null;
   requires_absence: boolean;
   absence_days: number;
+  absence_out_days: number; // departure before the window opens
+  absence_ret_days: number; // return after the window closes
   fine_gbp: number | null;
   outbound_departure_time: string | null;
   outbound_arrival_time: string | null;
@@ -194,6 +196,8 @@ function mapCombination(
     destination_taxi_cost_high_gbp:    c.destination_taxi_cost_high_gbp ?? null,
     requires_absence: c.requires_absence,
     absence_days: c.absence_days,
+    absence_out_days: c.absence_out_days ?? 0,
+    absence_ret_days: c.absence_ret_days ?? 0,
     fine_gbp: c.fine_gbp,
     outbound_departure_time: c.outbound_departure_time,
     outbound_arrival_time: c.outbound_arrival_time,
@@ -736,6 +740,8 @@ async function buildBaselineAsCombination(
     // definition never requires absence and is never an inset-day departure.
     requires_absence: false,
     absence_days: 0,
+    absence_out_days: 0,
+    absence_ret_days: 0,
     fine_gbp: 0,
     outbound_departure_time: assembledBaseline.outbound_departure_time_parsed,
     outbound_arrival_time:   outArrTime,
@@ -1189,10 +1195,81 @@ export async function assembleRecommendation(
   const winnerTotal    = winner.total_cost_gbp;
   const fineGbp        = winner.fine_gbp ?? 0;
   const absenceDays    = winner.absence_days ?? 0;
+  const absenceOutDays = winner.absence_out_days ?? 0;
+  const absenceRetDays = winner.absence_ret_days ?? 0;
   const savingVsBaseline = baselineAllin - winnerTotal;
   const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
   const netCost  = winnerTotal + fineGbp;
   const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
+
+  // ── Best alternative that avoids the fine (or just the runner-up) ────────
+  const winnerCombinationKey = combinationKey(winner);
+  const alternatives = base.scoredPool
+    .filter(c =>
+      !(c as any).is_baseline &&
+      combinationKey(c) !== winnerCombinationKey &&
+      (absenceDays > 0 ? c.absence_days === 0 : true),
+    )
+    .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+  const bestNoFineAlternative = alternatives[0] ?? null;
+
+  const fmtDateLong = (iso: string): string => {
+    const d = new Date(iso + 'T00:00:00');
+    const dayName = d.toLocaleDateString('en-GB', { weekday: 'long' });
+    return `${dayName} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
+  };
+
+  const altTotalCost = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp) : null;
+  // Raw IATA codes — getAIRecommendation.ts turns these into full carrier
+  // names ("Vueling outbound, Ryanair return") using its own cn() map.
+  const altOutboundCarrier = bestNoFineAlternative?.outbound_carrier ?? null;
+  const altReturnCarrier   = bestNoFineAlternative?.return_carrier ?? null;
+  const altOriginIata = bestNoFineAlternative?.origin_iata ?? null;
+  const altOutboundDateFormatted = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.outbound_date) : null;
+  const altReturnDateFormatted   = bestNoFineAlternative ? fmtDateLong(bestNoFineAlternative.return_date) : null;
+  const altAbsenceDays = bestNoFineAlternative ? (bestNoFineAlternative.absence_days ?? 0) : null;
+  const altDeltaVsWinner = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp - winnerTotal) : null;
+  const altHasFine = bestNoFineAlternative ? (bestNoFineAlternative.absence_days ?? 0) > 0 : false;
+  const altRetDepTime = bestNoFineAlternative?.return_departure_time?.slice(0, 5) ?? null;
+  const altArrQ = bestNoFineAlternative?.arrival_quality ?? null;
+
+  // ── Quality context for the "why this over the alternatives" card ────────
+  // winner (AssembledCombination) doesn't carry quality fields at the type
+  // level, but the runtime object is always the scored-pool winner.
+  const winnerScored = winner as any;
+  const winnerOutDepTime    = winnerScored.outbound_departure_time?.toString().slice(0, 5) ?? '';
+  const winnerOutDepQuality = winnerScored.outbound_departure_quality ?? '';
+  const winnerArrTime       = winnerScored.outbound_arrival_time?.toString().slice(0, 5) ?? '';
+  const winnerArrQuality    = winnerScored.arrival_quality ?? '';
+  const winnerRetDepTime    = winnerScored.return_departure_time?.toString().slice(0, 5) ?? '';
+  const winnerRetDepQuality = winnerScored.return_departure_quality ?? '';
+
+  const blScored = base.scoredPool.find(c => (c as any).is_baseline);
+  const baselineOutDepTime    = base.baselineAsCombination?.outbound_departure_time?.toString().slice(0, 5) ?? undefined;
+  const baselineOutDepQuality = blScored?.outbound_departure_quality ?? undefined;
+
+  const altOutDepQuality = bestNoFineAlternative?.outbound_departure_quality ?? null;
+  const altOutDepTime    = bestNoFineAlternative?.outbound_departure_time?.toString().slice(0, 5) ?? null;
+  const altArrTime       = bestNoFineAlternative?.outbound_arrival_time?.toString().slice(0, 5) ?? null;
+  const altRetDepQuality = bestNoFineAlternative?.return_departure_quality ?? null;
+
+  // Single most meaningful quality contrast — first matching rule wins,
+  // falling through to cost_driven when nothing distinctive applies.
+  const winnerQualityAdvantage: string = (() => {
+    if (winnerOutDepQuality === 'ideal' && baselineOutDepQuality === 'very_early') {
+      return 'departure_vs_baseline';
+    }
+    if (
+      (winnerArrQuality === 'excellent' || winnerArrQuality === 'good') &&
+      (altArrQ === 'acceptable' || altArrQ === 'poor')
+    ) {
+      return 'arrival_vs_alternative';
+    }
+    if (winnerRetDepQuality !== 'very_early' && altRetDepQuality === 'very_early') {
+      return 'return_vs_alternative';
+    }
+    return 'cost_driven';
+  })();
 
   // AI receives shortlist — not all 128 combinations
   const aiRecommendation = await getAIRecommendation(base.shortlist, {
@@ -1211,10 +1288,35 @@ export async function assembleRecommendation(
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
     absence_days:        absenceDays,
+    absence_out_days:    absenceOutDays,
+    absence_ret_days:    absenceRetDays,
     fine_gbp:             fineGbp,
     fine_wipes_saving:    fineWipesSaving,
     net_cost_with_fine:   netCost,
     net_delta_with_fine:  netDelta,
+    alt_total_cost:               altTotalCost,
+    alt_outbound_carrier:          altOutboundCarrier,
+    alt_return_carrier:            altReturnCarrier,
+    alt_origin_iata:               altOriginIata,
+    alt_outbound_date_formatted:  altOutboundDateFormatted,
+    alt_return_date_formatted:    altReturnDateFormatted,
+    alt_absence_days:              altAbsenceDays,
+    alt_delta_vs_winner:           altDeltaVsWinner,
+    alt_has_fine:                  altHasFine,
+    alt_ret_dep_time:              altRetDepTime,
+    alt_arr_q:                     altArrQ,
+    winner_out_dep_time:      winnerOutDepTime,
+    winner_out_dep_quality:   winnerOutDepQuality,
+    winner_arr_time:          winnerArrTime,
+    winner_arr_quality:       winnerArrQuality,
+    winner_ret_dep_time:      winnerRetDepTime,
+    winner_ret_dep_quality:   winnerRetDepQuality,
+    baseline_out_dep_time:    baselineOutDepTime,
+    alt_out_dep_quality:      altOutDepQuality,
+    alt_out_dep_time:         altOutDepTime,
+    alt_arr_time:             altArrTime,
+    alt_ret_dep_quality:      altRetDepQuality,
+    winner_quality_advantage: winnerQualityAdvantage,
     trueCheapest_total_cost:  base.cheapestViable?.total_cost_gbp,
     trueCheapest_trip_nights: base.cheapestViable
       ? Math.round(

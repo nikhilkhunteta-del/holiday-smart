@@ -61,10 +61,48 @@ export interface FamilyContext {
   combinationCount: number;
   // Fine/absence-aware warning fields — computed in assembleRecommendation.ts
   absence_days: number;
+  absence_out_days: number; // departure before the window opens
+  absence_ret_days: number; // return after the window closes
   fine_gbp: number;
   fine_wipes_saving: boolean;
   net_cost_with_fine: number;  // winner total + fine
   net_delta_with_fine: number; // net_cost - baseline_allin, positive = worse off
+  // Best alternative option (avoids the fine when the winner has one,
+  // otherwise just the runner-up) — computed in assembleRecommendation.ts
+  alt_total_cost: number | null;
+  alt_outbound_carrier: string | null; // IATA code — humanised at render time
+  alt_return_carrier: string | null;   // IATA code — humanised at render time
+  alt_origin_iata: string | null;
+  alt_outbound_date_formatted: string | null;
+  alt_return_date_formatted: string | null;
+  alt_absence_days: number | null;
+  alt_delta_vs_winner: number | null; // alt_total - winner_total, positive = more expensive
+  alt_has_fine: boolean;
+  alt_ret_dep_time: string | null;
+  alt_arr_q: string | null;
+  // Quality context for the "why this over the alternatives" card.
+  // Winner fields duplicate what's already on `recommended` inside
+  // getAIRecommendation, but are threaded through FamilyContext too since
+  // this is the shape assembleRecommendation.ts hands off.
+  winner_out_dep_time: string;
+  winner_out_dep_quality: string;
+  winner_arr_time: string;
+  winner_arr_quality: string;
+  winner_ret_dep_time: string;
+  winner_ret_dep_quality: string;
+  // baseline_out_dep_quality / baseline_arr_quality / baseline_out_arr_time
+  // already exist below — only the baseline's departure *time* was missing.
+  baseline_out_dep_time?: string;
+  // Best alternative quality — alt_arr_q / alt_ret_dep_time already exist
+  // above; these fill in the outbound side and the return quality tier
+  // needed by the departure/return contrast logic.
+  alt_out_dep_quality: string | null;
+  alt_out_dep_time: string | null;
+  alt_arr_time: string | null;
+  alt_ret_dep_quality: string | null;
+  // Pre-computed single most meaningful quality contrast — see
+  // winner_quality_advantage derivation in assembleRecommendation.ts.
+  winner_quality_advantage: string;
   trueCheapest_total_cost?:  number;
   trueCheapest_trip_nights?: number;
   trueCheapest_outbound?:    string;
@@ -1248,43 +1286,174 @@ One sentence. Specific. No carrier saving numbers.`,
   }
 
   // ── Override card set for significant / found_saving ───────────────────
-  // These categories get a fixed 4-card set: how the saving works, the single
-  // highest-priority trade-off, the all-in-trap explainer (when it fires),
-  // and the inset-day alternative (when the winner isn't already the inset
-  // option). Replaces the old split_carrier / transport / selection_story
-  // narration cards entirely.
+  // The problem statement, headline, and subheadline already carry the
+  // saving breakdown. Order: (1) why this beats the alternatives on
+  // quality, (2) penalty notice and (3) the fine-avoiding alternative —
+  // both only when the winner has absence days, (4) the single
+  // highest-priority trade-off, (5) the inset-day alternative (when it's
+  // cheaper than the winner and isn't the winner itself). With no absence
+  // days, cards 2 and 3 are skipped entirely — order becomes quality →
+  // trade-off (→ inset, when it applies). Replaces the old split_carrier /
+  // transport / selection_story narration cards entirely.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
-    const blOriginForCards   = context.baseline_origin_iata ?? 'LHR';
     const blAllinForCards    = context.baseline_allin ?? round(recommended.total_cost_gbp);
     const winnerTotalRounded = round(recommended.total_cost_gbp);
     const savingForCards     = blAllinForCards - winnerTotalRounded;
-    const cabinBagsCount     = context.cabinBags ?? 2;
-    const cabinBagWord       = cabinBagsCount === 1 ? 'cabin bag' : 'cabin bags';
 
-    // Card 1 — How the saving works
+    // Card 1 — Why this over the alternatives
     {
-      const s1 = `The Saturday ${blOriginForCards} option costs £${blAllinForCards} all-in — fare, ${cabinBagsCount} ${cabinBagWord}, transit to ${blOriginForCards}, and the ${destinationName} transfer.`;
-      const s2 = `Flying ${cn(recommended.outbound_carrier)} from ${recommended.origin_iata} on ${fmtD(recommended.outbound_date)} and returning ${cn(recommended.return_carrier)} on ${fmtD(recommended.return_date)} comes to £${winnerTotalRounded} under the same accounting.`;
-      const s3 = `That's £${savingForCards} less.`;
+      const advantage = context.winner_quality_advantage;
+      const originCity = an(recommended.origin_iata);
+      const baselineOriginIata = context.baseline_origin_iata ?? 'LHR';
+      const humanize = (q: string) => q.replace(/_/g, ' ');
+
+      let sentence1: string;
+      let sentence2: string;
+      let sentence3: string;
+
+      if (advantage === 'departure_vs_baseline') {
+        const [arrH, arrM] = context.winner_arr_time.split(':').map(Number);
+        const arrHourDecimal = (arrH ?? 0) + (arrM ?? 0) / 60;
+        const afternoonLabel = arrHourDecimal < 14.5 ? 'mid-afternoon' : 'late afternoon';
+        sentence1 = `The ${context.winner_out_dep_time} departure from ${originCity} is the best timing we found for this window — no pre-dawn airport run.`;
+        sentence2 = `The Saturday ${baselineOriginIata} option departs at ${context.baseline_out_dep_time ?? 'unknown'} — a ${humanize(context.baseline_out_dep_quality ?? '')} start that means a very early taxi with the family.`;
+        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} by ${afternoonLabel} with the whole day ahead.`;
+      } else if (advantage === 'arrival_vs_alternative') {
+        sentence1 = `This combination arrives ${destinationName} at ${context.winner_arr_time} — you're checked in and out for the afternoon.`;
+        sentence2 = `The next cheapest option arrives at ${context.alt_arr_time ?? 'much later'} — you lose most of your first day.`;
+        sentence3 = `The ${context.winner_out_dep_time} departure is the trade-off, but the arrival makes it worth it.`;
+      } else if (advantage === 'return_vs_alternative') {
+        sentence1 = `The return departs ${destinationName} at ${context.winner_ret_dep_time} — your last day stays intact.`;
+        sentence2 = `Cheaper alternatives return at ${context.alt_ret_dep_time ?? 'much earlier'} — a very early start that cuts your final day short.`;
+        sentence3 = `This combination keeps the cost down without sacrificing the return.`;
+      } else {
+        sentence1 = `We scored ${combCount} combinations on both cost and timing — departure hour, arrival quality, and transit changes.`;
+        sentence2 = `Quality was similar across the top options for this window.`;
+        sentence3 = `This combination came out best on total all-in cost once bags, transit, and transfers were counted.`;
+      }
+
       nonBaselineCards.push({
-        lever: 'saving_explainer',
-        headline_hint: 'How the saving works',
-        voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Do not mention carrier mixing, routing logic, or transit mode decisions. Three sentences only.`,
+        lever: 'quality_advantage',
+        headline_hint: 'Why this over the alternatives',
+        voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Do not list all quality scores — the card is already built around the single most meaningful contrast. Three sentences only.`,
         facts: {
-          locked_headline: 'How the saving works',
-          sentence_1: s1,
-          sentence_2: s2,
-          sentence_3: s3,
+          locked_headline: 'Why this over the alternatives',
+          sentence_1: sentence1,
+          sentence_2: sentence2,
+          sentence_3: sentence3,
         },
-        verified_field: 'total_cost_gbp',
-        verified_value: winnerTotalRounded,
-        saving_gbp: savingForCards,
+        verified_field: 'arrival_quality',
+        verified_value: recommended.arrival_quality ?? '',
+        saving_gbp: null,
       });
     }
 
-    // Card 2 — The one trade-off that matters most
+    // Card 2 — Penalty notice (replaces the deleted sidebar absence notice;
+    // only fires when the winner actually requires absence).
+    if (absenceDays > 0) {
+      const outboundDateFormatted = fmtDLong(recommended.outbound_date);
+      const returnDateFormatted   = fmtDLong(recommended.return_date);
+      const absenceOutDays = context.absence_out_days ?? 0;
+      const absenceRetDays = context.absence_ret_days ?? 0;
+      const outWord = absenceOutDays === 1 ? 'day' : 'days';
+      const retWord = absenceRetDays === 1 ? 'day' : 'days';
+
+      // Absence can fall on the outbound side (departs before the window
+      // opens), the return side (lands after it closes), or both — never
+      // assume it's the departure just because absence_days > 0.
+      const outboundClause = `The outbound departs ${outboundDateFormatted} — ${absenceOutDays} school ${outWord} before term breaks up`;
+      const returnClause   = `The return lands ${returnDateFormatted} — ${absenceRetDays} school ${retWord} after term resumes`;
+      const absenceSentence1 = absenceOutDays > 0 && absenceRetDays > 0
+        ? `${outboundClause}, and ${returnClause.charAt(0).toLowerCase()}${returnClause.slice(1)}.`
+        : absenceOutDays > 0
+        ? `${outboundClause}.`
+        : `${returnClause}.`;
+
+      if (fineWipesSaving) {
+        nonBaselineCards.push({
+          lever: 'penalty_notice',
+          headline_hint: 'Penalty notice',
+          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
+          facts: {
+            locked_headline: 'Penalty notice',
+            sentence_1: absenceSentence1,
+            sentence_2: `If your school issues a penalty notice, that's £${fineGbp}.`,
+            sentence_3: `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`,
+            sentence_4: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers before you book.`,
+          },
+          verified_field: 'fine_gbp',
+          verified_value: fineGbp,
+          saving_gbp: null,
+        });
+      } else {
+        const savingAfterFine = savingForCards - fineGbp;
+        nonBaselineCards.push({
+          lever: 'penalty_notice',
+          headline_hint: 'Penalty notice',
+          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
+          facts: {
+            locked_headline: 'Penalty notice',
+            sentence_1: absenceSentence1,
+            sentence_2: `If your school issues a penalty notice, that's £${fineGbp} — your net saving drops to £${savingAfterFine}.`,
+            sentence_3: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers.`,
+          },
+          verified_field: 'fine_gbp',
+          verified_value: fineGbp,
+          saving_gbp: savingAfterFine,
+        });
+      }
+    }
+
+    // Card 3 — Alternative option (avoids the fine). Only rendered when the
+    // winner has absence days and a fine-free alternative exists.
+    if (absenceDays > 0 && context.alt_total_cost != null) {
+      const altTotalCost = context.alt_total_cost;
+      const altDelta = context.alt_delta_vs_winner ?? 0;
+      const altHeadline = 'If you want to avoid the fine';
+      const altCarrierPhrase = context.alt_outbound_carrier && context.alt_return_carrier
+        ? (context.alt_outbound_carrier === context.alt_return_carrier
+            ? cn(context.alt_outbound_carrier)
+            : `${cn(context.alt_outbound_carrier)} outbound, ${cn(context.alt_return_carrier)} return`)
+        : (context.alt_outbound_carrier ? cn(context.alt_outbound_carrier) : 'This option');
+
+      const sentence1 = `${altCarrierPhrase} on ${context.alt_outbound_date_formatted} → ${context.alt_return_date_formatted} costs £${altTotalCost} all-in — £${Math.abs(altDelta)} ${altDelta >= 0 ? 'more' : 'less'} than this recommendation.`;
+
+      const sentence2 = context.alt_absence_days === 0
+        ? 'No school days missed — avoids the penalty notice entirely.'
+        : context.alt_arr_q === 'excellent' || context.alt_arr_q === 'good'
+        ? `Better arrival timing — ${context.alt_arr_q} arrival quality.`
+        : 'Different dates with comparable timing.';
+
+      const altRetHour = context.alt_ret_dep_time ? parseInt(context.alt_ret_dep_time.slice(0, 2)) : null;
+      const sentence3 = altRetHour != null && altRetHour < 6
+        ? `The return also departs very early from ${destinationName} at ${context.alt_ret_dep_time}.`
+        : altDelta > 100
+        ? `The price gap is significant — worth checking the date matrix to see if it fits your window.`
+        : null;
+
+      const facts: Record<string, string | number | boolean | null> = {
+        locked_headline: altHeadline,
+        sentence_1: sentence1,
+        sentence_2: sentence2,
+      };
+      if (sentence3) facts.sentence_3 = sentence3;
+
+      nonBaselineCards.push({
+        lever: 'alternative_option',
+        headline_hint: altHeadline,
+        voice: sentence3
+          ? `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences maximum. Use exact figures. Do not add context beyond what is listed.`
+          : `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not add a third sentence. Use exact figures. Do not add context beyond what is listed.`,
+        facts,
+        verified_field: 'total_cost_gbp',
+        verified_value: altTotalCost,
+        saving_gbp: null,
+      });
+    }
+
+    // Card 4 — The one trade-off that matters most
     {
       type TradeoffType = 'early_return' | 'early_outbound' | 'split_booking' | 'timing_summary';
       const tradeoffType: TradeoffType =
@@ -1367,48 +1536,7 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 3 — Penalty notice (replaces the deleted sidebar absence notice;
-    // only fires when the winner actually requires absence).
-    if (absenceDays > 0) {
-      const outboundDateFormatted = fmtDLong(recommended.outbound_date);
-      const dayWord = absenceDays === 1 ? 'day' : 'days';
-
-      if (fineWipesSaving) {
-        nonBaselineCards.push({
-          lever: 'penalty_notice',
-          headline_hint: 'Penalty notice',
-          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
-          facts: {
-            locked_headline: 'Penalty notice',
-            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
-            sentence_2: `If your school issues a penalty notice, that's £${fineGbp}.`,
-            sentence_3: `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`,
-            sentence_4: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers before you book.`,
-          },
-          verified_field: 'fine_gbp',
-          verified_value: fineGbp,
-          saving_gbp: null,
-        });
-      } else {
-        const savingAfterFine = savingForCards - fineGbp;
-        nonBaselineCards.push({
-          lever: 'penalty_notice',
-          headline_hint: 'Penalty notice',
-          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
-          facts: {
-            locked_headline: 'Penalty notice',
-            sentence_1: `This option departs ${outboundDateFormatted} — ${absenceDays} school ${dayWord} before your half-term window opens.`,
-            sentence_2: `If your school issues a penalty notice, that's £${fineGbp} — your net saving drops to £${savingAfterFine}.`,
-            sentence_3: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers.`,
-          },
-          verified_field: 'fine_gbp',
-          verified_value: fineGbp,
-          saving_gbp: savingAfterFine,
-        });
-      }
-    }
-
-    // Card 4 — Inset day option (only when it exists, is cheaper than the
+    // Card 5 — Inset day option (only when it exists, is cheaper than the
     // winner, and isn't the winner itself — see showInsetCard above)
     if (showInsetCard && insetFromPool) {
       const insetRetDepTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
@@ -1468,8 +1596,8 @@ One sentence. Specific. No carrier saving numbers.`,
   })();
 
   // ── Problem statement for significant/found_saving — pre-resolved in TS ──
-  // Fixed three-sentence template. No fine mention — that lives in Card 3.
-  const winnerTotalForPS = round(recommended.total_cost_gbp);
+  // Fixed four-sentence template: reference point → true cost → methodology
+  // → finding. No fine mention — that lives in the penalty notice card.
   const blOriginForPS    = context.baseline_origin_iata ?? 'LHR';
   const BASELINE_CITY_NAMES: Record<string, string> = {
     LHR: 'Heathrow', LGW: 'Gatwick', LTN: 'Luton', STN: 'Stansted', LCY: 'City airport',
@@ -1477,7 +1605,7 @@ One sentence. Specific. No carrier saving numbers.`,
   const baselineOriginCity = BASELINE_CITY_NAMES[blOriginForPS] ?? blOriginForPS;
 
   const otherwiseProblemStatement = `Write the problem statement as EXACTLY this sentence, no changes:
-"The nearest airport to your school is ${baselineOriginCity} — what most ${context.borough ?? 'London'} families use. A Saturday return from ${blOriginForPS} to ${destinationName} costs £${context.baseline_allin ?? 'unknown'} all-in once bags, transit, and transfers are counted. We found a better option for £${winnerTotalForPS}."`;
+"When half-term begins, most ${context.borough ?? 'London'} parents open Google Flights and search for the first weekend — ${baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That's £${context.baseline_allin ?? 'unknown'} all-in once bags, transit, and transfers are counted. We checked ${combCount} combinations across five London airports and every viable date to see if you could do better. You can."`;
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
@@ -1626,11 +1754,14 @@ SCENARIO CARDS
 For each scenario below, write ONE sentence (max 20 words)
 describing what the parent gets or saves. Use only the
 values in facts. Copy numbers exactly — never calculate.
+EXCEPTION: if a scenario's facts include reconciled_body, copy that
+string from facts VERBATIM instead — no word limit, do not summarise
+or shorten it.
 
 Rules:
 - travel_light: if bags_included is true, write "${cn(context.baseline_carrier ?? 'BA')} includes cabin bags in the fare, so removing them makes no difference to your total. If you switched to a budget carrier, removing bags would matter — but not here." Otherwise lead with the saving and action
 - skip_seats: mention the caveat (may not sit together)
-- add_checked_bag: if uber_xl_triggered is true, mention both bag fees and Uber-XL surcharge separately
+- add_checked_bag: copy facts.reconciled_body VERBATIM — it already reconciles the bag fee against the net cost so the headline and body never disagree. Never independently mention bag_fee_cost or uber_xl_delta.
 - transport_flip (is_uber scenario, costs more): "Your outbound Uber to {origin_airport} is already included in the £{current_total} — the {outbound_departure_time} departure is early enough that Uber was the better choice. This scenario adds Uber home from {origin_airport} and taxi from {destination_name} airport — door-to-door both ends." Do NOT say "Uber to" the airport — only what changes vs the recommended route.
 - transport_flip (saves money): lead with the saving
 - transport_all_transit: if saves_money is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Saves £{delta}, total £{scenario_total}." If costs_more is true, write "Replaces Uber to {origin_airport} with public transport, even for the {outbound_departure_time} departure. Costs £{delta} more than smart transport, total £{scenario_total}." If delta is 0, write "No Uber in the smart route, so forcing public transport makes no difference."
