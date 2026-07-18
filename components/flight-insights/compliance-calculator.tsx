@@ -318,9 +318,9 @@ export function ComplianceCalculator({
 
       {/* ── 2. Subtitle — dynamic price spread ── */}
       <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
-        {priceSpread != null && priceSpread > 0
-          ? `£${priceSpread.toLocaleString('en-GB')} separates the cheapest and most expensive dates this half-term. Click any cell to see your options.`
-          : 'Click any cell to see your flight options.'}
+        {priceSpread != null
+          ? `£${priceSpread.toLocaleString('en-GB')} separates the best and worst date combinations this half-term. Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.`
+          : 'Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.'}
       </p>
 
       {combinations.length === 0 ? (
