@@ -63,6 +63,7 @@ export interface FamilyContext {
   absence_days: number;
   absence_out_days: number; // departure before the window opens
   absence_ret_days: number; // return after the window closes
+  term_resume_date: string; // day after window_end, formatted "Monday 3 Nov"
   fine_gbp: number;
   fine_wipes_saving: boolean;
   net_cost_with_fine: number;  // winner total + fine
@@ -1362,9 +1363,9 @@ One sentence. Specific. No carrier saving numbers.`,
 
       // Absence can fall on the outbound side (departs before the window
       // opens), the return side (lands after it closes), or both — never
-      // assume it's the departure just because absence_days > 0.
-      const outboundClause = `The outbound departs ${outboundDateFormatted} — ${absenceOutDays} school ${outWord} before term breaks up`;
-      const returnClause   = `The return lands ${returnDateFormatted} — ${absenceRetDays} school ${retWord} after term resumes`;
+      // attribute return-side absence to the departure date or vice versa.
+      const outboundClause = `The outbound departs ${outboundDateFormatted} — ${absenceOutDays} school ${outWord} before the holiday begins`;
+      const returnClause   = `The return lands ${returnDateFormatted} — ${absenceRetDays} school ${retWord} after term resumes on ${context.term_resume_date || 'the resume date'}`;
       const absenceSentence1 = absenceOutDays > 0 && absenceRetDays > 0
         ? `${outboundClause}, and ${returnClause.charAt(0).toLowerCase()}${returnClause.slice(1)}.`
         : absenceOutDays > 0

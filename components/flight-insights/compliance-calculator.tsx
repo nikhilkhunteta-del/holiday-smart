@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useFlightInsights, isAIPick } from './flight-insights-context';
-import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
+import type { AssembledCombination, AssembledBaseline, CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 import { LegOptionsModal, type SelectedCell } from './leg-options-modal';
+import { ComparisonTable } from './comparison-table';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -100,48 +101,20 @@ interface ComplianceCalculatorProps {
   schoolUrn: string;
   transportMode: string;
   postcodeDistrict: string;
-}
-
-// ── Baseline cell ──────────────────────────────────────────────────────────────
-
-function BaselineCell({ total, isSelected, onClick }: { total: number; isSelected?: boolean; onClick?: () => void }) {
-  return (
-    <td
-      onClick={onClick}
-      style={{
-        padding: 8, verticalAlign: 'top',
-        background: '#f2f4f4',
-        border: isSelected ? '2px solid #004349' : '1px solid #bfc8c9',
-        borderRadius: 6,
-        cursor: onClick ? 'pointer' : undefined,
-      }}
-    >
-      {isSelected && (
-        <span style={{
-          fontFamily: 'Inter, sans-serif', fontSize: 9, fontWeight: 600,
-          color: '#004349', display: 'block', letterSpacing: '0.05em',
-          textTransform: 'uppercase', marginBottom: 2,
-        }}>
-          Viewing
-        </span>
-      )}
-      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: '#6f797a', display: 'block' }}>{gbp(total)}</span>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: '#9ba8a9', display: 'block', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: 2 }}>Baseline</span>
-    </td>
-  );
+  // "How we chose these prices" collapsible — omitted entirely when absent.
+  comparisonResult?: CombinationsOnlyResult | null;
 }
 
 // ── Data cell ──────────────────────────────────────────────────────────────────
 
 function DataCell({
-  c, minCost, isRec, isSelected, onClick, baselineNote,
+  c, minCost, isRec, isSelected, onClick,
 }: {
   c: AssembledCombination;
   minCost: number;
   isRec: boolean;
   isSelected: boolean;
   onClick: () => void;
-  baselineNote?: number;
 }) {
   const saving    = c.total_cost_gbp - minCost;
   const { bg, color } = cellColour(saving);
@@ -185,11 +158,6 @@ function DataCell({
             {gbp(c.total_cost_gbp)}
           </span>
           {fineBadge}
-          {baselineNote !== undefined && (
-            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: labelColor === '#004349' ? '#6f797a' : 'rgba(255,255,255,0.7)', display: 'block', marginTop: 3 }}>
-              vs baseline {gbp(baselineNote)}
-            </span>
-          )}
         </div>
       ) : (
         <>
@@ -197,11 +165,6 @@ function DataCell({
             {gbp(c.total_cost_gbp)}
           </span>
           {fineBadge}
-          {baselineNote !== undefined && (
-            <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, color: '#6f797a', display: 'block', marginTop: 3 }}>
-              vs baseline {gbp(baselineNote)}
-            </span>
-          )}
         </>
       )}
     </td>
@@ -279,6 +242,7 @@ export function ComplianceCalculator({
   schoolUrn,
   transportMode,
   postcodeDistrict,
+  comparisonResult,
 }: ComplianceCalculatorProps) {
   const { aiResult }  = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
@@ -306,11 +270,6 @@ export function ComplianceCalculator({
   // ── 7. Row label column: 128px; secondary labels use on-surface-variant ──
   const LABEL_COL_WIDTH = 128;
   const STICKY = { position: 'sticky' as const, left: 0, zIndex: 10 };
-
-  const blOut     = baseline.outbound_date ? fmtShort(baseline.outbound_date) : '';
-  const blRet     = baseline.return_date   ? fmtShort(baseline.return_date)   : '';
-  const blCarrier = carrierName(baseline.carrier ?? '');
-  const blOrigin  = baseline.origin_iata ?? 'LHR';
 
   // ── Cheapest cost across all combinations (for colour coding) ────────────
   const minCost = Math.min(...combinations.map(c => c.total_cost_gbp));
@@ -348,8 +307,7 @@ export function ComplianceCalculator({
 
   return (
     <section
-      className="bg-white rounded-lg"
-      style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
+      style={{ padding: 24 }}
       aria-labelledby="find-cheapest-dates-heading"
     >
       {/* ── 1. Title ── */}
@@ -364,8 +322,8 @@ export function ComplianceCalculator({
       {/* ── 2. Subtitle — dynamic price spread ── */}
       <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
         {priceSpread != null && priceSpread > 0
-          ? `£${priceSpread.toLocaleString('en-GB')} separates the cheapest and most expensive dates this half-term. Click any cell to see your options.`
-          : 'Click any cell to see your flight options.'}
+          ? `£${priceSpread.toLocaleString('en-GB')} separates the best and worst date combinations this half-term. Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.`
+          : 'Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.'}
       </p>
 
       {combinations.length === 0 ? (
@@ -374,13 +332,6 @@ export function ComplianceCalculator({
         </p>
       ) : (
         <>
-          {/* Baseline reference line — hidden when baseline is the recommendation */}
-          {!baselineIsRecommended && (
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#3f484a', marginBottom: 16 }}>
-              Typical Saturday booking: {blCarrier} · {blOrigin} · {blOut}{blRet ? ` → ${blRet}` : ''} · {gbp(baselineTotal)} · no optimisation
-            </p>
-          )}
-
           {/* Matrix */}
           <div style={{ position: 'relative' }}>
             <div style={{
@@ -509,16 +460,6 @@ export function ComplianceCalculator({
                           }
 
                           if (c) {
-                            if (isBaselinePos && baseline.total_cost_gbp <= c.total_inc_fine) {
-                              return (
-                                <BaselineCell
-                                  key={ret}
-                                  total={baseline.total_cost_gbp}
-                                  isSelected={isSelected}
-                                  onClick={() => handleCellClick(dep, ret)}
-                                />
-                              );
-                            }
                             return (
                               <DataCell
                                 key={ret}
@@ -527,17 +468,6 @@ export function ComplianceCalculator({
                                 isRec={isRec}
                                 isSelected={isSelected}
                                 onClick={() => handleCellClick(c.outbound_date, c.return_date)}
-                                baselineNote={isBaselinePos ? baseline.total_cost_gbp : undefined}
-                              />
-                            );
-                          }
-                          if (isBaselinePos) {
-                            return (
-                              <BaselineCell
-                                key={ret}
-                                total={baseline.total_cost_gbp}
-                                isSelected={isSelected}
-                                onClick={() => handleCellClick(dep, ret)}
                               />
                             );
                           }
@@ -564,6 +494,14 @@ export function ComplianceCalculator({
             </div>
             {/* ── 9. Small-print lines removed ── */}
           </div>
+
+          {/* "How we chose these prices" — collapsible detail, merged in from
+              the standalone ComparisonTable section */}
+          {comparisonResult && (
+            <div style={{ marginTop: 16 }}>
+              <ComparisonTable result={comparisonResult} />
+            </div>
+          )}
         </>
       )}
 

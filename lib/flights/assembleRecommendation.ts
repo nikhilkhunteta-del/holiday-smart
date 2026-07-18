@@ -1201,6 +1201,13 @@ export async function assembleRecommendation(
   const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
   const netCost  = winnerTotal + fineGbp;
   const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
+  const termResumeDateIso = windowEnd
+    ? (() => {
+        const d = new Date(windowEnd + 'T00:00:00');
+        d.setDate(d.getDate() + 1);
+        return d.toISOString().slice(0, 10);
+      })()
+    : '';
 
   // ── Best alternative that avoids the fine (or just the runner-up) ────────
   const winnerCombinationKey = combinationKey(winner);
@@ -1218,6 +1225,7 @@ export async function assembleRecommendation(
     const dayName = d.toLocaleDateString('en-GB', { weekday: 'long' });
     return `${dayName} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
   };
+  const termResumeDate = termResumeDateIso ? fmtDateLong(termResumeDateIso) : '';
 
   const altTotalCost = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp) : null;
   // Raw IATA codes — getAIRecommendation.ts turns these into full carrier
@@ -1290,6 +1298,7 @@ export async function assembleRecommendation(
     absence_days:        absenceDays,
     absence_out_days:    absenceOutDays,
     absence_ret_days:    absenceRetDays,
+    term_resume_date:    termResumeDate,
     fine_gbp:             fineGbp,
     fine_wipes_saving:    fineWipesSaving,
     net_cost_with_fine:   netCost,

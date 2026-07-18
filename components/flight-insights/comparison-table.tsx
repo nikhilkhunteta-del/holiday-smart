@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
 import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
@@ -89,6 +88,27 @@ const CARRIER_NAMES: Record<string, string> = {
 
 function carrierName(iata: string): string {
   return CARRIER_NAMES[iata] ?? iata;
+}
+
+// ── Airport city names (for label derivation) ────────────────────────────────
+
+const AIRPORT_CITY_NAMES: Record<string, string> = {
+  LHR: 'Heathrow', LGW: 'Gatwick', LTN: 'Luton', STN: 'Stansted', LCY: 'City',
+};
+
+function airportCity(iata: string): string {
+  return AIRPORT_CITY_NAMES[iata] ?? iata;
+}
+
+// "30 Oct" — no weekday. Distinct from formatDate() below, which includes
+// the weekday and is still used by the Dates row.
+function formatDateNoWeekday(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function formatDateRangeNoWeekday(startIso: string, endIso: string): string {
+  return `${formatDateNoWeekday(startIso)} – ${formatDateNoWeekday(endIso)}`;
 }
 
 // ── Column data extraction ───────────────────────────────────────────────────
@@ -188,6 +208,28 @@ function extractColumn(
     outbound_transit: c.outbound_transit,
     return_transit: c.return_transit,
   };
+}
+
+// ── Label derivation ─────────────────────────────────────────────────────────
+// is_baseline is checked first — above isWinner, above is_inset_day, above
+// everything — so the baseline column always reads "Typical Saturday" even
+// when it also happens to be the winner (baseline_cheapest) or its airport
+// differs from the winner's.
+
+function deriveLabel(col: ColumnData, winner: ColumnData, n: number): string {
+  if (col.isBaseline) return 'Typical Saturday';
+  if (col.isWinner) return 'Recommended';
+  if (col.is_inset_day) return 'Inset day';
+
+  const sameOrigin = col.origin_iata === winner.origin_iata;
+  const sameDates = col.outbound_date === winner.outbound_date &&
+                     col.return_date === winner.return_date;
+  const city = airportCity(col.origin_iata);
+
+  if (sameDates && !sameOrigin) return `Same dates · ${city}`;
+  if (!sameDates && sameOrigin) return formatDateRangeNoWeekday(col.outbound_date, col.return_date);
+  if (!sameDates && !sameOrigin) return `${city} · ${formatDateNoWeekday(col.outbound_date)}`;
+  return `Option ${n}`;
 }
 
 // ── Row definitions ──────────────────────────────────────────────────────────
@@ -379,16 +421,33 @@ const ROWS: RowDef[] = [
         {destTransferDetail(c)}
       </>
     ) },
+  // Only rendered when at least one column has a fine — filtered in the
+  // component below.
+  { key: 'fine', label: 'School absence fine', group: 'costs',
+    renderNode: c => c.fine_gbp > 0
+      ? (
+        <>
+          <span style={{ color: '#92400e', fontWeight: 600 }}>{gbp(c.fine_gbp)}</span>
+          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#92400e' }}>
+            (if applied)
+          </span>
+        </>
+      )
+      : '—' },
+  // Flight cost only — never includes the fine, regardless of whether any
+  // column has one. The fine is broken out in its own row above and in
+  // "Total inc. fine" below.
   { key: 'total', label: 'Total all-in', group: 'costs', bold: true,
     renderNode: c => (
-      <>
-        <span style={{ color: '#784722', fontWeight: 600 }}>{gbp(c.total_inc_fine)}</span>
-        {c.fine_gbp > 0 && (
-          <span className="block text-[11px] font-normal mt-0.5" style={{ color: '#92400e' }}>
-            Includes {gbp(c.fine_gbp)} school absence fine
-          </span>
-        )}
-      </>
+      <span style={{ color: '#784722', fontWeight: 600 }}>{gbp(c.total_cost_gbp)}</span>
+    ) },
+  // Only rendered when at least one column has a fine — filtered in the
+  // component below.
+  { key: 'total_inc_fine', label: 'Total inc. fine', group: 'costs', bold: true,
+    renderNode: c => (
+      <span style={{ color: '#784722', fontWeight: 600 }}>
+        {gbp(c.fine_gbp > 0 ? c.total_cost_gbp + c.fine_gbp : c.total_cost_gbp)}
+      </span>
     ) },
 ];
 
@@ -410,58 +469,44 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
-  const combinationCount = scoredPool.length;
-  const londonAirportSet = new Set(scoredPool.map(c => c.origin_iata));
-  const londonAirportCount = londonAirportSet.size;
-
-  // Build columns directly from result props — no scoredPool lookups
+  // Build columns directly from result props — no scoredPool lookups.
+  // Fixed order: baseline, then winner, then everything else sorted by
+  // total_cost_gbp ascending — so the parent reads left-to-right from
+  // reference point to recommendation to alternatives in cost order.
   const columns: ColumnData[] = [];
 
   if (isBaselineCheapest && baselineAsCombination) {
-    columns.push(extractColumn(baselineAsCombination, 'Recommended', true, true));
+    columns.push(extractColumn(baselineAsCombination, '', true, true));
   } else {
     if (baselineAsCombination) {
-      columns.push(extractColumn(baselineAsCombination, 'Baseline', false, true));
+      columns.push(extractColumn(baselineAsCombination, '', false, true));
     }
-    columns.push(extractColumn(recommendation, 'Recommended', true, false));
+    columns.push(extractColumn(recommendation, '', true, false));
   }
 
   // Add shortlist alternatives (skip if already shown as winner or baseline)
   const shownKeys = new Set(
     columns.map(c => `${c.outbound_date}_${c.return_date}_${c.outbound_carrier}`),
   );
-  const shortlistColumns: ColumnData[] = [];
+  const otherColumns: ColumnData[] = [];
   for (const s of shortlist) {
     const key = `${s.outbound_date}_${s.return_date}_${s.outbound_carrier}`;
     if (shownKeys.has(key)) continue;
-    if (columns.length + shortlistColumns.length >= 5) break;
-    shortlistColumns.push(extractColumn(s, '', false, false));
+    if (columns.length + otherColumns.length >= 5) break;
+    otherColumns.push(extractColumn(s, '', false, false));
     shownKeys.add(key);
   }
+  otherColumns.sort((a, b) => a.total_cost_gbp - b.total_cost_gbp);
 
-  columns.push(...shortlistColumns);
+  columns.push(...otherColumns);
 
-  // Re-derive all column labels using slot priority rules
-  const winnerCol = columns.find(c => c.isWinner);
-  const winnerOrigin = winnerCol?.origin_iata;
-  const usedLabels = new Set<string>();
-  const nonWinnerCosts = columns.filter(c => !c.isWinner).map(c => c.total_cost_gbp);
-  const lowestNonWinnerCost = nonWinnerCosts.length > 0 ? Math.min(...nonWinnerCosts) : Infinity;
+  // Derive every column's label from the finalised order.
+  const winnerCol = columns.find(c => c.isWinner) ?? columns[0];
   let optionIdx = 1;
   for (const col of columns) {
-    if (col.isWinner) {
-      col.label = 'Recommended';
-    } else if (col.is_inset_day && !usedLabels.has('Inset day option')) {
-      col.label = 'Inset day option';
-    } else if (winnerOrigin && col.origin_iata !== winnerOrigin) {
-      col.label = 'Different airport';
-    } else if (col.total_cost_gbp === lowestNonWinnerCost && !usedLabels.has('Lowest fare')) {
-      col.label = 'Lowest fare';
-    } else {
-      col.label = `Option ${optionIdx}`;
-      optionIdx++;
-    }
-    usedLabels.add(col.label);
+    const label = deriveLabel(col, winnerCol, optionIdx);
+    if (label === `Option ${optionIdx}`) optionIdx++;
+    col.label = label;
   }
 
   if (columns.length > 0) {
@@ -479,36 +524,34 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
     });
   }
 
-  const destAirportCount = new Set(scoredPool.map(c => c.out_dest_iata)).size;
-
   if (columns.length < 2) return null;
+
+  // Fine-related rows only appear when at least one column actually has one.
+  const hasAnyFine = columns.some(c => c.fine_gbp > 0);
+  const visibleRows = ROWS.filter(
+    row => (row.key !== 'fine' && row.key !== 'total_inc_fine') || hasAnyFine,
+  );
 
   // Track group boundaries for visual separation
   let lastGroup = '';
 
   return (
     <section className="w-full">
-      {/* Trigger */}
+      {/* Trigger — small text link, not a section heading */}
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-4 group text-left"
+        className="text-left"
+        style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 14,
+          color: '#004349',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+        }}
       >
-        <div>
-          <h3
-            className="text-[22px] font-medium leading-[1.4] text-[#004349]"
-            style={{ fontFamily: 'Newsreader, serif' }}
-          >
-            How we ranked your options
-          </h3>
-          <p className="text-sm text-[#6f797a] mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-            {combinationCount} combinations scored across {londonAirportCount} London airport{londonAirportCount !== 1 ? 's' : ''} and {destAirportCount} Barcelona-area airport{destAirportCount !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <ChevronDown
-          className={`w-5 h-5 text-[#6f797a] transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
+        How we chose these prices ↓
       </button>
 
       {/* Table */}
@@ -534,7 +577,7 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
               </tr>
             </thead>
             <tbody>
-              {ROWS.map((row) => {
+              {visibleRows.map((row) => {
                 const showGroupHeader = row.group !== lastGroup;
                 lastGroup = row.group;
                 const rowLabel = row.dynamicLabel ? row.dynamicLabel(columns) : row.label;

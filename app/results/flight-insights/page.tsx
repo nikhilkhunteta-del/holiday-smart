@@ -4,7 +4,6 @@ import { ComplianceCalculator } from '@/components/flight-insights/compliance-ca
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
-import { ComparisonTable } from '@/components/flight-insights/comparison-table';
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
@@ -312,12 +311,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               baselineAsItinerary={assembled?.baselineAsItinerary}
             />
 
-            {/* 4. ComparisonTable */}
-            {assembled && (
-              <ComparisonTable result={assembled} />
-            )}
-
-            {/* 5. ComplianceCalculator */}
+            {/* 4. ComplianceCalculator — includes the "How we chose these
+                prices" collapsible (formerly the standalone ComparisonTable
+                section) below the legend */}
             {assembled && (
               <ComplianceCalculator
                 combinations={assembled.combinations}
@@ -338,6 +334,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
                 schoolUrn={urn}
                 transportMode={searchParams.transit ?? 'auto'}
                 postcodeDistrict={postcodeDistrict}
+                comparisonResult={assembled}
               />
             )}
 

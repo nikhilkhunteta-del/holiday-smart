@@ -12,6 +12,12 @@ function fmtDateLong(iso: string): string {
   return `${dayName} ${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
 }
 
+function addDays(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -200,6 +206,7 @@ export async function POST(request: NextRequest) {
     const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
     const netCost  = winnerTotal + fineGbp;
     const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
+    const termResumeDate = windowEnd ? fmtDateLong(addDays(windowEnd, 1)) : '';
 
     // ── Best alternative that avoids the fine (or just the runner-up) ──────
     const winnerCombinationKey = combinationKey(recommendation);
@@ -296,6 +303,7 @@ export async function POST(request: NextRequest) {
       absence_days:        absenceDays,
       absence_out_days:    absenceOutDays,
       absence_ret_days:    absenceRetDays,
+      term_resume_date:    termResumeDate,
       fine_gbp:             fineGbp,
       fine_wipes_saving:    fineWipesSaving,
       net_cost_with_fine:   netCost,

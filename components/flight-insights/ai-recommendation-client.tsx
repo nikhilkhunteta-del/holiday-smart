@@ -1114,7 +1114,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
       {/* Children (SavingsBreakdown, ComplianceCalculator, LegOptions, HSValueSummary) */}
       {children && (
-        <div style={{ animation: 'fadeIn 0.4s ease' }}>
+        <div style={{ animation: 'fadeIn 0.4s ease', marginTop: 48 }}>
           {children}
         </div>
       )}
