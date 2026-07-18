@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useFlightInsights, isAIPick } from './flight-insights-context';
-import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
+import type { AssembledCombination, AssembledBaseline, CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 import { LegOptionsModal, type SelectedCell } from './leg-options-modal';
+import { ComparisonTable } from './comparison-table';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,8 @@ interface ComplianceCalculatorProps {
   schoolUrn: string;
   transportMode: string;
   postcodeDistrict: string;
+  // "How we chose these prices" collapsible — omitted entirely when absent.
+  comparisonResult?: CombinationsOnlyResult | null;
 }
 
 // ── Data cell ──────────────────────────────────────────────────────────────────
@@ -239,6 +242,7 @@ export function ComplianceCalculator({
   schoolUrn,
   transportMode,
   postcodeDistrict,
+  comparisonResult,
 }: ComplianceCalculatorProps) {
   const { aiResult }  = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
@@ -303,8 +307,7 @@ export function ComplianceCalculator({
 
   return (
     <section
-      className="bg-white rounded-lg"
-      style={{ padding: 24, boxShadow: '0 8px 16px rgba(13,92,99,0.08)' }}
+      style={{ padding: 24 }}
       aria-labelledby="find-cheapest-dates-heading"
     >
       {/* ── 1. Title ── */}
@@ -491,6 +494,14 @@ export function ComplianceCalculator({
             </div>
             {/* ── 9. Small-print lines removed ── */}
           </div>
+
+          {/* "How we chose these prices" — collapsible detail, merged in from
+              the standalone ComparisonTable section */}
+          {comparisonResult && (
+            <div style={{ marginTop: 16 }}>
+              <ComparisonTable result={comparisonResult} />
+            </div>
+          )}
         </>
       )}
 

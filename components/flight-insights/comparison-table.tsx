@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
 import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
@@ -470,10 +469,6 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
-  const combinationCount = scoredPool.length;
-  const londonAirportSet = new Set(scoredPool.map(c => c.origin_iata));
-  const londonAirportCount = londonAirportSet.size;
-
   // Build columns directly from result props — no scoredPool lookups.
   // Fixed order: baseline, then winner, then everything else sorted by
   // total_cost_gbp ascending — so the parent reads left-to-right from
@@ -529,8 +524,6 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
     });
   }
 
-  const destAirportCount = new Set(scoredPool.map(c => c.out_dest_iata)).size;
-
   if (columns.length < 2) return null;
 
   // Fine-related rows only appear when at least one column actually has one.
@@ -544,27 +537,21 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
 
   return (
     <section className="w-full">
-      {/* Trigger */}
+      {/* Trigger — small text link, not a section heading */}
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-4 group text-left"
+        className="text-left"
+        style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 14,
+          color: '#004349',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+        }}
       >
-        <div>
-          <h3
-            className="text-[22px] font-medium leading-[1.4] text-[#004349]"
-            style={{ fontFamily: 'Newsreader, serif' }}
-          >
-            How we ranked your options
-          </h3>
-          <p className="text-sm text-[#6f797a] mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-            {combinationCount} combinations scored across {londonAirportCount} London airport{londonAirportCount !== 1 ? 's' : ''} and {destAirportCount} Barcelona-area airport{destAirportCount !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <ChevronDown
-          className={`w-5 h-5 text-[#6f797a] transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
+        How we chose these prices ↓
       </button>
 
       {/* Table */}
