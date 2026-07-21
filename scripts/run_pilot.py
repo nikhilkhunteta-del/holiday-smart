@@ -10,8 +10,15 @@ Date ranges are destination-type-aware: cities/resorts use a wider window, circu
 
 Usage (Colab):
   # Run this file as a cell to define all functions, then call manually:
-  test_single_call()   # validate API key + print raw response
-  main()               # run full pilot and insert results into fare_snapshots
+  test_single_call()              # validate API key + print raw response
+  main()                          # start a brand-new run
+  main(resume_run_id="<uuid>")    # resume a run that crashed mid-execution —
+                                   # ONLY use this if the crash happened recently
+                                   # (same session / same day). Resuming a run that
+                                   # sat for a day+ blends observed_at timestamps
+                                   # across that gap and muddies the booking-curve
+                                   # history. If in doubt, delete the dead run and
+                                   # start a fresh one instead.
 
 Requirements:
   pip install requests supabase
@@ -65,6 +72,9 @@ COMPOSITIONS = [
 
 API_DELAY_SECS = 0.6   # delay between calls to stay within rate limits
 
+# NOTE: RESUME_MODE now controls "skip already-collected calls" behaviour.
+# It is only meaningful when main() is called with an existing resume_run_id —
+# see main()'s docstring above for when resuming is (and isn't) appropriate.
 RESUME_MODE = False  # set True only when resuming a failed/interrupted run
 
 AIRLINE_IATA = {
@@ -211,11 +221,18 @@ def parse_response(
     """
     Parse a Crawlio response into a list of fare_snapshots-shaped row dicts.
     Caller must add: run_id, snapshot_type.
+
+    Dedupes exact-duplicate rows within a single API response (a known quirk
+    of the underlying Google Flights data — the same flight sometimes appears
+    twice, once as "best" and again as "other"). Keeps the first occurrence.
+    This does not affect any MIN(party_total_gbp) query, but it keeps row
+    counts meaningful and avoids wasting storage.
     """
     flights = raw.get("flights", [])
     results = raw.get("results", [])
 
     rows = []
+    seen_keys = set()
     best_rank = 1
     other_rank = 1
 
@@ -241,22 +258,32 @@ def parse_response(
             log.debug("Skipping codeshare row with null departure/arrival time")
             continue
 
+        airline_iata = lookup_airline_iata(airline_name)
+        price = result.get("price")
+        stops = result.get("stops", 0)
+
+        # Dedup key: same flight identity + price, regardless of best/other bucket.
+        dedup_key = (dep_time, arr_time, airline_iata, price, stops)
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+
         rows.append({
             "origin_iata":      (first_seg.get("from") or origin)[:3],
             "destination_iata": (last_seg.get("to")    or destination)[:3],
             "departure_date":   date,
             "flight_number":    None,
-            "airline_iata":     lookup_airline_iata(airline_name),
+            "airline_iata":     airline_iata,
             "departure_time":   dep_time,
             "arrival_time":     arr_time,
             "duration_minutes": result.get("duration_min"),
-            "stops":            result.get("stops", 0),
+            "stops":            stops,
             "aircraft_type":    first_seg.get("plane"),
             "is_overnight":     is_overnight(first_seg.get("departure"), last_seg.get("arrival")),
             "adults":           adults,
             "children":         children,
             "infants":          infants,
-            "party_total_gbp":  result.get("price"),
+            "party_total_gbp":  price,
             "booking_token":    extract_booking_token(url),
             "result_bucket":    "best" if is_best else "other",
             "result_rank":      best_rank if is_best else other_rank,
@@ -295,6 +322,22 @@ def start_run(supabase: Client, window_labels: list[str]) -> str:
     run_id = resp.data[0]["id"]
     log.info(f"run_id = {run_id}")
     return run_id
+
+
+def get_existing_run(supabase: Client, run_id: str) -> Optional[dict]:
+    """
+    Look up an existing snapshot_runs row by id. Returns None if not found.
+    Used by main(resume_run_id=...) to validate the run exists and to warn
+    if it looks like a stale/old run rather than a same-session crash.
+    """
+    resp = (
+        supabase.table("snapshot_runs")
+        .select("*")
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
 
 
 def finish_run(supabase: Client, run_id: str, total: int, success: int, failed: int) -> None:
@@ -472,7 +515,7 @@ def _dates_for_type(dest_type: Optional[str]) -> tuple[list[str], list[str]]:
     )
 
 
-def main() -> None:
+def main(resume_run_id: Optional[str] = None) -> None:
     """
     Run the full October 2026 half-term pilot.
     Destinations: barcelona, andalusian-corridor, malta.
@@ -480,7 +523,18 @@ def main() -> None:
     Compositions: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
     Directions: outbound (LON → airport) + return (airport → LON).
 
-    Call from a Colab cell: main()
+    Call from a Colab cell:
+      main()                          — start a brand-new run (normal weekly usage)
+      main(resume_run_id="<uuid>")     — resume a run that crashed mid-execution.
+
+    Only pass resume_run_id if the crash happened recently (same session / same
+    day). Resuming a run that's been sitting dead for a day or more will blend
+    observed_at timestamps across that gap within a single run_id, which muddies
+    any time-series analysis that assumes a run is one point in time. If the dead
+    run is old, delete it and start fresh with main() instead.
+
+    When resuming, set RESUME_MODE = True beforehand so already-collected calls
+    are skipped rather than re-queried.
     """
     supabase = get_supabase()
     pools = load_destination_pools(supabase)
@@ -489,7 +543,26 @@ def main() -> None:
         log.error("No airport pools — seed destinations and destination_airports first.")
         return
 
-    run_id = start_run(supabase, [WINDOW_LABEL])
+    if resume_run_id:
+        existing = get_existing_run(supabase, resume_run_id)
+        if not existing:
+            raise ValueError(f"resume_run_id {resume_run_id} not found in snapshot_runs")
+        if existing.get("completed_at"):
+            log.warning(
+                f"run {resume_run_id} already has completed_at set "
+                f"({existing['completed_at']}) — resuming will overwrite it."
+            )
+        run_id = resume_run_id
+        log.info(f"RESUMING run_id = {run_id} (started_at={existing.get('started_at')})")
+        if not RESUME_MODE:
+            log.warning(
+                "resume_run_id was passed but RESUME_MODE is False — every call "
+                "will be re-queried from scratch rather than skipped. Set "
+                "RESUME_MODE = True before calling main(resume_run_id=...) if "
+                "you want already-collected calls skipped."
+            )
+    else:
+        run_id = start_run(supabase, [WINDOW_LABEL])
 
     total = success = failed = 0
     inserted_rows = 0
@@ -600,5 +673,7 @@ def main() -> None:
 # ── Usage (Colab) ─────────────────────────────────────────────────────────────
 # Import or run this file to define all functions, then call manually:
 #
-#   test_single_call()   # validate API + print raw response
-#   main()               # run full October 2026 half-term pilot
+#   test_single_call()               # validate API + print raw response
+#   main()                           # run a brand-new full October 2026 half-term pilot
+#   main(resume_run_id="<uuid>")     # resume a run that crashed recently (see main()'s
+#                                     # docstring for when this is/isn't appropriate)
