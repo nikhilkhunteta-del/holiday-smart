@@ -156,9 +156,12 @@ penalty notice card's job now.
   its entire previous output was the "How we calculated your saving" expandable table, which is
   redundant with the comparison table below. Props/types kept for interface stability with
   `page.tsx`; do not delete the file or its export without also removing the `page.tsx` call site.
-- `components/flight-insights/comparison-table.tsx` (`ComparisonTable`) no longer renders as its
-  own page section — it's now rendered *inside* `ComplianceCalculator`, below the legend, behind
-  a small text-link trigger ("How we chose these prices ↓"), via a `comparisonResult` prop.
+- `components/flight-insights/comparison-table.tsx` (`ComparisonTable`) is rendered as its own
+  standalone section in `page.tsx`, positioned directly above `<ComplianceCalculator>` (not
+  passed in as a prop, not nested inside it — that was tried and reverted because no JSX
+  reordering inside `ComplianceCalculator` can place content above its own hardcoded H2). The
+  "How we chose these prices ↓" trigger is styled to match the "Find your cheapest dates" H2
+  (`font-newsreader text-2xl font-medium`, `#004349`), not a small text link.
   Column order is fixed: baseline, winner, then the rest sorted by `total_cost_gbp` ascending.
   Labels come from `deriveLabel()` — `is_baseline` is checked first, above everything else
   including `isWinner`, so the baseline column always reads "Typical Saturday" even when it's
