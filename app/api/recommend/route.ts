@@ -5,6 +5,7 @@ import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
 import { effectiveCost, viable } from '@/lib/flights/selectCombination';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { combinationKey } from '@/lib/flights/buildCandidates';
+import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
 
 function fmtDateLong(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -108,6 +109,25 @@ export async function POST(request: NextRequest) {
     }
 
     const recommendation = assembled.recommendation;
+
+    // Price history for this exact itinerary — fired now, awaited later
+    // (right before the getAIRecommendation call) so it runs concurrently
+    // with the scenario/selection work below instead of adding serial
+    // latency. Both legs must match on origin/destination/date/carrier +
+    // party composition — flight_number is NULL for every fare_snapshots
+    // row, so it's never part of the match.
+    const priceMovementPromise = supabase.rpc('get_price_movement', {
+      p_origin_iata:      recommendation.origin_iata,
+      p_out_dest_iata:    recommendation.out_dest_iata,
+      p_ret_dest_iata:    recommendation.ret_dest_iata,
+      p_outbound_date:    recommendation.outbound_date,
+      p_return_date:      recommendation.return_date,
+      p_outbound_carrier: recommendation.outbound_carrier,
+      p_return_carrier:   recommendation.return_carrier,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    });
 
     console.log('[api-route] recommendation dest fields:', {
       destination_transit_notes: recommendation.destination_transit_notes,
@@ -271,6 +291,17 @@ export async function POST(request: NextRequest) {
       return 'cost_driven';
     })();
 
+    const priceMovementResult = await priceMovementPromise;
+    if (priceMovementResult.error) {
+      console.error('[api/recommend] get_price_movement RPC failed:', priceMovementResult.error);
+    }
+    const priceMovementRaw: PriceMovementRaw = priceMovementResult.data ?? {
+      checks_total: 0,
+      checks_with_data: 0,
+      price_points: [],
+    };
+    const priceMovement = computePriceMovement(priceMovementRaw);
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -334,6 +365,13 @@ export async function POST(request: NextRequest) {
       lcc_cabin_bag_min_fee: lccCabinBagFees.min,
       lcc_cabin_bag_max_fee: lccCabinBagFees.max,
       partySize,
+      price_checks_total:       priceMovementRaw.checks_total,
+      price_checks_with_data:   priceMovementRaw.checks_with_data,
+      price_points:             priceMovementRaw.price_points,
+      price_latest_total_gbp:   priceMovement.latest_total_gbp,
+      price_previous_total_gbp: priceMovement.previous_total_gbp,
+      price_delta_gbp:          priceMovement.delta_gbp,
+      price_direction:          priceMovement.direction,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))

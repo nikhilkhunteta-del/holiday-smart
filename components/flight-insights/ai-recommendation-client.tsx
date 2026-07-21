@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
+import { PriceMovementChart } from './price-movement-chart';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface FetchParams {
@@ -162,6 +163,7 @@ const LEVER_ICONS: Record<string, string> = {
   lead_research:        'manage_search',
   lead_saving:          'savings',
   selection_story:      'route',
+  price_movement:       'show_chart',
 };
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -399,6 +401,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   const [email, setEmail]         = useState('');
   const [emailSent, setEmailSent] = useState(false);
   const [diyOpen, setDiyOpen]     = useState(false);
+  const [priceChartOpen, setPriceChartOpen] = useState(false);
 
   useEffect(() => {
     const paramsKey = JSON.stringify(fetchParams);
@@ -626,6 +629,33 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   }}>
                     {card.insight}
                   </p>
+                  {/* "See the numbers ↓" — only when there's more than one
+                      usable price point to chart (checks_with_data <= 1
+                      means the card text alone already says everything). */}
+                  {card.lever === 'price_movement' && (aiResult?.price_movement?.price_points.length ?? 0) > 1 && (
+                    <div>
+                      <button
+                        onClick={() => setPriceChartOpen(!priceChartOpen)}
+                        style={{
+                          fontFamily: 'Inter, sans-serif',
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: '#004349',
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          textUnderlineOffset: 2,
+                        }}
+                      >
+                        See the numbers ↓
+                      </button>
+                      {priceChartOpen && (
+                        <PriceMovementChart points={aiResult!.price_movement!.price_points} />
+                      )}
+                    </div>
+                  )}
                   {/* Badge for inset day */}
                   {card.lever === 'inset_day' && (
                     <div className="inline-flex items-center gap-sm bg-primary/5 px-md py-xs rounded-lg border border-primary/10">
