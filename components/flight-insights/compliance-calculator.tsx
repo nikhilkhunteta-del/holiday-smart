@@ -326,6 +326,15 @@ export function ComplianceCalculator({
           : 'Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.'}
       </p>
 
+      {/* "How we chose these prices" — collapsible detail, positioned before
+          the matrix so parents understand what they're comparing against
+          before reading it, not after. */}
+      {comparisonResult && (
+        <div style={{ marginTop: 16 }}>
+          <ComparisonTable result={comparisonResult} />
+        </div>
+      )}
+
       {combinations.length === 0 ? (
         <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
           No combinations found for this window.
@@ -494,14 +503,6 @@ export function ComplianceCalculator({
             </div>
             {/* ── 9. Small-print lines removed ── */}
           </div>
-
-          {/* "How we chose these prices" — collapsible detail, merged in from
-              the standalone ComparisonTable section */}
-          {comparisonResult && (
-            <div style={{ marginTop: 16 }}>
-              <ComparisonTable result={comparisonResult} />
-            </div>
-          )}
         </>
       )}
 
