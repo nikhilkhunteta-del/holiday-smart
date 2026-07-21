@@ -537,13 +537,11 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
 
   return (
     <section className="w-full">
-      {/* Trigger — small text link, not a section heading */}
+      {/* Trigger — styled to match the "Find your cheapest dates" H2 */}
       <button
         onClick={() => setOpen(!open)}
-        className="text-left"
+        className="text-left font-newsreader text-2xl font-medium"
         style={{
-          fontFamily: 'Inter, sans-serif',
-          fontSize: 14,
           color: '#004349',
           background: 'none',
           border: 'none',

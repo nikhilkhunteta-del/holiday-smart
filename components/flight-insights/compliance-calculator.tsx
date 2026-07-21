@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { useFlightInsights, isAIPick } from './flight-insights-context';
-import type { AssembledCombination, AssembledBaseline, CombinationsOnlyResult } from '@/lib/flights/assembleRecommendation';
+import type { AssembledCombination, AssembledBaseline } from '@/lib/flights/assembleRecommendation';
 import type { AirportTransitCost } from '@/lib/flights/transitCost';
 import { LegOptionsModal, type SelectedCell } from './leg-options-modal';
-import { ComparisonTable } from './comparison-table';
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -101,8 +100,6 @@ interface ComplianceCalculatorProps {
   schoolUrn: string;
   transportMode: string;
   postcodeDistrict: string;
-  // "How we chose these prices" collapsible — omitted entirely when absent.
-  comparisonResult?: CombinationsOnlyResult | null;
 }
 
 // ── Data cell ──────────────────────────────────────────────────────────────────
@@ -242,7 +239,6 @@ export function ComplianceCalculator({
   schoolUrn,
   transportMode,
   postcodeDistrict,
-  comparisonResult,
 }: ComplianceCalculatorProps) {
   const { aiResult }  = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
@@ -325,15 +321,6 @@ export function ComplianceCalculator({
           ? `£${priceSpread.toLocaleString('en-GB')} separates the best and worst date combinations this half-term. Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.`
           : 'Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.'}
       </p>
-
-      {/* "How we chose these prices" — collapsible detail, positioned before
-          the matrix so parents understand what they're comparing against
-          before reading it, not after. */}
-      {comparisonResult && (
-        <div style={{ marginTop: 16 }}>
-          <ComparisonTable result={comparisonResult} />
-        </div>
-      )}
 
       {combinations.length === 0 ? (
         <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
