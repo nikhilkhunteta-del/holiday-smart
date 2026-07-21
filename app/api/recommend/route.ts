@@ -129,6 +129,52 @@ export async function POST(request: NextRequest) {
       p_infants:          infants,
     });
 
+    // ── TEMP DIAGNOSTIC — remove once the checks_with_data=0 report is
+    // confirmed/resolved. Logs the exact identity get_price_movement is
+    // matching on, plus whatever fare_snapshots actually holds for that
+    // route/date/carrier with NO composition filter — so a composition
+    // mismatch (get_smart_recommendation maps to the nearest of 4 fixed
+    // compositions; this route was passing the raw requested party) shows
+    // up directly in the logs instead of being inferred.
+    const priceMovementDebugPromise = Promise.all([
+      supabase.from('fare_snapshots')
+        .select('run_id, adults, children, infants, party_total_gbp, observed_at')
+        .eq('origin_iata', recommendation.origin_iata)
+        .eq('destination_iata', recommendation.out_dest_iata)
+        .eq('departure_date', recommendation.outbound_date)
+        .eq('airline_iata', recommendation.outbound_carrier)
+        .order('observed_at', { ascending: false })
+        .limit(20),
+      supabase.from('fare_snapshots')
+        .select('run_id, adults, children, infants, party_total_gbp, observed_at')
+        .eq('origin_iata', recommendation.ret_dest_iata)
+        .eq('destination_iata', recommendation.origin_iata)
+        .eq('departure_date', recommendation.return_date)
+        .eq('airline_iata', recommendation.return_carrier)
+        .order('observed_at', { ascending: false })
+        .limit(20),
+    ]).then(([outboundRows, returnRows]) => {
+      console.log('[price-movement-debug] identity being matched:', {
+        outbound: {
+          origin_iata: recommendation.origin_iata,
+          destination_iata: recommendation.out_dest_iata,
+          departure_date: recommendation.outbound_date,
+          airline_iata: recommendation.outbound_carrier,
+        },
+        return: {
+          origin_iata: recommendation.ret_dest_iata,
+          destination_iata: recommendation.origin_iata,
+          departure_date: recommendation.return_date,
+          airline_iata: recommendation.return_carrier,
+        },
+        party_used_by_this_route: { adults, children, infants },
+      });
+      console.log('[price-movement-debug] outbound rows actually in fare_snapshots for that route/date/carrier (any composition, any run):',
+        outboundRows.error ?? outboundRows.data);
+      console.log('[price-movement-debug] return rows actually in fare_snapshots for that route/date/carrier (any composition, any run):',
+        returnRows.error ?? returnRows.data);
+    });
+
     console.log('[api-route] recommendation dest fields:', {
       destination_transit_notes: recommendation.destination_transit_notes,
       destination_transfer_is_taxi: recommendation.destination_transfer_is_taxi,
@@ -291,6 +337,7 @@ export async function POST(request: NextRequest) {
       return 'cost_driven';
     })();
 
+    await priceMovementDebugPromise;
     const priceMovementResult = await priceMovementPromise;
     if (priceMovementResult.error) {
       console.error('[api/recommend] get_price_movement RPC failed:', priceMovementResult.error);
