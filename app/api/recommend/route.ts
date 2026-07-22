@@ -116,9 +116,24 @@ export async function POST(request: NextRequest) {
     // latency. Both legs must match on origin/destination/date/carrier +
     // party composition — flight_number is NULL for every fare_snapshots
     // row, so it's never part of the match.
+    //
+    // Airport field mapping (verified against assembleRecommendation.ts:717
+    // and get_smart_recommendation.sql — ret_dest_iata is the LONDON arrival
+    // airport for the return leg, NOT the abroad airport; origin_iata is the
+    // OUTBOUND'S OWN London departure airport and can differ from the
+    // return's London arrival airport in asymmetric multi-airport combos):
+    //   outbound: origin_iata      (London,  outbound departure)
+    //             → out_dest_iata  (abroad,  outbound arrival)
+    //   return:   out_dest_iata    (abroad,  return departure — the RPC's
+    //                                own JSON never exposes a separate
+    //                                return-origin airport, so this is exact
+    //                                for city/resort destinations and an
+    //                                approximation for open-jaw circuits)
+    //             → ret_dest_iata  (London,  return arrival)
     const priceMovementPromise = supabase.rpc('get_price_movement', {
-      p_origin_iata:      recommendation.origin_iata,
+      p_out_origin_iata:  recommendation.origin_iata,
       p_out_dest_iata:    recommendation.out_dest_iata,
+      p_ret_origin_iata:  recommendation.out_dest_iata,
       p_ret_dest_iata:    recommendation.ret_dest_iata,
       p_outbound_date:    recommendation.outbound_date,
       p_return_date:      recommendation.return_date,
@@ -147,8 +162,8 @@ export async function POST(request: NextRequest) {
         .limit(20),
       supabase.from('fare_snapshots')
         .select('run_id, adults, children, infants, party_total_gbp, observed_at')
-        .eq('origin_iata', recommendation.ret_dest_iata)
-        .eq('destination_iata', recommendation.origin_iata)
+        .eq('origin_iata', recommendation.out_dest_iata)
+        .eq('destination_iata', recommendation.ret_dest_iata)
         .eq('departure_date', recommendation.return_date)
         .eq('airline_iata', recommendation.return_carrier)
         .order('observed_at', { ascending: false })
@@ -162,8 +177,8 @@ export async function POST(request: NextRequest) {
           airline_iata: recommendation.outbound_carrier,
         },
         return: {
-          origin_iata: recommendation.ret_dest_iata,
-          destination_iata: recommendation.origin_iata,
+          origin_iata: recommendation.out_dest_iata,
+          destination_iata: recommendation.ret_dest_iata,
           departure_date: recommendation.return_date,
           airline_iata: recommendation.return_carrier,
         },

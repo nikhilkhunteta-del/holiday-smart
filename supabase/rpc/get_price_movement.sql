@@ -13,10 +13,20 @@
 --   test/debug/crashed runs without needing manual curation).
 -- observed_at is deliberately NOT used to decide run validity — it only
 -- labels each chart point with when that specific price was captured.
+-- Airport params — deliberately 4 separate ones, not "London airport, same
+-- both ways" + "destination airport per leg" as an earlier version assumed.
+-- get_smart_recommendation's combinations can use a DIFFERENT London airport
+-- for the outbound vs the return leg (Feature 5 — Multi-Airport Search), so
+-- collapsing them into one shared "origin" silently matched the wrong leg
+-- whenever a combination was asymmetric. p_ret_origin_iata is passed as
+-- out_dest_iata by the caller for non-circuit destinations (the RPC's own
+-- JSON never exposes the return leg's true abroad departure airport — see
+-- route.ts for the caveat on open-jaw circuits).
 CREATE OR REPLACE FUNCTION get_price_movement(
-  p_origin_iata      char(3),  -- London airport, same both ways
+  p_out_origin_iata  char(3),  -- London airport, outbound departure
   p_out_dest_iata    char(3),  -- destination-side airport, outbound leg
-  p_ret_dest_iata    char(3),  -- destination-side airport, return leg (may differ — open-jaw)
+  p_ret_origin_iata  char(3),  -- destination-side airport, return leg
+  p_ret_dest_iata    char(3),  -- London airport, return arrival (may differ from p_out_origin_iata)
   p_outbound_date    date,
   p_return_date      date,
   p_outbound_carrier char(2),
@@ -55,7 +65,7 @@ BEGIN
     SELECT DISTINCT ON (run_id)
       run_id, party_total_gbp AS outbound_gbp, observed_at AS outbound_observed_at
     FROM fare_snapshots
-    WHERE origin_iata      = p_origin_iata
+    WHERE origin_iata      = p_out_origin_iata
       AND destination_iata = p_out_dest_iata
       AND departure_date   = p_outbound_date
       AND airline_iata      = p_outbound_carrier
@@ -69,8 +79,8 @@ BEGIN
     SELECT DISTINCT ON (run_id)
       run_id, party_total_gbp AS return_gbp, observed_at AS return_observed_at
     FROM fare_snapshots
-    WHERE origin_iata      = p_ret_dest_iata
-      AND destination_iata = p_origin_iata
+    WHERE origin_iata      = p_ret_origin_iata
+      AND destination_iata = p_ret_dest_iata
       AND departure_date   = p_return_date
       AND airline_iata      = p_return_carrier
       AND adults   = p_adults
