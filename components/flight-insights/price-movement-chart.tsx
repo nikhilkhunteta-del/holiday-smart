@@ -1,8 +1,12 @@
 'use client';
 
 // Small bar chart for the "How this price has moved" card — one bar per
-// usable price-history point. Bars are neutral (all teal primary): the copy
-// in the card above carries the direction, not the chart colour.
+// usable price-history point, each labelled with its price directly (not
+// hidden behind hover/expand). Bars are neutral (all teal primary): the copy
+// in the card above carries the direction, not the chart colour. Values are
+// airfare only (summed party_total_gbp per leg) — the "airfare only"
+// subtitle rendered above this chart, in ai-recommendation-client.tsx, is
+// what clarifies that against the page's other all-in totals.
 
 interface PricePoint {
   checked_on: string;
@@ -17,6 +21,9 @@ const PAD_TOP = 12;
 const PAD_BOTTOM = 28;
 const BAR_GAP = 12;
 const BAR_RADIUS = 4;
+// Headroom above the tallest bar — large enough to fit its price label
+// without clipping against the top of the viewBox.
+const HEADROOM_MULTIPLIER = 1.35;
 
 function formatCheckDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -46,7 +53,7 @@ export function PriceMovementChart({ points }: { points: PricePoint[] }) {
   const baselineY = HEIGHT - PAD_BOTTOM;
 
   const maxVal = Math.max(...points.map(p => p.total_gbp));
-  const scaleMax = maxVal * 1.08; // headroom so the tallest bar isn't clipped
+  const scaleMax = maxVal * HEADROOM_MULTIPLIER;
 
   const barWidth = (chartWidth - BAR_GAP * (points.length - 1)) / points.length;
 
@@ -56,7 +63,7 @@ export function PriceMovementChart({ points }: { points: PricePoint[] }) {
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         style={{ width: '100%', maxWidth: WIDTH, height: 'auto', display: 'block' }}
         role="img"
-        aria-label="Bar chart of this flight's all-in price across past checks"
+        aria-label="Bar chart of this flight's airfare across past checks (excludes bags, transit and transfers)"
       >
         <line
           x1={PAD_LEFT} y1={baselineY}
@@ -69,8 +76,17 @@ export function PriceMovementChart({ points }: { points: PricePoint[] }) {
           const y = baselineY - barHeight;
           return (
             <g key={`${p.checked_on}-${i}`}>
-              <title>{`${formatCheckDate(p.checked_on)}: £${Math.round(p.total_gbp).toLocaleString('en-GB')}`}</title>
+              <title>{`${formatCheckDate(p.checked_on)}: £${Math.round(p.total_gbp).toLocaleString('en-GB')} airfare`}</title>
               <path d={roundedTopBarPath(x, y, barWidth, barHeight, BAR_RADIUS)} fill="#004349" />
+              {/* Price label — visible at a glance, not hidden behind hover/click */}
+              <text
+                x={x + barWidth / 2}
+                y={y - 6}
+                textAnchor="middle"
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, fill: '#004349' }}
+              >
+                £{Math.round(p.total_gbp).toLocaleString('en-GB')}
+              </text>
               <text
                 x={x + barWidth / 2}
                 y={baselineY + 16}
