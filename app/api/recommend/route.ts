@@ -5,6 +5,7 @@ import { getAIRecommendation } from '@/lib/flights/getAIRecommendation';
 import { effectiveCost, viable } from '@/lib/flights/selectCombination';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { combinationKey } from '@/lib/flights/buildCandidates';
+import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
 
 function fmtDateLong(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -108,6 +109,86 @@ export async function POST(request: NextRequest) {
     }
 
     const recommendation = assembled.recommendation;
+
+    // Price history for this exact itinerary — fired now, awaited later
+    // (right before the getAIRecommendation call) so it runs concurrently
+    // with the scenario/selection work below instead of adding serial
+    // latency. Both legs must match on origin/destination/date/carrier +
+    // party composition — flight_number is NULL for every fare_snapshots
+    // row, so it's never part of the match.
+    //
+    // Airport field mapping (verified against assembleRecommendation.ts:717
+    // and get_smart_recommendation.sql — ret_dest_iata is the LONDON arrival
+    // airport for the return leg, NOT the abroad airport; origin_iata is the
+    // OUTBOUND'S OWN London departure airport and can differ from the
+    // return's London arrival airport in asymmetric multi-airport combos):
+    //   outbound: origin_iata      (London,  outbound departure)
+    //             → out_dest_iata  (abroad,  outbound arrival)
+    //   return:   out_dest_iata    (abroad,  return departure — the RPC's
+    //                                own JSON never exposes a separate
+    //                                return-origin airport, so this is exact
+    //                                for city/resort destinations and an
+    //                                approximation for open-jaw circuits)
+    //             → ret_dest_iata  (London,  return arrival)
+    const priceMovementPromise = supabase.rpc('get_price_movement', {
+      p_out_origin_iata:  recommendation.origin_iata,
+      p_out_dest_iata:    recommendation.out_dest_iata,
+      p_ret_origin_iata:  recommendation.out_dest_iata,
+      p_ret_dest_iata:    recommendation.ret_dest_iata,
+      p_outbound_date:    recommendation.outbound_date,
+      p_return_date:      recommendation.return_date,
+      p_outbound_carrier: recommendation.outbound_carrier,
+      p_return_carrier:   recommendation.return_carrier,
+      p_adults:           adults,
+      p_children:         children,
+      p_infants:          infants,
+    });
+
+    // ── TEMP DIAGNOSTIC — remove once the checks_with_data=0 report is
+    // confirmed/resolved. Logs the exact identity get_price_movement is
+    // matching on, plus whatever fare_snapshots actually holds for that
+    // route/date/carrier with NO composition filter — so a composition
+    // mismatch (get_smart_recommendation maps to the nearest of 4 fixed
+    // compositions; this route was passing the raw requested party) shows
+    // up directly in the logs instead of being inferred.
+    const priceMovementDebugPromise = Promise.all([
+      supabase.from('fare_snapshots')
+        .select('run_id, adults, children, infants, party_total_gbp, observed_at')
+        .eq('origin_iata', recommendation.origin_iata)
+        .eq('destination_iata', recommendation.out_dest_iata)
+        .eq('departure_date', recommendation.outbound_date)
+        .eq('airline_iata', recommendation.outbound_carrier)
+        .order('observed_at', { ascending: false })
+        .limit(20),
+      supabase.from('fare_snapshots')
+        .select('run_id, adults, children, infants, party_total_gbp, observed_at')
+        .eq('origin_iata', recommendation.out_dest_iata)
+        .eq('destination_iata', recommendation.ret_dest_iata)
+        .eq('departure_date', recommendation.return_date)
+        .eq('airline_iata', recommendation.return_carrier)
+        .order('observed_at', { ascending: false })
+        .limit(20),
+    ]).then(([outboundRows, returnRows]) => {
+      console.log('[price-movement-debug] identity being matched:', {
+        outbound: {
+          origin_iata: recommendation.origin_iata,
+          destination_iata: recommendation.out_dest_iata,
+          departure_date: recommendation.outbound_date,
+          airline_iata: recommendation.outbound_carrier,
+        },
+        return: {
+          origin_iata: recommendation.out_dest_iata,
+          destination_iata: recommendation.ret_dest_iata,
+          departure_date: recommendation.return_date,
+          airline_iata: recommendation.return_carrier,
+        },
+        party_used_by_this_route: { adults, children, infants },
+      });
+      console.log('[price-movement-debug] outbound rows actually in fare_snapshots for that route/date/carrier (any composition, any run):',
+        outboundRows.error ?? outboundRows.data);
+      console.log('[price-movement-debug] return rows actually in fare_snapshots for that route/date/carrier (any composition, any run):',
+        returnRows.error ?? returnRows.data);
+    });
 
     console.log('[api-route] recommendation dest fields:', {
       destination_transit_notes: recommendation.destination_transit_notes,
@@ -271,6 +352,18 @@ export async function POST(request: NextRequest) {
       return 'cost_driven';
     })();
 
+    await priceMovementDebugPromise;
+    const priceMovementResult = await priceMovementPromise;
+    if (priceMovementResult.error) {
+      console.error('[api/recommend] get_price_movement RPC failed:', priceMovementResult.error);
+    }
+    const priceMovementRaw: PriceMovementRaw = priceMovementResult.data ?? {
+      checks_total: 0,
+      checks_with_data: 0,
+      price_points: [],
+    };
+    const priceMovement = computePriceMovement(priceMovementRaw);
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -334,6 +427,13 @@ export async function POST(request: NextRequest) {
       lcc_cabin_bag_min_fee: lccCabinBagFees.min,
       lcc_cabin_bag_max_fee: lccCabinBagFees.max,
       partySize,
+      price_checks_total:       priceMovementRaw.checks_total,
+      price_checks_with_data:   priceMovementRaw.checks_with_data,
+      price_points:             priceMovementRaw.price_points,
+      price_latest_total_gbp:   priceMovement.latest_total_gbp,
+      price_previous_total_gbp: priceMovement.previous_total_gbp,
+      price_delta_gbp:          priceMovement.delta_gbp,
+      price_direction:          priceMovement.direction,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))

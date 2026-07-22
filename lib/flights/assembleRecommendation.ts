@@ -4,6 +4,14 @@ import { buildCandidateShortlist, combinationKey, computeBenchmark, computeCostR
 import { NIGHT_VALUE, ARRIVAL_PENALTY, OUT_DEP_PENALTY, RET_DEP_PENALTY, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 
+// mapCombination and the pre-map-keys log below fire once per combination,
+// and assembleCombinationsOnly runs ~5x per /api/recommend request (main +
+// scenario re-assemblies) — easily hundreds of lines per request. Gated
+// behind an explicit env var, off by default, so they don't crowd out other
+// per-request logging (e.g. the price-movement debug lines) in log viewers
+// that truncate high-volume output. Set DEBUG_ASSEMBLY_LOGS=true to re-enable.
+const DEBUG_ASSEMBLY_LOGS = process.env.DEBUG_ASSEMBLY_LOGS === 'true';
+
 // ── Output types ──────────────────────────────────────────────────────────────
 
 export type AssembledCombination = {
@@ -140,13 +148,15 @@ function mapCombination(
   outTransit: AirportTransitCost,
   retTransit: AirportTransitCost,
 ): AssembledCombination {
-  console.log('[mapCombination] dest transfer raw fields:', {
-    destination_transit_notes: c.destination_transit_notes,
-    destination_transfer_is_taxi: c.destination_transfer_is_taxi,
-    destination_taxi_cost_low_gbp: c.destination_taxi_cost_low_gbp,
-    destination_taxi_cost_high_gbp: c.destination_taxi_cost_high_gbp,
-    outbound_date: c.outbound_date,
-  });
+  if (DEBUG_ASSEMBLY_LOGS) {
+    console.log('[mapCombination] dest transfer raw fields:', {
+      destination_transit_notes: c.destination_transit_notes,
+      destination_transfer_is_taxi: c.destination_transfer_is_taxi,
+      destination_taxi_cost_low_gbp: c.destination_taxi_cost_low_gbp,
+      destination_taxi_cost_high_gbp: c.destination_taxi_cost_high_gbp,
+      outbound_date: c.outbound_date,
+    });
+  }
   const outTransitGbp = outTransit.recommended_cost_pence / 100;
   const retTransitGbp = retTransit.recommended_cost_pence / 100;
   const transitCostGbp = outTransitGbp + retTransitGbp;
@@ -913,7 +923,9 @@ export async function assembleCombinationsOnly(
   const baselineRetKey = cacheKey(nearestAirport, baseline.return_date ?? '', '09:00');
 
   let assembled: AssembledCombination[] = combinations.map((c: any) => {
-    console.log('[pre-map-keys]', c.outbound_date, 'has transit_notes:', 'destination_transit_notes' in c, c.destination_transit_notes);
+    if (DEBUG_ASSEMBLY_LOGS) {
+      console.log('[pre-map-keys]', c.outbound_date, 'has transit_notes:', 'destination_transit_notes' in c, c.destination_transit_notes);
+    }
     const outKey = cacheKey(c.origin_iata, c.outbound_date, c.outbound_departure_time ?? '09:00');
     const retKey = cacheKey(c.ret_dest_iata, c.return_date, c.return_arrival_time ?? '09:00');
     return mapCombination(c, transitCache.get(outKey)!, transitCache.get(retKey)!);

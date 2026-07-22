@@ -39,6 +39,15 @@ export interface AIRecommendationOutput {
     lever:   string;
     insight: string;
   }>;
+  // Raw price-history data for the "How this price has moved" card's chart —
+  // the card's narrated text lives in lever_insights like any other card;
+  // this is the numeric series the expand/collapse bar chart renders from.
+  price_movement?: {
+    checks_total:     number;
+    checks_with_data: number;
+    price_points:     Array<{ checked_on: string; total_gbp: number }>;
+    direction:        'up' | 'down' | 'flat' | 'single_point' | 'no_data';
+  };
 }
 
 export interface FamilyContext {
@@ -144,7 +153,61 @@ export interface FamilyContext {
   lcc_cabin_bag_min_fee?: number;
   lcc_cabin_bag_max_fee?: number;
   partySize?: number;
+  // Price-history for the exact recommended itinerary (both legs), from
+  // get_price_movement — computed in route.ts via computePriceMovement().
+  // Optional: assembleRecommendation.ts (the unused legacy path — see
+  // CLAUDE.md) doesn't populate these, so the price_movement card degrades
+  // to its 'no_data' phrasing rather than being required everywhere.
+  price_checks_total?: number;
+  price_checks_with_data?: number;
+  price_points?: Array<{ checked_on: string; total_gbp: number }>;
+  price_latest_total_gbp?: number | null;
+  price_previous_total_gbp?: number | null;
+  price_delta_gbp?: number | null;
+  price_direction?: 'up' | 'down' | 'flat' | 'single_point' | 'no_data';
 }
+
+// System prompt for the price-movement card's narration call — a genuine
+// generation call (not the verbatim-copy "voice" mechanism the other cards
+// use), so it runs as its own separate client.messages.create(), in
+// parallel with the main insight call. See CLAUDE.md → "AI Recommendation
+// Card System" for why this card is a different sub-pattern from the rest.
+const PRICE_MOVEMENT_SYSTEM_PROMPT = `You are writing one short insight line for a flight-price tracking card on a
+family holiday planning tool called Holiday Smart. The card sits in a column
+of similar cards (e.g. "Why this over the alternatives", "The one trade-off
+that matters most") — match their tone: plain, factual, warm but not chatty,
+like a knowledgeable friend reporting what they've observed. No marketing
+voice, no urgency, no exclamation points.
+
+You will be given pre-computed facts about how many times we've checked this
+exact flight itinerary's price, and how it has moved. Your only job is to
+turn those facts into ONE sentence (two only if truly needed for clarity).
+Never a paragraph.
+
+Hard rules — violating any of these is a failure:
+1. Past tense only. Describe what has already happened. Never predict,
+   forecast, or imply what will happen to the price next.
+2. Never suggest urgency or create pressure to act now ("don't wait",
+   "act fast", "prices are likely to rise", "book before..."). If the data
+   shows a price increase, simply state the fact — do not add a call to
+   action around it.
+3. Do not restate the itinerary's route, airline, or dates — that's already
+   shown elsewhere on the page. Only talk about the price and how it's moved.
+4. Do not invent a number, date, or comparison that wasn't given to you.
+5. If checks_with_data is less than checks_total, acknowledge the gap
+   plainly (e.g. "in the 2 checks we've been able to price this exact
+   flight" or similar) — don't imply more history exists than actually does.
+6. If direction is 'single_point', do not describe any movement — say
+   plainly that this is the first time this exact flight has been priced,
+   and that there's nothing to compare it to yet.
+7. If direction is 'no_data', say plainly that this flight hasn't been
+   found in a previous check, without speculating why.
+8. If direction is 'flat', don't force a story — it's fine and honest to
+   say the price has barely moved.
+9. Output plain text only. No markdown, no quotes around the sentence, no
+   preamble like "Here's the insight:".
+
+Return ONLY the sentence(s) — nothing else.`;
 
 interface CardSpec {
   lever: string;
@@ -478,6 +541,37 @@ export async function getAIRecommendation(
   const fineWipesSaving  = context.fine_wipes_saving ?? false;
   const netCostWithFine  = context.net_cost_with_fine  ?? round(recommended.total_cost_gbp);
   const netDeltaWithFine = context.net_delta_with_fine ?? 0;
+
+  // ── Price movement card — separate dedicated call, its own system prompt ──
+  // Scoped to significant/found_saving only (see CLAUDE.md card-set section).
+  // Kicked off here, before the cards below are even built, so it runs
+  // concurrently with the main insight call rather than adding serial
+  // latency — awaited together in the Promise.all further down.
+  const priceDirection = context.price_direction ?? 'no_data';
+  const priceMovementNarrationPromise: Promise<string> = isBaselineCheapest
+    ? Promise.resolve('')
+    : client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 200,
+        system: PRICE_MOVEMENT_SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: JSON.stringify({
+            checks_total:       context.price_checks_total ?? 0,
+            checks_with_data:   context.price_checks_with_data ?? 0,
+            price_points:       context.price_points ?? [],
+            latest_total_gbp:   context.price_latest_total_gbp ?? null,
+            previous_total_gbp: context.price_previous_total_gbp ?? null,
+            delta_gbp:          context.price_delta_gbp ?? null,
+            direction:          priceDirection,
+          }),
+        }],
+      })
+        .then(msg => (msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''))
+        .catch(err => {
+          console.error('[getAIRecommendation] price movement narration call error:', err);
+          return '';
+        });
 
   // ── Winner vs best-inset-in-pool identity check ─────────────────────────
   const winnerKey = combinationKey(recommended);
@@ -1808,11 +1902,14 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
 
   try {
     const insightStart = Date.now();
-    const insightMessage = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: insightPrompt }],
-    });
+    const [insightMessage, priceMovementInsight] = await Promise.all([
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: insightPrompt }],
+      }),
+      priceMovementNarrationPromise,
+    ]);
     console.log('[getAIRecommendation] insight call ms:', Date.now() - insightStart);
 
     const insightText = insightMessage.content[0]?.type === 'text' ? insightMessage.content[0].text : '';
@@ -1863,6 +1960,22 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       };
     }).filter(c => c.insight);
 
+    // Price movement card — spliced in right after quality_advantage (always
+    // index 0 when !isBaselineCheapest) and before penalty_notice, per
+    // CLAUDE.md's card ordering. Its text comes from the separate narration
+    // call above, not from `written` — it was never part of the CARDS array
+    // sent to the mega-prompt.
+    if (!isBaselineCheapest) {
+      lever_insights.splice(1, 0, {
+        lever: 'price_movement',
+        headline: 'How this price has moved',
+        insight: priceMovementInsight || 'Price history for this exact flight is not available right now.',
+        verified_field: 'direction',
+        verified_value: priceDirection,
+        saving_gbp: null,
+      });
+    }
+
     return {
       problem_statement:       insightParsed.problem_statement  ?? '',
       headline:                insightParsed.headline            ?? 'We found the best value option for your dates.',
@@ -1877,6 +1990,12 @@ CRITICAL: Return ONLY valid JSON. Start with { end with }.
       winner_outbound_date:    recommended.outbound_date,
       winner_return_date:      recommended.return_date,
       winner_outbound_carrier: recommended.outbound_carrier,
+      price_movement: !isBaselineCheapest ? {
+        checks_total:     context.price_checks_total ?? 0,
+        checks_with_data: context.price_checks_with_data ?? 0,
+        price_points:     context.price_points ?? [],
+        direction:        priceDirection,
+      } : undefined,
     };
   } catch (err) {
     console.error('[getAIRecommendation] Insight call error:', err);
