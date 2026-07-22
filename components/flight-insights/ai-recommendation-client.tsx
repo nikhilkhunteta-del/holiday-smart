@@ -163,7 +163,12 @@ const LEVER_ICONS: Record<string, string> = {
   lead_research:        'manage_search',
   lead_saving:          'savings',
   selection_story:      'route',
-  price_movement:       'show_chart',
+  // 'query_stats' (magnifying glass over a small bar chart) — deliberately
+  // neutral. 'show_chart' was dropped because its upward-slanted line reads
+  // as "price went up" regardless of what the data shows, contradicting the
+  // no-direction-implied-by-colour-or-icon principle already used for the
+  // bars themselves (uniform teal, not colour-coded by direction).
+  price_movement:       'query_stats',
 };
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -619,6 +624,26 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   }}>
                     {card.headline}
                   </h3>
+                  {/* Unconditional clarifying subtitle — the chart/card track
+                      airfare only (summed party_total_gbp per leg), not the
+                      all-in total shown elsewhere on the page. Must render
+                      before the AI-narrated paragraph below, since that
+                      paragraph is where price figures first appear. */}
+                  {card.lever === 'price_movement' && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      color: '#6f797a',
+                      lineHeight: 1.5,
+                      marginBottom: 8,
+                      maxWidth: '42ch',
+                    }}>
+                      Airfare only — excludes bags, transit and transfers, which make up
+                      the rest of {(rec as any)?.total_cost_gbp != null
+                        ? `the £${Math.round((rec as any).total_cost_gbp).toLocaleString('en-GB')} all-in total`
+                        : 'the all-in total'}.
+                    </p>
+                  )}
                   <p style={{
                     fontFamily: 'Inter, sans-serif',
                     fontSize: 16,

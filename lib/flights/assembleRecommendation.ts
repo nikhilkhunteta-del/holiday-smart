@@ -20,6 +20,12 @@ export type AssembledCombination = {
   origin_iata: string;
   out_dest_iata: string;
   ret_dest_iata: string;
+  // Return leg's own abroad departure airport — NOT necessarily out_dest_iata.
+  // destination_airports allows multiple abroad airports per destination
+  // (e.g. Barcelona: BCN, GRO, Reus); nearby-airport arbitrage can pick a
+  // different one for the return leg than the outbound. Read directly from
+  // get_smart_recommendation's ret_orig_iata — never approximate this.
+  ret_orig_iata: string;
   outbound_carrier: string;
   return_carrier: string;
   split_carrier: boolean;
@@ -170,6 +176,7 @@ function mapCombination(
     origin_iata: c.origin_iata,
     out_dest_iata: c.out_dest_iata,
     ret_dest_iata: c.ret_dest_iata,
+    ret_orig_iata: c.ret_orig_iata,
     outbound_carrier: c.outbound_carrier,
     return_carrier: c.return_carrier,
     split_carrier: c.split_carrier,
@@ -715,6 +722,7 @@ async function buildBaselineAsCombination(
     origin_iata:   assembledBaseline.origin_iata,
     out_dest_iata: assembledBaseline.destination_iata,
     ret_dest_iata: assembledBaseline.origin_iata, // symmetric round-trip — same London airport both ways
+    ret_orig_iata: assembledBaseline.destination_iata, // baseline is always single-airport — same abroad airport both ways
     outbound_carrier: assembledBaseline.carrier,
     return_carrier:   assembledBaseline.carrier,
     split_carrier: false,
