@@ -1,4 +1,4 @@
-name: Deploy Supabase RPC Functions
+name: Deploy Supabase RPC Functions and Tables
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - main
     paths:
       - 'supabase/rpc/**.sql'
+      - 'supabase/tables/**.sql'
 
 jobs:
   deploy-rpc:
-    name: Deploy RPC functions to Supabase
+    name: Deploy RPC functions and tables to Supabase
     runs-on: ubuntu-latest
 
     steps:
@@ -23,6 +24,21 @@ jobs:
 
       - name: Link Supabase project
         run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy tables
+        run: |
+          # Table DDL — CREATE TABLE/INDEX IF NOT EXISTS, idempotent, safe to
+          # re-run. Deployed before RPC functions since functions may query
+          # these tables (none do yet, but keeps ordering deliberate).
+          if [ -d supabase/tables ]; then
+            for file in supabase/tables/*.sql; do
+              [ -e "$file" ] || continue
+              echo "Deploying: $file"
+              supabase db execute --file "$file"
+            done
+          fi
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 

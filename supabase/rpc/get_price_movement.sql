@@ -5,14 +5,11 @@
 -- are matched on origin_iata + destination_iata + departure_date +
 -- airline_iata + party composition only (never flight_number).
 --
--- Run validity heuristic (deliberately NOT a hardcoded run_id list, so this
--- keeps working unchanged as more runs accumulate):
---   run_type = 'cross_sectional' AND completed_at IS NOT NULL AND success_calls > 0,
---   further excluding any run whose success_calls is less than 10% of the
---   largest success_calls among those candidates (guards against small
---   test/debug/crashed runs without needing manual curation).
--- observed_at is deliberately NOT used to decide run validity — it only
--- labels each chart point with when that specific price was captured.
+-- Run validity: delegated to get_valid_history_run_ids() (see that file) so
+-- every consumer of "which runs count as history" shares one definition
+-- instead of each re-implementing the heuristic. observed_at is deliberately
+-- NOT used to decide run validity — it only labels each chart point with
+-- when that specific price was captured.
 -- Airport params — deliberately 4 separate ones, not "London airport, same
 -- both ways" + "destination airport per leg" as an earlier version assumed.
 -- get_smart_recommendation's combinations can use a DIFFERENT London airport
@@ -43,21 +40,8 @@ DECLARE
   v_result jsonb;
 BEGIN
 
-  WITH candidate_runs AS (
-    SELECT id, completed_at, success_calls
-    FROM snapshot_runs
-    WHERE run_type = 'cross_sectional'
-      AND completed_at IS NOT NULL
-      AND success_calls > 0
-  ),
-  threshold AS (
-    SELECT COALESCE(MAX(success_calls), 0) * 0.10 AS min_calls
-    FROM candidate_runs
-  ),
-  valid_runs AS (
-    SELECT cr.id AS run_id
-    FROM candidate_runs cr, threshold t
-    WHERE cr.success_calls >= t.min_calls
+  WITH valid_runs AS (
+    SELECT run_id FROM get_valid_history_run_ids()
   ),
   -- DISTINCT ON, ordered by price ascending, is the "MIN(party_total_gbp)
   -- grouped by run_id" the duplicate best/other rows require — never a raw
