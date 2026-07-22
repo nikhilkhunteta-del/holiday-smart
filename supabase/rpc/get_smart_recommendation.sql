@@ -550,6 +550,15 @@ BEGIN
         'origin_iata',                   f.best_airport,
         'out_dest_iata',                 f.out_dest_iata,
         'ret_dest_iata',                 f.ret_dest_iata,
+        -- Return leg's own abroad departure airport — NOT assumed equal to
+        -- out_dest_iata. destination_airports allows multiple abroad
+        -- airports per destination (e.g. Barcelona: BCN, GRO, Reus), and
+        -- nearby-airport arbitrage (Feature 8) can pick a different one for
+        -- the return leg than the outbound, even for non-circuit
+        -- destinations. Computed in carrier_pairs (line ~317) but was
+        -- previously dropped here — always read this field, never
+        -- approximate it from out_dest_iata.
+        'ret_orig_iata',                 f.ret_orig_iata,
         'outbound_carrier',              f.out_carrier,
         'return_carrier',                f.ret_carrier,
         'split_carrier',                 f.split_carrier,

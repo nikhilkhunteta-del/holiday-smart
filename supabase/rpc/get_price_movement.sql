@@ -16,12 +16,13 @@
 -- Airport params — deliberately 4 separate ones, not "London airport, same
 -- both ways" + "destination airport per leg" as an earlier version assumed.
 -- get_smart_recommendation's combinations can use a DIFFERENT London airport
--- for the outbound vs the return leg (Feature 5 — Multi-Airport Search), so
--- collapsing them into one shared "origin" silently matched the wrong leg
--- whenever a combination was asymmetric. p_ret_origin_iata is passed as
--- out_dest_iata by the caller for non-circuit destinations (the RPC's own
--- JSON never exposes the return leg's true abroad departure airport — see
--- route.ts for the caveat on open-jaw circuits).
+-- for the outbound vs the return leg (Feature 5 — Multi-Airport Search), and
+-- a destination's airport pool can span multiple abroad airports (e.g.
+-- Barcelona: BCN, GRO, Reus) — nearby-airport arbitrage (Feature 8) can pick
+-- a different one for the return leg than the outbound for ANY destination
+-- type, not just open-jaw circuits. p_ret_origin_iata is read directly from
+-- get_smart_recommendation's own ret_orig_iata field — never approximated
+-- from out_dest_iata.
 CREATE OR REPLACE FUNCTION get_price_movement(
   p_out_origin_iata  char(3),  -- London airport, outbound departure
   p_out_dest_iata    char(3),  -- destination-side airport, outbound leg
