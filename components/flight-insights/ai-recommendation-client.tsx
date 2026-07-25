@@ -5,6 +5,7 @@ import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
+import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface FetchParams {
@@ -352,6 +353,29 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   const [diyOpen, setDiyOpen]     = useState(false);
   const [priceChartOpen, setPriceChartOpen] = useState(false);
 
+  // Sticky booking bar — independent of the booking box's own lg:-only CSS
+  // `sticky` (which only holds it while its containing grid row is on
+  // screen). Watches the box itself: while CSS-sticky is "stuck" it stays
+  // visually in the viewport (isIntersecting stays true), so this only
+  // flips once the box's containing block has scrolled far enough that it
+  // can no longer stay stuck and gets pushed out — boundingClientRect.top
+  // < 0 distinguishes "scrolled past" from "not reached yet" (both report
+  // isIntersecting: false from an IntersectionObserver, but only one of
+  // them means the user has actually gone past the box).
+  const bookingBoxRef = useRef<HTMLDivElement | null>(null);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+
+  useEffect(() => {
+    const el = bookingBoxRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyBar(!entry.isIntersecting && entry.boundingClientRect.top < 0),
+      { threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [aiResult]);
+
   useEffect(() => {
     const paramsKey = JSON.stringify(fetchParams);
 
@@ -470,6 +494,31 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
     adults,
     children: numChildren,
   }) : '#';
+
+  // Sticky bar content — mirrors whichever booking box variant is showing
+  // (baseline vs. smart pick), same source data, no separate determination.
+  const destinationName = fetchParams.destinationSlug
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+  const stickyBarNights = fetchParams.baselineIsRecommended
+    ? (baseline
+        ? Math.round((new Date(baseline.return_date + 'T00:00:00').getTime() - new Date(baseline.outbound_date + 'T00:00:00').getTime()) / 86400000)
+        : null)
+    : ((rec as any)?.trip_nights ?? null);
+  const stickyBarTotalCostGbp = fetchParams.baselineIsRecommended
+    ? (baseline?.total_cost_gbp ?? null)
+    : ((rec as any)?.total_cost_gbp ?? null);
+  const stickyBarBookUrl = fetchParams.baselineIsRecommended
+    ? (baseline ? buildGoogleFlightsRoundTripUrl({
+        origin:      baseline.origin_iata,
+        destination: baseline.destination_iata,
+        outbound:    baseline.outbound_date,
+        return_date: baseline.return_date,
+        adults,
+        children:    numChildren,
+      }) : '#')
+    : roundTripUrl;
 
   // Timeline shows only lever_insights (qualitative cards now in right column)
   const timelineCards = aiResult?.lever_insights ?? [];
@@ -726,7 +775,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         </div>
 
         {/* RIGHT — Sticky sidebar */}
-        <div className="lg:col-span-5 lg:sticky lg:top-24">
+        <div ref={bookingBoxRef} className="lg:col-span-5 lg:sticky lg:top-24">
 
           {/* Main booking card */}
           <div
@@ -1117,6 +1166,14 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           {children}
         </div>
       )}
+
+      <StickyBookingBar
+        visible={showStickyBar}
+        destinationName={destinationName}
+        nights={stickyBarNights}
+        totalCostGbp={stickyBarTotalCostGbp}
+        bookUrl={stickyBarBookUrl}
+      />
     </>
   );
 }
