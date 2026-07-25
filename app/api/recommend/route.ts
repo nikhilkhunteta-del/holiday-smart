@@ -436,6 +436,9 @@ export async function POST(request: NextRequest) {
       price_previous_total_gbp: priceMovement.previous_total_gbp,
       price_delta_gbp:          priceMovement.delta_gbp,
       price_direction:          priceMovement.direction,
+      price_first_checked_on:   priceMovement.first_checked_on,
+      price_first_total_gbp:    priceMovement.first_total_gbp,
+      price_total_change_gbp:   priceMovement.total_change_gbp,
       destinationName: destinationSlug
         .split('-')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))

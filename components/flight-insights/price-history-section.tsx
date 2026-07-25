@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { PriceMovementChart } from './price-movement-chart';
 import type { PricePoint, PriceMovementDirection } from '@/lib/flights/priceMovement';
@@ -21,7 +21,20 @@ interface PriceHistoryResponse {
   previous_total_gbp: number | null;
   delta_gbp: number | null;
   direction: PriceMovementDirection;
+  is_current_lowest: boolean;
   narration: string;
+}
+
+// Deterministic (not AI-generated) — this is a precise factual claim, so
+// it's a fixed string gated on an exact computed condition rather than
+// something an LLM paraphrases. Only true when the latest price is the
+// lowest the series has ever recorded (is_current_lowest) AND there's
+// actually a series to compare against (direction isn't single_point/no_data).
+function itineraryTakeaway(data: PriceHistoryResponse | null): string | null {
+  if (!data) return null;
+  if (data.direction === 'single_point' || data.direction === 'no_data') return null;
+  if (!data.is_current_lowest) return null;
+  return "This is the same flight we're recommending today — and it's never been cheaper than it is right now.";
 }
 
 interface PriceHistorySectionProps {
@@ -48,7 +61,7 @@ function humanizeDestination(slug: string): string {
 // ── Shared card shell ────────────────────────────────────────────────────────
 
 function PriceHistoryCard({
-  heading, subtitle, aboveNarration, data, loading, fallbackText,
+  heading, subtitle, aboveNarration, data, loading, fallbackText, highlighted, innerRef, takeaway,
 }: {
   heading: string;
   subtitle: string;
@@ -56,15 +69,24 @@ function PriceHistoryCard({
   data: PriceHistoryResponse | null;
   loading: boolean;
   fallbackText: string;
+  highlighted?: boolean; // brief pulse after the leg-options modal closes
+  innerRef?: React.Ref<HTMLDivElement>;
+  takeaway?: string | null; // closing line, rendered after the chart
 }) {
   return (
-    <div style={{
-      background: '#ffffff',
-      borderRadius: 16,
-      boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)',
-      padding: 24,
-      marginBottom: 24,
-    }}>
+    <div
+      ref={innerRef}
+      style={{
+        background: highlighted ? '#f2f7f7' : '#ffffff',
+        borderRadius: 16,
+        boxShadow: highlighted
+          ? '0 0 0 3px rgba(0,67,73,0.35), 0 2px 12px -2px rgba(13,92,99,0.08)'
+          : '0 2px 12px -2px rgba(13,92,99,0.08)',
+        padding: 24,
+        marginBottom: 24,
+        transition: 'box-shadow 0.4s ease, background 0.4s ease',
+      }}
+    >
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
         <div
           className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white"
@@ -102,7 +124,7 @@ function PriceHistoryCard({
             color: '#6f797a',
             lineHeight: 1.5,
             marginBottom: 8,
-            maxWidth: '48ch',
+            maxWidth: '70ch',
           }}>
             {subtitle}
           </p>
@@ -118,12 +140,25 @@ function PriceHistoryCard({
                 fontSize: 15,
                 color: '#3f484a',
                 lineHeight: 1.6,
-                maxWidth: '48ch',
+                maxWidth: '70ch',
               }}>
                 {data?.narration || fallbackText}
               </p>
               {data && data.price_points.length > 1 && (
-                <PriceMovementChart points={data.price_points} />
+                <PriceMovementChart points={data.price_points} fullWidth />
+              )}
+              {takeaway && (
+                <p style={{
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: '#004349',
+                  lineHeight: 1.6,
+                  marginTop: 12,
+                  maxWidth: '70ch',
+                }}>
+                  {takeaway}
+                </p>
               )}
             </>
           )}
@@ -138,13 +173,32 @@ function PriceHistoryCard({
 export function PriceHistorySection({
   destinationSlug, tripType, adults, children, infants, recommendation,
 }: PriceHistorySectionProps) {
-  const { selectedMatrixCell } = useFlightInsights();
+  const { selectedMatrixCell, modalCloseCount } = useFlightInsights();
 
   const [destinationData, setDestinationData] = useState<PriceHistoryResponse | null>(null);
   const [destinationLoading, setDestinationLoading] = useState(true);
 
   const [cellData, setCellData] = useState<PriceHistoryResponse | null>(null);
   const [cellLoading, setCellLoading] = useState(false);
+
+  // Auto-scroll + highlight the itinerary card when the leg-options modal
+  // closes (X / outside click / Esc — all routed through modalCloseCount).
+  // First-time-only per page visit: subsequent cell clicks update the
+  // chart in place without yanking the page around again.
+  const itineraryCardRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolledRef = useRef(false);
+  const [itineraryHighlighted, setItineraryHighlighted] = useState(false);
+
+  useEffect(() => {
+    if (modalCloseCount === 0) return; // no close has happened yet
+    if (hasAutoScrolledRef.current) return; // first-time-only
+    hasAutoScrolledRef.current = true;
+
+    itineraryCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setItineraryHighlighted(true);
+    const t = setTimeout(() => setItineraryHighlighted(false), 1000);
+    return () => clearTimeout(t);
+  }, [modalCloseCount]);
 
   // Card A — fetched once; destination/trip_type/composition don't change
   // without a full page navigation.
@@ -193,38 +247,40 @@ export function PriceHistorySection({
   const destinationName = humanizeDestination(destinationSlug);
 
   return (
-    <section style={{ padding: 24 }} aria-labelledby="price-history-heading">
-      <h2
-        id="price-history-heading"
-        style={{
-          fontFamily: 'Newsreader, serif',
-          fontSize: 28,
-          fontWeight: 500,
-          color: '#004349',
-          marginBottom: 16,
-        }}
-      >
-        How prices have moved
-      </h2>
+    <section style={{ padding: 24 }} aria-label="Price history">
+      {/* Framing anchored to the product's ongoing-research premise, not a
+          mechanical description of "there are two cards below." */}
+      <p style={{
+        fontFamily: 'Inter, sans-serif',
+        fontSize: 14,
+        color: '#6f797a',
+        marginBottom: 16,
+        maxWidth: '70ch',
+      }}>
+        We don't just check the price once — we keep watching. Here's how it's moved since we started.
+      </p>
+
+      {effectiveCell && (
+        <PriceHistoryCard
+          innerRef={itineraryCardRef}
+          highlighted={itineraryHighlighted}
+          heading="How this flight's price has moved"
+          aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
+          subtitle="Airfare only — excludes bags, transit and transfers. This is the cheapest fare found for this exact date pair."
+          data={cellData}
+          loading={cellLoading}
+          fallbackText="Price history for this itinerary is not available right now."
+          takeaway={itineraryTakeaway(cellData)}
+        />
+      )}
 
       <PriceHistoryCard
-        heading={`How ${destinationName} prices have moved`}
-        subtitle="Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date combination shown above."
+        heading="How the whole matrix has moved"
+        subtitle="Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date on the grid above — not just this one flight."
         data={destinationData}
         loading={destinationLoading}
         fallbackText={`Price history for ${destinationName} is not available right now.`}
       />
-
-      {effectiveCell && (
-        <PriceHistoryCard
-          heading="How this date pair has moved"
-          aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
-          subtitle="Airfare only — excludes bags, transit and transfers."
-          data={cellData}
-          loading={cellLoading}
-          fallbackText="Price history for this date pair is not available right now."
-        />
-      )}
     </section>
   );
 }

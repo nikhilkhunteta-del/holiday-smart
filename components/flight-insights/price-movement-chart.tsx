@@ -45,7 +45,18 @@ function roundedTopBarPath(x: number, y: number, width: number, height: number, 
   ].join(' ');
 }
 
-export function PriceMovementChart({ points }: { points: PricePoint[] }) {
+export function PriceMovementChart({
+  points, fullWidth = false,
+}: {
+  points: PricePoint[];
+  // The top-section card lives in a narrower ~7-column area, where a
+  // 480px cap looks intentional. The below-matrix cards (price-history-
+  // section.tsx) are genuinely full-width with no adjacent booking box —
+  // capping them the same way just leaves empty space. fullWidth drops the
+  // cap so the SVG (bars, gaps, labels) scales up with its real container
+  // width instead of stopping at 480px.
+  fullWidth?: boolean;
+}) {
   if (points.length < 2) return null;
 
   const chartWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
@@ -61,7 +72,7 @@ export function PriceMovementChart({ points }: { points: PricePoint[] }) {
     <div style={{ marginTop: 12, marginBottom: 4 }}>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        style={{ width: '100%', maxWidth: WIDTH, height: 'auto', display: 'block' }}
+        style={{ width: '100%', maxWidth: fullWidth ? 'none' : WIDTH, height: 'auto', display: 'block' }}
         role="img"
         aria-label="Bar chart of this flight's airfare across past checks (excludes bags, transit and transfers)"
       >

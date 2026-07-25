@@ -240,7 +240,7 @@ export function ComplianceCalculator({
   transportMode,
   postcodeDistrict,
 }: ComplianceCalculatorProps) {
-  const { aiResult, setSelectedMatrixCell } = useFlightInsights();
+  const { aiResult, setSelectedMatrixCell, notifyModalClosed } = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
 
   const [modalOpen, setModalOpen]       = useState(false);
@@ -498,7 +498,13 @@ export function ComplianceCalculator({
 
       <LegOptionsModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          // Fires for every closure path (X / outside click / Esc) — Radix
+          // routes them all through the same onOpenChange, which is what
+          // this onClose already wraps.
+          notifyModalClosed();
+        }}
         selectedCell={selectedCell}
         destinationSlug={destinationSlug}
         schoolUrn={schoolUrn}
