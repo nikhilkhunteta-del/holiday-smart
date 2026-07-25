@@ -87,6 +87,27 @@ confirmed correct against live data — not bundled into this fix.
 
 ---
 
+### DEFERRED DECISION — Date matrix format (grid vs. sorted list) for city-type destinations
+
+An independent design review raised that the date matrix is ~80% empty for Barcelona (a
+city-type destination, restricted to 3-4 night stays within the half-term window by design) and
+proposed a sorted list (date pair · nights · all-in · fine · saving vs baseline) as a better fit
+for sparse grids — more scannable, shows nights natively, easier to make responsive.
+
+This sparsity is confirmed deliberate and will be the permanent shape for every city-type
+destination (not a bug, not specific to this half-term's data window).
+
+Decision deferred, not rejected — revisit once:
+1. A circuit-type destination (Andalusian Corridor, Croatia, Crete) has its date matrix live, so
+   there's a real dense-grid example to compare against Barcelona's sparse one before deciding
+   the format globally.
+2. Mobile layout work begins for this page, since a sorted list is inherently easier to make
+   responsive than a wide date grid.
+
+Do not implement a list-view alternative without revisiting this decision explicitly first.
+
+---
+
 ### KNOWN ISSUE — Google Flights deep links don't encode carrier or party size
 
 **Location:** `lib/flights/googleFlightsUrl.ts` (`encodeTfs` and all three exported builders —
