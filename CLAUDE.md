@@ -41,6 +41,101 @@ low-risk/isolated once undertaken — confined to this one component's cell-sele
 advisor"). Deferred deliberately for MVP scope, not because it's considered low-impact —
 revisit before treating the matrix's numbers as fully trustworthy for real users.
 
+**Related — modal's "Book these dates" button (added after this issue was documented):** the
+button in `leg-options-modal.tsx` builds its Google Flights link from `getCheapestOption()`
+(`components/flight-insights/leg-options.tsx`) applied independently to each of the outbound/
+return option lists — i.e. the genuinely cheapest leg in each table, NOT the `cellMap`-selected
+combination the headline total above it displays. In the common case these should coincide, but
+until the `cellMap` fix above lands, it's possible for the button's target itinerary to differ
+slightly from the "£X all-in" figure shown directly above it. Revisit this note once the
+`cellMap` fix is done — the two should be provably identical after that.
+
+**Confirmed NOT the cause of the matrix's colour-tier bug (see RESOLVED entry below):** traced
+`DataCell` in `compliance-calculator.tsx` — the tier colour is computed as `c.total_cost_gbp -
+minCost` on the *exact same* `c` object (`cellMap.get()` result) whose price the cell displays,
+so the tier and the displayed price can never disagree with each other. This rules out the
+`cellMap` first-wins bug as the cause of that separate symptom — it was a genuine colour-mapping
+inversion instead (see below), unrelated to which combination `cellMap` selects.
+
+---
+
+### RESOLVED — Matrix colour tiers were inverted (cheapest cell rendered amber)
+
+**Location:** `components/flight-insights/compliance-calculator.tsx`, `cellColour()` (~line 73)
+and the `LEGEND` array (~line 205).
+
+Introduced in commit `5cd11d9` ("Switch matrix to total_cost_gbp for display, colour coding, and
+spread"), which changed the colour-tier reference point from `baselineTotal` to the grid's own
+`minCost` but kept the *same* bucket→colour assignment and the *same* legend text, which had been
+written for the old (opposite-signed) `baselineTotal - c.total_inc_fine` formula. Under the old
+formula, a large positive value meant "much cheaper than baseline" → dark teal made sense. Under
+the new `c.total_cost_gbp - minCost` formula, a value near 0 means "this cell IS the cheapest in
+the grid" — but that case kept the *old* amber bucket, whose legend text read "more than cheapest
+option." The single cheapest cell in the matrix (and any cell badged "Cheapest") therefore always
+rendered amber, directly contradicting its own label. The hardcoded baseline-recommended cell
+(~line 448, always `#0d5c63` dark teal) never went through `cellColour()` and so never showed the
+bug — its independent hardcoded colour is what exposed the inconsistency.
+
+**Fix:** reversed the bucket→colour assignment (same £1/£50/£100 thresholds, colours swapped) so
+the cheapest cell gets the darkest teal and the most-expensive-relative-to-cheapest cells get
+amber; updated `LEGEND` text to match ("Cheapest option" / "up to £50 more" / "£50–100 more" /
+"£100+ more than cheapest").
+
+**Still deferred, by explicit instruction:** collapsing the three teal shades into two tiers
+(saving / no saving) is a separate follow-up, to be done only once this colour-direction fix is
+confirmed correct against live data — not bundled into this fix.
+
+---
+
+### DEFERRED DECISION — Date matrix format (grid vs. sorted list) for city-type destinations
+
+An independent design review raised that the date matrix is ~80% empty for Barcelona (a
+city-type destination, restricted to 3-4 night stays within the half-term window by design) and
+proposed a sorted list (date pair · nights · all-in · fine · saving vs baseline) as a better fit
+for sparse grids — more scannable, shows nights natively, easier to make responsive.
+
+This sparsity is confirmed deliberate and will be the permanent shape for every city-type
+destination (not a bug, not specific to this half-term's data window).
+
+Decision deferred, not rejected — revisit once:
+1. A circuit-type destination (Andalusian Corridor, Croatia, Crete) has its date matrix live, so
+   there's a real dense-grid example to compare against Barcelona's sparse one before deciding
+   the format globally.
+2. Mobile layout work begins for this page, since a sorted list is inherently easier to make
+   responsive than a wide date grid.
+
+Do not implement a list-view alternative without revisiting this decision explicitly first.
+
+---
+
+### KNOWN ISSUE — Google Flights deep links don't encode carrier or party size
+
+**Location:** `lib/flights/googleFlightsUrl.ts` (`encodeTfs` and all three exported builders —
+`buildGoogleFlightsUrl`, `buildGoogleFlightsRoundTripUrl`, `buildGoogleFlightsMultiLegUrl`).
+
+The `tfs` protobuf schema used for these deep links only encodes origin, destination, date, and
+one-way/round-trip — there is no field for airline/carrier or passenger count. A link built from
+a specific carrier's fare (e.g. a Ryanair row) opens a generic Google Flights search for that
+route and date; the user may land on a page where a different carrier is the top result, and
+passenger count defaults to whatever Google Flights defaults to, not the family's actual party
+size passed into these functions (`adults`/`children` params exist on the builders but are
+currently unused inside them).
+
+**Where this currently applies:**
+- The matrix modal's "Book these dates" button (`leg-options-modal.tsx`) already carries an
+  explicit disclaimer next to it: "Opens Google Flights for these dates — confirm the airline
+  and price match before booking."
+- The top-section booking box's "Book on Google Flights" button (`ai-recommendation-client.tsx`)
+  has the **same underlying limitation but no equivalent disclaimer yet** — flagged here, not
+  fixed, per explicit instruction when this was raised. Should get the same treatment at some
+  point.
+
+**Fix approach (not yet implemented, and not obviously worth it):** either add the same
+disclaimer copy near the top-section Book button, or investigate whether Google Flights' actual
+`tfs` protobuf supports an airline-filter field that this reverse-engineered schema hasn't
+captured (the Google Flights UI itself does support airline filtering, so the field likely
+exists — untested here).
+
 ---
 
 ## Current Build Phase
@@ -190,15 +285,28 @@ penalty notice card's job now.
   redundant with the comparison table below. Props/types kept for interface stability with
   `page.tsx`; do not delete the file or its export without also removing the `page.tsx` call site.
 - `components/flight-insights/comparison-table.tsx` (`ComparisonTable`) is rendered as its own
-  standalone section in `page.tsx`, positioned directly above `<ComplianceCalculator>` (not
-  passed in as a prop, not nested inside it — that was tried and reverted because no JSX
-  reordering inside `ComplianceCalculator` can place content above its own hardcoded H2). The
-  "How we chose these prices ↓" trigger is styled to match the "Find your cheapest dates" H2
-  (`font-newsreader text-2xl font-medium`, `#004349`), not a small text link.
+  standalone section in `page.tsx`, positioned directly **below** `<ComplianceCalculator>` (not
+  passed in as a prop, not nested inside it — nesting was tried and reverted earlier because no
+  JSX reordering inside `ComplianceCalculator` can place content above its own hardcoded H2;
+  the below-matrix position was reached by swapping the two sibling sections in `page.tsx`, not
+  by revisiting that nesting attempt). Moved below the matrix because "How we chose these
+  prices" has no antecedent when it renders before any prices are shown. The trigger is now a
+  small text link (`14px`, `Inter`, underlined) — not styled to match the "Find your cheapest
+  dates" H2 anymore, so it doesn't compete with real H2s — and **defaults to open**: this table
+  is the strongest evidence on the page, so it should be visible by default, with the toggle
+  there to collapse it away rather than to reveal it.
   Column order is fixed: baseline, winner, then the rest sorted by `total_cost_gbp` ascending.
   Labels come from `deriveLabel()` — `is_baseline` is checked first, above everything else
   including `isWinner`, so the baseline column always reads "Typical Saturday" even when it's
-  also the winner or its airport differs from the winner's.
+  also the winner or its airport differs from the winner's. The "Checked bags"/"Seats" rows
+  render as a merged, left-aligned "Same for all" band (tinted background, explicit tag) when
+  uniform across columns — not centred grey text spanning every column, which read as an
+  empty/error state.
+- `components/flight-insights/price-history-section.tsx` now sits behind its own collapsed-by-
+  default expander ("See how the price has moved ↓"), the inverse of the comparison table above
+  — it's chart-based supporting detail, not the page's strongest evidence. Clicking a different
+  matrix cell or closing the leg-options modal auto-expands it (in addition to switching to the
+  "These dates" tab and pulsing), so the update is never hidden behind a still-collapsed section.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

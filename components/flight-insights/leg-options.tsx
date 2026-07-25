@@ -65,6 +65,25 @@ function ancillaryGbp(opt: LegOption): number {
   return opt.cabin_bag_cost_gbp + opt.checked_bag_cost_gbp + opt.seat_cost_gbp;
 }
 
+// Exported so leg-options-modal.tsx's "Book these dates" button can build
+// its link from exactly the same option this component badges CHEAPEST —
+// same total_gbp formula as the inline computation in LegOptions below
+// (fare + ancillary + transit + destination transfer). Options here arrive
+// without total_gbp populated yet (that's computed client-side, hence this
+// function), so it's derived fresh rather than trusting the LegOption type's
+// total_gbp field.
+export function getCheapestOption(
+  data: { options: LegOption[] } | null | undefined,
+): (LegOption & { total_gbp: number }) | null {
+  if (!data?.options?.length) return null;
+  const processed = data.options.map(opt => ({
+    ...opt,
+    total_gbp: opt.fare_gbp + ancillaryGbp(opt) + (opt.transit_cost_gbp ?? 0) + opt.destination_transfer_gbp,
+  }));
+  processed.sort((a, b) => a.total_gbp - b.total_gbp);
+  return processed[0];
+}
+
 
 function gbp(n: number): string {
   return `£${Math.round(n).toLocaleString('en-GB')}`;

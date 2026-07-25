@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface ScenarioStripProps {
@@ -14,6 +15,18 @@ const SCENARIO_ICONS: Record<string, string> = {
   transport_all_transit: 'directions_bus',
   add_checked_bag:       'luggage',
 };
+
+// DESIGN.md: Newsreader for editorial voice, Inter for data — the £ figures
+// baked into locked_headline ("Add checked bag — £118 more") switch to
+// Inter, the rest inherits the h3's Newsreader. Scoped to £-amounts only.
+function withInterNumerals(text: string): ReactNode {
+  const parts = text.split(/(£[\d,]+(?:\.\d+)?)/g);
+  return parts.map((part, i) =>
+    /^£[\d,]+(?:\.\d+)?$/.test(part)
+      ? <span key={i} style={{ fontFamily: 'Inter, sans-serif' }}>{part}</span>
+      : part
+  );
+}
 
 export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
   if (!scenarios.length) return null;
@@ -61,8 +74,7 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
         gap:                 16,
       }}>
         {scenarios.map((scenario, i) => {
-          const isAmber = scenario.saving > 0;
-          const icon    = SCENARIO_ICONS[scenario.lever] ?? 'tune';
+          const icon = SCENARIO_ICONS[scenario.lever] ?? 'tune';
 
           return (
             <div
@@ -77,13 +89,18 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                 gap:           10,
               }}
             >
-              {/* Icon + headline */}
+              {/* Icon + headline — icon colour is uniform teal across every
+                  card (previously amber/teal split on scenario.saving with
+                  no consistent logic; amber is reserved for CTAs). Headline
+                  block has a fixed min-height so a 2-line wrap on one card
+                  doesn't leave that card's content sitting lower than its
+                  1-line siblings. */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
                   width:          40,
                   height:         40,
                   borderRadius:   '50%',
-                  background:     isAmber ? '#805600' : '#004349',
+                  background:     '#004349',
                   display:        'flex',
                   alignItems:     'center',
                   justifyContent: 'center',
@@ -101,15 +118,22 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                   fontFamily: 'Newsreader, serif',
                   fontSize:   18,
                   fontWeight: 500,
-                  color:      isAmber ? '#805600' : '#004349',
+                  color:      '#004349',
                   lineHeight: 1.3,
                   margin:     0,
+                  minHeight:  '2.6em',
+                  display:    'flex',
+                  alignItems: 'center',
                 }}>
-                  {scenario.locked_headline}
+                  {withInterNumerals(scenario.locked_headline)}
                 </h3>
               </div>
 
-              {/* Insight sentence */}
+              {/* Insight sentence — no flexGrow here; the slack that used
+                  to live in this paragraph (and read as dead space on
+                  shorter cards) now collects in one dedicated spacer just
+                  above the divider, so every card's footer lines up at the
+                  same position without an awkward gap mid-content. */}
               {scenario.facts.insight && (
                 <p style={{
                   fontFamily: 'Inter, sans-serif',
@@ -117,13 +141,16 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                   color:      '#3f484a',
                   lineHeight: 1.5,
                   margin:     0,
-                  flexGrow:   1,
                 }}>
                   {scenario.facts.insight as string}
                 </p>
               )}
 
-              {/* Cost delta */}
+              {/* Cost delta — explicit +/− sign on the figure itself, plus
+                  a genuine colour split (green = cheaper, grey = costs
+                  more; amber dropped, reserved for CTAs) so "Save £118"
+                  and "£118 more" can't be misread for each other even at a
+                  glance, in case the two figures ever coincide. */}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 {scenario.saving > 0 ? (
                   <>
@@ -131,11 +158,11 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                       fontFamily:    'Inter, sans-serif',
                       fontSize:      13,
                       fontWeight:    700,
-                      color:         '#805600',
+                      color:         '#2e7d32',
                       letterSpacing: '0.04em',
                       textTransform: 'uppercase',
                     }}>
-                      Save £{scenario.saving}
+                      −£{scenario.saving} saving
                     </span>
                     <span style={{
                       fontFamily: 'Inter, sans-serif',
@@ -166,7 +193,7 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                       letterSpacing: '0.04em',
                       textTransform: 'uppercase',
                     }}>
-                      £{Math.abs(scenario.saving)} more
+                      +£{Math.abs(scenario.saving)} more
                     </span>
                     <span style={{
                       fontFamily: 'Inter, sans-serif',
@@ -192,6 +219,12 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
                   ↻ Different flight selected
                 </div>
               )}
+
+              {/* Spacer — absorbs the leftover height from the grid row's
+                  tallest card, so the divider/link footer stays pinned to
+                  the bottom of every card instead of that space appearing
+                  as a random gap higher up. */}
+              <div style={{ flexGrow: 1 }} />
 
               {/* Divider */}
               <div style={{ height: 1, background: '#e1e3e3', margin: '4px 0' }} />
