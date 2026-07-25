@@ -5,18 +5,34 @@ import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
-
-const GREEN_QUALITIES = new Set(['excellent', 'ideal', 'good']);
-const AMBER_QUALITIES = new Set(['very_early', 'early', 'acceptable']);
-const RED_QUALITIES = new Set(['poor', 'late']);
+// Unified 4-tier scale across all three quality dimensions (departure,
+// arrival, return): Ideal / Good / Fair / Poor, ranked in that order —
+// abstract, rank-legible names instead of direction-specific ones like
+// "early"/"late" (a single word can't describe both "too early" departure
+// problems and "too late" arrival problems). Each dimension's own
+// out/arrival/ret Node function maps its raw values to these labels below;
+// the actual time is still shown next to the chip, so the concrete
+// direction (early vs late) stays visible even though the label doesn't
+// encode it.
+//
+// Colour is resolved from the MAPPED LABEL, not the raw quality value —
+// deliberately, not incidentally. The raw string 'very_early' is reused by
+// two dimensions with two different rank positions (departure's tier-3
+// Fair vs return's tier-4 Poor); keying colour off the raw value would
+// make both the same colour. Each Node function already knows which
+// dimension it's in and resolves the correct label first, so qualityPill
+// only ever sees an unambiguous, already-correct label.
+const GREEN_LABELS = new Set(['Ideal', 'Good']);
+const AMBER_LABELS = new Set(['Fair']);
+const RED_LABELS = new Set(['Poor']);
 
 function qualityPill(label: string, q: string | null, time: string | null): ReactNode {
   const timeStr = time ? ` (${time})` : '';
   if (!q) return '—';
   let bg: string; let fg: string;
-  if (GREEN_QUALITIES.has(q)) { bg = '#e8f5e9'; fg = '#2e7d32'; }
-  else if (AMBER_QUALITIES.has(q)) { bg = '#fff8e1'; fg = '#f57f17'; }
-  else if (RED_QUALITIES.has(q)) { bg = '#ffebee'; fg = '#c62828'; }
+  if (GREEN_LABELS.has(label)) { bg = '#e8f5e9'; fg = '#2e7d32'; }
+  else if (AMBER_LABELS.has(label)) { bg = '#fff8e1'; fg = '#f57f17'; }
+  else if (RED_LABELS.has(label)) { bg = '#ffebee'; fg = '#c62828'; }
   else return <span className="text-[#3f484a]">{label}{timeStr}</span>;
   return (
     <span>
@@ -33,21 +49,25 @@ function qualityPill(label: string, q: string | null, time: string | null): Reac
 
 function arrivalNode(q: string | null, time: string | null): ReactNode {
   const labels: Record<string, string> = {
-    excellent: 'Excellent', good: 'Good', acceptable: 'Evening', poor: 'Night',
+    excellent: 'Ideal', good: 'Good', acceptable: 'Fair', poor: 'Poor',
   };
   return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
 function outDepNode(q: string | null, time: string | null): ReactNode {
   const labels: Record<string, string> = {
-    ideal: 'Ideal', good: 'Good', very_early: 'Very early', poor: 'Late',
+    ideal: 'Ideal', good: 'Good', very_early: 'Fair', poor: 'Poor',
   };
   return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
 
 function retDepNode(q: string | null, time: string | null): ReactNode {
+  // very_early is escalated to Poor (red) here, not Fair (amber) — a
+  // very-early return (the same pre-dawn-checkout scenario already
+  // flagged as the key trade-off elsewhere on the page) deserves the same
+  // severity as a poor departure or poor arrival, per explicit decision.
   const labels: Record<string, string> = {
-    excellent: 'Excellent', good: 'Good', early: 'Early', very_early: 'Very early',
+    excellent: 'Ideal', good: 'Good', early: 'Fair', very_early: 'Poor',
   };
   return qualityPill(labels[q ?? ''] ?? '—', q, time);
 }
