@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { PriceMovementChart } from './price-movement-chart';
 import type { PricePoint, PriceMovementDirection } from '@/lib/flights/priceMovement';
@@ -48,7 +48,7 @@ function humanizeDestination(slug: string): string {
 // ── Shared card shell ────────────────────────────────────────────────────────
 
 function PriceHistoryCard({
-  heading, subtitle, aboveNarration, data, loading, fallbackText,
+  heading, subtitle, aboveNarration, data, loading, fallbackText, highlighted, innerRef,
 }: {
   heading: string;
   subtitle: string;
@@ -56,15 +56,23 @@ function PriceHistoryCard({
   data: PriceHistoryResponse | null;
   loading: boolean;
   fallbackText: string;
+  highlighted?: boolean; // brief pulse after the leg-options modal closes
+  innerRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
-    <div style={{
-      background: '#ffffff',
-      borderRadius: 16,
-      boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)',
-      padding: 24,
-      marginBottom: 24,
-    }}>
+    <div
+      ref={innerRef}
+      style={{
+        background: highlighted ? '#f2f7f7' : '#ffffff',
+        borderRadius: 16,
+        boxShadow: highlighted
+          ? '0 0 0 3px rgba(0,67,73,0.35), 0 2px 12px -2px rgba(13,92,99,0.08)'
+          : '0 2px 12px -2px rgba(13,92,99,0.08)',
+        padding: 24,
+        marginBottom: 24,
+        transition: 'box-shadow 0.4s ease, background 0.4s ease',
+      }}
+    >
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
         <div
           className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white"
@@ -138,13 +146,32 @@ function PriceHistoryCard({
 export function PriceHistorySection({
   destinationSlug, tripType, adults, children, infants, recommendation,
 }: PriceHistorySectionProps) {
-  const { selectedMatrixCell } = useFlightInsights();
+  const { selectedMatrixCell, modalCloseCount } = useFlightInsights();
 
   const [destinationData, setDestinationData] = useState<PriceHistoryResponse | null>(null);
   const [destinationLoading, setDestinationLoading] = useState(true);
 
   const [cellData, setCellData] = useState<PriceHistoryResponse | null>(null);
   const [cellLoading, setCellLoading] = useState(false);
+
+  // Auto-scroll + highlight the itinerary card when the leg-options modal
+  // closes (X / outside click / Esc — all routed through modalCloseCount).
+  // First-time-only per page visit: subsequent cell clicks update the
+  // chart in place without yanking the page around again.
+  const itineraryCardRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolledRef = useRef(false);
+  const [itineraryHighlighted, setItineraryHighlighted] = useState(false);
+
+  useEffect(() => {
+    if (modalCloseCount === 0) return; // no close has happened yet
+    if (hasAutoScrolledRef.current) return; // first-time-only
+    hasAutoScrolledRef.current = true;
+
+    itineraryCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setItineraryHighlighted(true);
+    const t = setTimeout(() => setItineraryHighlighted(false), 1000);
+    return () => clearTimeout(t);
+  }, [modalCloseCount]);
 
   // Card A — fetched once; destination/trip_type/composition don't change
   // without a full page navigation.
@@ -196,7 +223,8 @@ export function PriceHistorySection({
     <section style={{ padding: 24 }} aria-label="Price history">
       {/* Framing line, not a duplicate heading — Card A's own heading
           already says "How {destination} prices have moved"; this explains
-          why there are two cards rather than repeating that fact. */}
+          why there are two cards rather than repeating that fact. Ordered
+          to match the cards below: itinerary first, destination second. */}
       <p style={{
         fontFamily: 'Inter, sans-serif',
         fontSize: 14,
@@ -204,27 +232,29 @@ export function PriceHistorySection({
         marginBottom: 16,
         maxWidth: '70ch',
       }}>
-        Two views of the same trend: how {destinationName} overall has moved, and how this specific date pair has moved.
+        Two views of the same trend: how this specific date pair has moved, and how {destinationName} overall has moved.
       </p>
-
-      <PriceHistoryCard
-        heading={`How ${destinationName} prices have moved`}
-        subtitle="Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date combination shown above."
-        data={destinationData}
-        loading={destinationLoading}
-        fallbackText={`Price history for ${destinationName} is not available right now.`}
-      />
 
       {effectiveCell && (
         <PriceHistoryCard
+          innerRef={itineraryCardRef}
+          highlighted={itineraryHighlighted}
           heading="How this itinerary has moved"
           aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
-          subtitle="Airfare only — excludes bags, transit and transfers."
+          subtitle="Airfare only — excludes bags, transit and transfers. This is the cheapest fare found for this exact date pair — not a median."
           data={cellData}
           loading={cellLoading}
           fallbackText="Price history for this itinerary is not available right now."
         />
       )}
+
+      <PriceHistoryCard
+        heading={`How ${destinationName} prices have moved`}
+        subtitle="Airfare only — excludes bags, transit and transfers. This is the median of the cheapest fare across every date pair on the matrix above — not this specific itinerary."
+        data={destinationData}
+        loading={destinationLoading}
+        fallbackText={`Price history for ${destinationName} is not available right now.`}
+      />
     </section>
   );
 }

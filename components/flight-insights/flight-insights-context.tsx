@@ -24,6 +24,14 @@ interface FlightInsightsContextValue {
   // prop-drilling through page.tsx, a server component.
   selectedMatrixCell: SelectedMatrixCell | null;
   setSelectedMatrixCell: (cell: SelectedMatrixCell) => void;
+  // Incremented from the modal's onClose (X / outside click / Esc — Radix
+  // routes all three through one onOpenChange callback, so one signal
+  // covers every closure path). A counter, not a boolean, so effects that
+  // depend on it fire on every close, not just the first true->false edge.
+  // PriceHistorySection decides for itself whether to actually act on it
+  // (e.g. first-time-only auto-scroll).
+  modalCloseCount: number;
+  notifyModalClosed: () => void;
 }
 
 const FlightInsightsContext = createContext<FlightInsightsContextValue>({
@@ -33,22 +41,30 @@ const FlightInsightsContext = createContext<FlightInsightsContextValue>({
   setAILoading: () => {},
   selectedMatrixCell: null,
   setSelectedMatrixCell: () => {},
+  modalCloseCount: 0,
+  notifyModalClosed: () => {},
 });
 
 export function FlightInsightsProvider({ children }: { children: ReactNode }) {
   const [aiResult, setAIResultState] = useState<AIRecommendationResult | null>(null);
   const [aiLoading, setAILoading] = useState(true);
   const [selectedMatrixCell, setSelectedMatrixCell] = useState<SelectedMatrixCell | null>(null);
+  const [modalCloseCount, setModalCloseCount] = useState(0);
 
   const setAIResult = useCallback((result: AIRecommendationResult) => {
     setAIResultState(result);
     setAILoading(false);
   }, []);
 
+  const notifyModalClosed = useCallback(() => {
+    setModalCloseCount(c => c + 1);
+  }, []);
+
   return (
     <FlightInsightsContext.Provider value={{
       aiResult, aiLoading, setAIResult, setAILoading,
       selectedMatrixCell, setSelectedMatrixCell,
+      modalCloseCount, notifyModalClosed,
     }}>
       {children}
     </FlightInsightsContext.Provider>
