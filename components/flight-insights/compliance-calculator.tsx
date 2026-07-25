@@ -240,7 +240,7 @@ export function ComplianceCalculator({
   transportMode,
   postcodeDistrict,
 }: ComplianceCalculatorProps) {
-  const { aiResult }  = useFlightInsights();
+  const { aiResult, setSelectedMatrixCell } = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
 
   const [modalOpen, setModalOpen]       = useState(false);
@@ -291,6 +291,9 @@ export function ComplianceCalculator({
       label: `${fmtShort(outbound_date)} → ${fmtShort(return_date)}`,
     });
     setModalOpen(true);
+    // Also update the per-cell price history card below the matrix —
+    // in addition to the modal above, not instead of it.
+    setSelectedMatrixCell({ outboundDate: outbound_date, returnDate: return_date });
   }
 
   const modalRecommendation = recommendation ? {

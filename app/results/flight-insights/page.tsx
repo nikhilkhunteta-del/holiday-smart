@@ -4,6 +4,7 @@ import { ComplianceCalculator } from '@/components/flight-insights/compliance-ca
 import { ComparisonTable } from '@/components/flight-insights/comparison-table';
 import { PreferencesCard } from '@/components/flight-insights/preferences-card';
 import { AIRecommendationClient } from '@/components/flight-insights/ai-recommendation-client';
+import { PriceHistorySection } from '@/components/flight-insights/price-history-section';
 import { FlightInsightsProvider } from '@/components/flight-insights/flight-insights-context';
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
@@ -345,6 +346,22 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
               />
             )}
 
+            {/* 6. Price history — destination-level median + per-cell,
+                below the matrix. Reads cached derived tables only, never
+                fare_snapshots live. */}
+            {assembled && (
+              <PriceHistorySection
+                destinationSlug={destinationSlug}
+                tripType={tripType}
+                adults={adults}
+                children={children}
+                infants={infants}
+                recommendation={assembled.recommendation ? {
+                  outbound_date: assembled.recommendation.outbound_date,
+                  return_date:   assembled.recommendation.return_date,
+                } : null}
+              />
+            )}
 
           </AIRecommendationClient>
 

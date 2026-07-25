@@ -8,11 +8,22 @@ export interface AIRecommendationResult extends AIRecommendationOutput {
   recommendedCombination?: Record<string, any> | null;
 }
 
+export interface SelectedMatrixCell {
+  outboundDate: string;
+  returnDate: string;
+}
+
 interface FlightInsightsContextValue {
   aiResult: AIRecommendationResult | null;
   aiLoading: boolean;
   setAIResult: (result: AIRecommendationResult) => void;
   setAILoading: (loading: boolean) => void;
+  // Set from ComplianceCalculator's handleCellClick (in addition to, not
+  // instead of, opening the leg-options modal) so the per-cell price
+  // history card below the matrix can react to the same click without
+  // prop-drilling through page.tsx, a server component.
+  selectedMatrixCell: SelectedMatrixCell | null;
+  setSelectedMatrixCell: (cell: SelectedMatrixCell) => void;
 }
 
 const FlightInsightsContext = createContext<FlightInsightsContextValue>({
@@ -20,11 +31,14 @@ const FlightInsightsContext = createContext<FlightInsightsContextValue>({
   aiLoading: true,
   setAIResult: () => {},
   setAILoading: () => {},
+  selectedMatrixCell: null,
+  setSelectedMatrixCell: () => {},
 });
 
 export function FlightInsightsProvider({ children }: { children: ReactNode }) {
   const [aiResult, setAIResultState] = useState<AIRecommendationResult | null>(null);
   const [aiLoading, setAILoading] = useState(true);
+  const [selectedMatrixCell, setSelectedMatrixCell] = useState<SelectedMatrixCell | null>(null);
 
   const setAIResult = useCallback((result: AIRecommendationResult) => {
     setAIResultState(result);
@@ -32,7 +46,10 @@ export function FlightInsightsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <FlightInsightsContext.Provider value={{ aiResult, aiLoading, setAIResult, setAILoading }}>
+    <FlightInsightsContext.Provider value={{
+      aiResult, aiLoading, setAIResult, setAILoading,
+      selectedMatrixCell, setSelectedMatrixCell,
+    }}>
       {children}
     </FlightInsightsContext.Provider>
   );

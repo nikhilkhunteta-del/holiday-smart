@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { combinationKey, type ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
 import type { ScenarioResult } from './buildScenarioResults';
+import { narratePriceMovement } from './priceMovement';
 
 export interface AIRecommendationOutput {
   problem_statement: string;
@@ -166,48 +167,6 @@ export interface FamilyContext {
   price_delta_gbp?: number | null;
   price_direction?: 'up' | 'down' | 'flat' | 'single_point' | 'no_data';
 }
-
-// System prompt for the price-movement card's narration call — a genuine
-// generation call (not the verbatim-copy "voice" mechanism the other cards
-// use), so it runs as its own separate client.messages.create(), in
-// parallel with the main insight call. See CLAUDE.md → "AI Recommendation
-// Card System" for why this card is a different sub-pattern from the rest.
-const PRICE_MOVEMENT_SYSTEM_PROMPT = `You are writing one short insight line for a flight-price tracking card on a
-family holiday planning tool called Holiday Smart. The card sits in a column
-of similar cards (e.g. "Why this over the alternatives", "The one trade-off
-that matters most") — match their tone: plain, factual, warm but not chatty,
-like a knowledgeable friend reporting what they've observed. No marketing
-voice, no urgency, no exclamation points.
-
-You will be given pre-computed facts about how many times we've checked this
-exact flight itinerary's price, and how it has moved. Your only job is to
-turn those facts into ONE sentence (two only if truly needed for clarity).
-Never a paragraph.
-
-Hard rules — violating any of these is a failure:
-1. Past tense only. Describe what has already happened. Never predict,
-   forecast, or imply what will happen to the price next.
-2. Never suggest urgency or create pressure to act now ("don't wait",
-   "act fast", "prices are likely to rise", "book before..."). If the data
-   shows a price increase, simply state the fact — do not add a call to
-   action around it.
-3. Do not restate the itinerary's route, airline, or dates — that's already
-   shown elsewhere on the page. Only talk about the price and how it's moved.
-4. Do not invent a number, date, or comparison that wasn't given to you.
-5. If checks_with_data is less than checks_total, acknowledge the gap
-   plainly (e.g. "in the 2 checks we've been able to price this exact
-   flight" or similar) — don't imply more history exists than actually does.
-6. If direction is 'single_point', do not describe any movement — say
-   plainly that this is the first time this exact flight has been priced,
-   and that there's nothing to compare it to yet.
-7. If direction is 'no_data', say plainly that this flight hasn't been
-   found in a previous check, without speculating why.
-8. If direction is 'flat', don't force a story — it's fine and honest to
-   say the price has barely moved.
-9. Output plain text only. No markdown, no quotes around the sentence, no
-   preamble like "Here's the insight:".
-
-Return ONLY the sentence(s) — nothing else.`;
 
 interface CardSpec {
   lever: string;
@@ -550,28 +509,15 @@ export async function getAIRecommendation(
   const priceDirection = context.price_direction ?? 'no_data';
   const priceMovementNarrationPromise: Promise<string> = isBaselineCheapest
     ? Promise.resolve('')
-    : client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 200,
-        system: PRICE_MOVEMENT_SYSTEM_PROMPT,
-        messages: [{
-          role: 'user',
-          content: JSON.stringify({
-            checks_total:       context.price_checks_total ?? 0,
-            checks_with_data:   context.price_checks_with_data ?? 0,
-            price_points:       context.price_points ?? [],
-            latest_total_gbp:   context.price_latest_total_gbp ?? null,
-            previous_total_gbp: context.price_previous_total_gbp ?? null,
-            delta_gbp:          context.price_delta_gbp ?? null,
-            direction:          priceDirection,
-          }),
-        }],
-      })
-        .then(msg => (msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''))
-        .catch(err => {
-          console.error('[getAIRecommendation] price movement narration call error:', err);
-          return '';
-        });
+    : narratePriceMovement({
+        checks_total:       context.price_checks_total ?? 0,
+        checks_with_data:   context.price_checks_with_data ?? 0,
+        price_points:       context.price_points ?? [],
+        latest_total_gbp:   context.price_latest_total_gbp ?? null,
+        previous_total_gbp: context.price_previous_total_gbp ?? null,
+        delta_gbp:          context.price_delta_gbp ?? null,
+        direction:          priceDirection,
+      });
 
   // ── Winner vs best-inset-in-pool identity check ─────────────────────────
   const winnerKey = combinationKey(recommended);
