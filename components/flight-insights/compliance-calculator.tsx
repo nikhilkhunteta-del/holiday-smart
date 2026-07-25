@@ -69,12 +69,15 @@ function transportDetail(transit: AirportTransitCost, airport: string, dir: '↑
 
 // ── Colour coding ─────────────────────────────────────────────────────────────
 
-// excess = c.total_cost_gbp - minCost (0 = cheapest → amber; higher = more expensive → teal)
+// excess = c.total_cost_gbp - minCost (0 = cheapest cell in the grid, rising
+// as a cell costs more above that minimum). Darkest teal marks the cheapest
+// cell; amber marks the cells furthest above it. (Previously inverted — see
+// CLAUDE.md Known Issues for the regression history.)
 function cellColour(excess: number): { bg: string; color: string } {
-  if (excess < 1)    return { bg: '#fff3e0', color: '#5c310d' };
-  if (excess < 50)   return { bg: '#a8d5d9', color: '#004349' };
-  if (excess < 100)  return { bg: '#1a7a82', color: '#ffffff' };
-  return                    { bg: '#0d5c63', color: '#ffffff' };
+  if (excess < 1)    return { bg: '#0d5c63', color: '#ffffff' };
+  if (excess < 50)   return { bg: '#1a7a82', color: '#ffffff' };
+  if (excess < 100)  return { bg: '#a8d5d9', color: '#004349' };
+  return                    { bg: '#fff3e0', color: '#5c310d' };
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -118,6 +121,8 @@ function DataCell({
   const labelColor = color === '#ffffff' ? 'rgba(255,255,255,0.85)' : '#004349';
   const border    = isSelected ? '2px solid #004349' : isRec ? '1.5px solid #004349' : 'none';
   const hasFine   = c.requires_absence && (c.fine_gbp ?? 0) > 0;
+  const nights    = nightsBetween(c.outbound_date, c.return_date);
+  const nightsText = `${nights} ${nights === 1 ? 'night' : 'nights'}`;
 
   // ── 5. Fine badge: label-sm (12px, 500) ───────────────────────────────────
   const fineBadge = hasFine ? (
@@ -153,6 +158,7 @@ function DataCell({
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_cost_gbp)}
+            <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.75 }}> · {nightsText}</span>
           </span>
           {fineBadge}
         </div>
@@ -160,6 +166,7 @@ function DataCell({
         <>
           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color, display: 'block' }}>
             {gbp(c.total_cost_gbp)}
+            <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.75 }}> · {nightsText}</span>
           </span>
           {fineBadge}
         </>
@@ -195,10 +202,10 @@ function InvalidCell({ dep, ret }: { dep: string; ret: string }) {
 // ── Legend ─────────────────────────────────────────────────────────────────────
 
 const LEGEND = [
-  { bg: '#0d5c63', label: '£100+ saving' },
-  { bg: '#1a7a82', label: '£50–100 saving' },
-  { bg: '#a8d5d9', label: 'up to £50 saving' },
-  { bg: '#fff3e0', label: 'more than cheapest option' },
+  { bg: '#0d5c63', label: 'Cheapest option' },
+  { bg: '#1a7a82', label: 'up to £50 more' },
+  { bg: '#a8d5d9', label: '£50–100 more' },
+  { bg: '#fff3e0', label: '£100+ more than cheapest' },
 ];
 
 // ── Amber label (shared style) ────────────────────────────────────────────────
@@ -265,6 +272,10 @@ export function ComplianceCalculator({
 
   // ── 7. Row label column: 128px; secondary labels use on-surface-variant ──
   const LABEL_COL_WIDTH = 128;
+  // Minimum width for a date column that keeps "£1,234 · 7 nights" and an
+  // "Xx absence days" label on a single line without wrapping into an
+  // unreadable stack.
+  const DATE_COL_WIDTH = 108;
   const STICKY = { position: 'sticky' as const, left: 0, zIndex: 10 };
 
   // ── Cheapest cost across all combinations (for colour coding) ────────────
@@ -345,7 +356,17 @@ export function ComplianceCalculator({
             }} />
 
             <div style={{ overflowX: 'auto', marginLeft: '-1.5rem', marginRight: '-1.5rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-              <table style={{ borderCollapse: 'separate', borderSpacing: '4px', width: '100%', tableLayout: 'fixed' }}>
+              <table style={{
+                borderCollapse: 'separate', borderSpacing: '4px', tableLayout: 'fixed',
+                // width grows with column count so the table can genuinely
+                // overflow (and scroll) instead of squeezing every date
+                // column to fit 100% of the container — which is what was
+                // clipping the rightmost column with no way to reach it.
+                // minWidth keeps it filling the full container on windows
+                // with few date columns, same as before.
+                width: LABEL_COL_WIDTH + retDates.length * DATE_COL_WIDTH,
+                minWidth: '100%',
+              }}>
                 <thead>
                   <tr>
                     {/* ── 7. Row label column: fixed 128px ── */}
@@ -356,7 +377,7 @@ export function ComplianceCalculator({
                       const absenceDays = allAbsence ? Math.max(...retCombos.map(c => c.absence_days)) : null;
                       const isBaselineRet = ret === baseline.return_date;
                       return (
-                        <th key={ret} style={{ padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
+                        <th key={ret} style={{ width: DATE_COL_WIDTH, padding: '0 8px 8px 8px', verticalAlign: 'bottom', textAlign: 'left', fontWeight: 'normal' }}>
                           <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', display: 'block', whiteSpace: 'nowrap' }}>
                             {fmtShort(ret)}
                           </span>
@@ -430,6 +451,8 @@ export function ComplianceCalculator({
                                 ret === recommendation.return_date));
 
                           const isSelected = dep === selectedOutbound && ret === selectedReturn;
+                          const cellNights = nightsBetween(dep, ret);
+                          const cellNightsText = `${cellNights} ${cellNights === 1 ? 'night' : 'nights'}`;
 
                           if (isBaselinePos && baselineIsRecommended) {
                             return (
@@ -457,6 +480,7 @@ export function ComplianceCalculator({
                                   </div>
                                   <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#ffffff', display: 'block' }}>
                                     {gbp(baselineTotal)}
+                                    <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.75 }}> · {cellNightsText}</span>
                                   </span>
                                 </div>
                               </td>

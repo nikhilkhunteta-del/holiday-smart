@@ -50,6 +50,41 @@ until the `cellMap` fix above lands, it's possible for the button's target itine
 slightly from the "£X all-in" figure shown directly above it. Revisit this note once the
 `cellMap` fix is done — the two should be provably identical after that.
 
+**Confirmed NOT the cause of the matrix's colour-tier bug (see RESOLVED entry below):** traced
+`DataCell` in `compliance-calculator.tsx` — the tier colour is computed as `c.total_cost_gbp -
+minCost` on the *exact same* `c` object (`cellMap.get()` result) whose price the cell displays,
+so the tier and the displayed price can never disagree with each other. This rules out the
+`cellMap` first-wins bug as the cause of that separate symptom — it was a genuine colour-mapping
+inversion instead (see below), unrelated to which combination `cellMap` selects.
+
+---
+
+### RESOLVED — Matrix colour tiers were inverted (cheapest cell rendered amber)
+
+**Location:** `components/flight-insights/compliance-calculator.tsx`, `cellColour()` (~line 73)
+and the `LEGEND` array (~line 205).
+
+Introduced in commit `5cd11d9` ("Switch matrix to total_cost_gbp for display, colour coding, and
+spread"), which changed the colour-tier reference point from `baselineTotal` to the grid's own
+`minCost` but kept the *same* bucket→colour assignment and the *same* legend text, which had been
+written for the old (opposite-signed) `baselineTotal - c.total_inc_fine` formula. Under the old
+formula, a large positive value meant "much cheaper than baseline" → dark teal made sense. Under
+the new `c.total_cost_gbp - minCost` formula, a value near 0 means "this cell IS the cheapest in
+the grid" — but that case kept the *old* amber bucket, whose legend text read "more than cheapest
+option." The single cheapest cell in the matrix (and any cell badged "Cheapest") therefore always
+rendered amber, directly contradicting its own label. The hardcoded baseline-recommended cell
+(~line 448, always `#0d5c63` dark teal) never went through `cellColour()` and so never showed the
+bug — its independent hardcoded colour is what exposed the inconsistency.
+
+**Fix:** reversed the bucket→colour assignment (same £1/£50/£100 thresholds, colours swapped) so
+the cheapest cell gets the darkest teal and the most-expensive-relative-to-cheapest cells get
+amber; updated `LEGEND` text to match ("Cheapest option" / "up to £50 more" / "£50–100 more" /
+"£100+ more than cheapest").
+
+**Still deferred, by explicit instruction:** collapsing the three teal shades into two tiers
+(saving / no saving) is a separate follow-up, to be done only once this colour-direction fix is
+confirmed correct against live data — not bundled into this fix.
+
 ---
 
 ### KNOWN ISSUE — Google Flights deep links don't encode carrier or party size
