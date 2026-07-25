@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
@@ -85,6 +85,22 @@ function fmtDuration(mins: number | null | undefined): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// DESIGN.md's type split is Newsreader for editorial voice, Inter for data.
+// AI-generated headline/problem-statement prose is otherwise-Newsreader but
+// has £-figures baked into the sentence — this renders those figures in
+// Inter while the surrounding words inherit whatever Newsreader style the
+// caller applied. Scoped to £-amounts specifically (matching the two cases
+// this was raised for), not bare digits — splitting an ordinary date like
+// "24 Oct" mid-number would look broken, not more correct.
+function withInterNumerals(text: string): ReactNode {
+  const parts = text.split(/(£[\d,]+(?:\.\d+)?)/g);
+  return parts.map((part, i) =>
+    /^£[\d,]+(?:\.\d+)?$/.test(part)
+      ? <span key={i} style={{ fontFamily: 'Inter, sans-serif' }}>{part}</span>
+      : part
+  );
 }
 
 // Google Flights URL builders (buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl)
@@ -482,6 +498,14 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
   const isSplit = (rec as any)?.split_carrier ?? false;
 
+  // Freshness stamp — reuses the exact same price_points series that
+  // powers the price-history section's chart (last point = most recent
+  // check for this itinerary), rather than a separate "last updated" field.
+  const priceHistoryPoints = aiResult?.price_movement?.price_points ?? [];
+  const lastCheckedOn = priceHistoryPoints.length
+    ? priceHistoryPoints[priceHistoryPoints.length - 1].checked_on
+    : null;
+
   const roundTripUrl = rec ? buildGoogleFlightsRoundTripUrl({
     origin,
     destination: outDest,
@@ -565,7 +589,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             lineHeight: 1.6,
             marginBottom: 12,
           }}>
-            {aiResult.problem_statement}
+            {withInterNumerals(aiResult.problem_statement)}
           </p>
         )}
         {aiResult?.headline && (
@@ -578,7 +602,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             letterSpacing: '-0.01em',
             marginBottom: 8,
           }}>
-            {aiResult.headline}
+            {withInterNumerals(aiResult.headline)}
           </h1>
         )}
         {aiResult?.subheadline && (
@@ -764,7 +788,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   padding: '12px 20px',
                 }}>
                   <span style={{
-                    fontFamily: 'Newsreader, serif',
+                    fontFamily: 'Inter, sans-serif',
                     fontSize: 36,
                     fontWeight: 600,
                     color: '#F06543',
@@ -826,7 +850,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   </div>
                 </div>
 
-                <div style={{ fontFamily: 'Newsreader, serif', fontSize: 18, color: '#004349', fontWeight: 500 }}>
+                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 18, color: '#004349', fontWeight: 500 }}>
                   {(() => {
                     const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
                     return `${fmt(baseline.outbound_date)} — ${fmt(baseline.return_date)}`;
@@ -865,7 +889,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', marginBottom: 4 }}>
                     All-in total
                   </div>
-                  <div style={{ fontFamily: 'Newsreader, serif', fontSize: 28, fontWeight: 600, color: '#004349' }}>
+                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 28, fontWeight: 600, color: '#004349' }}>
                     £{Math.round(baseline.total_cost_gbp)}
                   </div>
                   <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', marginTop: 2 }}>
@@ -942,7 +966,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       <div className="flex flex-col">
                         <div className="flex items-baseline gap-xs">
                           <span style={{
-                            fontFamily: 'Newsreader, serif',
+                            fontFamily: 'Inter, sans-serif',
                             fontSize: 22,
                             fontWeight: 500,
                             color: '#191c1d',
@@ -951,7 +975,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                           </span>
                           <span className="text-on-surface-variant">–</span>
                           <span style={{
-                            fontFamily: 'Newsreader, serif',
+                            fontFamily: 'Inter, sans-serif',
                             fontSize: 22,
                             fontWeight: 500,
                             color: '#191c1d',
@@ -994,7 +1018,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       <div className="flex flex-col">
                         <div className="flex items-baseline gap-xs">
                           <span style={{
-                            fontFamily: 'Newsreader, serif',
+                            fontFamily: 'Inter, sans-serif',
                             fontSize: 22,
                             fontWeight: 500,
                             color: '#191c1d',
@@ -1003,7 +1027,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                           </span>
                           <span className="text-on-surface-variant">–</span>
                           <span style={{
-                            fontFamily: 'Newsreader, serif',
+                            fontFamily: 'Inter, sans-serif',
                             fontSize: 22,
                             fontWeight: 500,
                             color: '#191c1d',
@@ -1049,6 +1073,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {isSplit ? (
                   <>
+                    {/* Both bookings are mandatory and separate — equal
+                        visual weight, not a filled/outlined false hierarchy. */}
                     <a
                       href={outboundUrl}
                       target="_blank"
@@ -1061,10 +1087,16 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       href={returnUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full border border-primary text-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:bg-primary/5 transition-all text-center block"
+                      className="w-full bg-primary text-on-primary py-md rounded-lg font-label-md text-label-md font-bold uppercase tracking-widest hover:opacity-90 transition-all shadow-md text-center block"
                     >
                       Book return · {carrierName((rec as any)?.return_carrier ?? '')}
                     </a>
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a',
+                      textAlign: 'center', margin: 0,
+                    }}>
+                      These are two separate bookings on two airlines — book both in one sitting.
+                    </p>
                   </>
                 ) : (
                   <a
@@ -1077,6 +1109,17 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   </a>
                 )}
               </div>
+
+              {/* Freshness stamp — same price_points series that powers the
+                  price-history section's chart, not a separately-tracked field. */}
+              {lastCheckedOn && (
+                <p style={{
+                  fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a',
+                  textAlign: 'center', margin: 0,
+                }}>
+                  Prices checked {fmtShortDate(lastCheckedOn)}
+                </p>
+              )}
 
               {/* Email capture */}
               {!emailSent ? (

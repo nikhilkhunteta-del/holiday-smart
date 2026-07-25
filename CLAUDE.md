@@ -285,15 +285,28 @@ penalty notice card's job now.
   redundant with the comparison table below. Props/types kept for interface stability with
   `page.tsx`; do not delete the file or its export without also removing the `page.tsx` call site.
 - `components/flight-insights/comparison-table.tsx` (`ComparisonTable`) is rendered as its own
-  standalone section in `page.tsx`, positioned directly above `<ComplianceCalculator>` (not
-  passed in as a prop, not nested inside it — that was tried and reverted because no JSX
-  reordering inside `ComplianceCalculator` can place content above its own hardcoded H2). The
-  "How we chose these prices ↓" trigger is styled to match the "Find your cheapest dates" H2
-  (`font-newsreader text-2xl font-medium`, `#004349`), not a small text link.
+  standalone section in `page.tsx`, positioned directly **below** `<ComplianceCalculator>` (not
+  passed in as a prop, not nested inside it — nesting was tried and reverted earlier because no
+  JSX reordering inside `ComplianceCalculator` can place content above its own hardcoded H2;
+  the below-matrix position was reached by swapping the two sibling sections in `page.tsx`, not
+  by revisiting that nesting attempt). Moved below the matrix because "How we chose these
+  prices" has no antecedent when it renders before any prices are shown. The trigger is now a
+  small text link (`14px`, `Inter`, underlined) — not styled to match the "Find your cheapest
+  dates" H2 anymore, so it doesn't compete with real H2s — and **defaults to open**: this table
+  is the strongest evidence on the page, so it should be visible by default, with the toggle
+  there to collapse it away rather than to reveal it.
   Column order is fixed: baseline, winner, then the rest sorted by `total_cost_gbp` ascending.
   Labels come from `deriveLabel()` — `is_baseline` is checked first, above everything else
   including `isWinner`, so the baseline column always reads "Typical Saturday" even when it's
-  also the winner or its airport differs from the winner's.
+  also the winner or its airport differs from the winner's. The "Checked bags"/"Seats" rows
+  render as a merged, left-aligned "Same for all" band (tinted background, explicit tag) when
+  uniform across columns — not centred grey text spanning every column, which read as an
+  empty/error state.
+- `components/flight-insights/price-history-section.tsx` now sits behind its own collapsed-by-
+  default expander ("See how the price has moved ↓"), the inverse of the comparison table above
+  — it's chart-based supporting detail, not the page's strongest evidence. Clicking a different
+  matrix cell or closing the leg-options modal auto-expands it (in addition to switching to the
+  "These dates" tab and pulsing), so the update is never hidden behind a still-collapsed section.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

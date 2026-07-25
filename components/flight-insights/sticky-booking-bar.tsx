@@ -55,7 +55,7 @@ export function StickyBookingBar({
         }}>
           {nights != null ? `${nights} nights in ${destinationName}` : destinationName}
         </div>
-        <div style={{ fontFamily: 'Newsreader, serif', fontSize: 20, fontWeight: 600, color: '#004349' }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 600, color: '#004349' }}>
           £{Math.round(totalCostGbp)}
         </div>
       </div>

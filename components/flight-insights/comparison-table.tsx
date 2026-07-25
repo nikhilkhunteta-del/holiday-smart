@@ -484,7 +484,9 @@ interface ComparisonTableProps {
 }
 
 export function ComparisonTable({ result }: ComparisonTableProps) {
-  const [open, setOpen] = useState(false);
+  // Visible by default — this table is the strongest evidence on the page;
+  // the toggle exists to let it be collapsed away, not to hide it initially.
+  const [open, setOpen] = useState(true);
 
   const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
@@ -557,19 +559,25 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
 
   return (
     <section className="w-full">
-      {/* Trigger — styled to match the "Find your cheapest dates" H2 */}
+      {/* Trigger — a small text link, not sized to compete with real H2s.
+          Now sits below the matrix, so "these prices" has an antecedent. */}
       <button
         onClick={() => setOpen(!open)}
-        className="text-left font-newsreader text-2xl font-medium"
+        className="text-left"
         style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 14,
+          fontWeight: 600,
           color: '#004349',
           background: 'none',
           border: 'none',
           padding: 0,
           cursor: 'pointer',
+          textDecoration: 'underline',
+          textUnderlineOffset: 2,
         }}
       >
-        How we chose these prices ↓
+        {open ? 'Hide how we chose these prices ↑' : 'How we chose these prices ↓'}
       </button>
 
       {/* Table */}
@@ -621,12 +629,24 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
                       {rowLabel}
                     </td>
                     {isUniform ? (
+                      // Deliberately merged and visually distinct from an
+                      // empty/error state (which would otherwise look
+                      // identical: centered grey text spanning every
+                      // column) — left-aligned, tinted background, and an
+                      // explicit "same for all" tag so it reads as "we
+                      // checked, it's identical everywhere" rather than
+                      // "no data".
                       <td
                         colSpan={columns.length}
-                        className={`py-2 px-3 text-center text-[#3f484a] ${
-                          showGroupHeader ? 'pt-5' : ''
-                        }`}
+                        className={`py-2 px-3 text-left ${showGroupHeader ? 'pt-5' : ''}`}
+                        style={{ background: 'rgba(0,67,73,0.03)', color: '#3f484a' }}
                       >
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                          letterSpacing: '0.06em', color: '#6f797a', marginRight: 10,
+                        }}>
+                          Same for all
+                        </span>
                         {row.renderNode(columns[0])}
                       </td>
                     ) : (

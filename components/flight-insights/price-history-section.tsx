@@ -96,14 +96,20 @@ export function PriceHistorySection({
 
   const [view, setView] = useState<View>(() => (effectiveCell ? 'cell' : 'destination'));
   const [highlighted, setHighlighted] = useState(false);
+  // Collapsed by default — the comparison table is the strongest evidence
+  // on the page and stays visible; this chart-based section is secondary
+  // and sits behind an expander instead.
+  const [expanded, setExpanded] = useState(false);
   const isFirstCellRender = useRef(true);
 
-  // Switch to "These dates" and pulse whenever a different cell is clicked —
-  // skip the pulse (but still land on the right tab) for prefers-reduced-motion.
+  // Switch to "These dates", expand (if collapsed) and pulse whenever a
+  // different cell is clicked — skip the pulse (but still land on the
+  // right tab, still expand) for prefers-reduced-motion.
   useEffect(() => {
     if (!effectiveCell) return;
     if (isFirstCellRender.current) { isFirstCellRender.current = false; return; }
     setView('cell');
+    setExpanded(true);
     if (prefersReducedMotion()) return;
     setHighlighted(true);
     const t = setTimeout(() => setHighlighted(false), 900);
@@ -116,6 +122,7 @@ export function PriceHistorySection({
   useEffect(() => {
     if (modalCloseCount === 0) return;
     setView('cell');
+    setExpanded(true);
     if (prefersReducedMotion()) return;
     setHighlighted(true);
     const t = setTimeout(() => setHighlighted(false), 900);
@@ -186,6 +193,26 @@ export function PriceHistorySection({
         We don't just check the price once — we keep watching. Here's how it's moved since we started.
       </p>
 
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 14,
+          fontWeight: 600,
+          color: '#004349',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          marginBottom: expanded ? 12 : 0,
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          textUnderlineOffset: 2,
+        }}
+      >
+        {expanded ? 'Hide the price history ↑' : 'See how the price has moved ↓'}
+      </button>
+
+      {expanded && (
       <div
         style={{
           background: highlighted ? '#f2f7f7' : '#ffffff',
@@ -257,6 +284,7 @@ export function PriceHistorySection({
           </>
         )}
       </div>
+      )}
     </section>
   );
 }

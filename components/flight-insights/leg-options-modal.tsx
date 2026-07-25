@@ -232,7 +232,7 @@ export function LegOptionsModal({
           {selectedCell && (
             <>
               <div style={{
-                fontFamily: 'Newsreader, serif',
+                fontFamily: 'Inter, sans-serif',
                 fontSize: 22,
                 fontWeight: 500,
                 color: '#004349',
