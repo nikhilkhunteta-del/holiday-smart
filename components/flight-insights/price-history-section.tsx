@@ -102,7 +102,7 @@ function PriceHistoryCard({
             color: '#6f797a',
             lineHeight: 1.5,
             marginBottom: 8,
-            maxWidth: '48ch',
+            maxWidth: '70ch',
           }}>
             {subtitle}
           </p>
@@ -118,12 +118,12 @@ function PriceHistoryCard({
                 fontSize: 15,
                 color: '#3f484a',
                 lineHeight: 1.6,
-                maxWidth: '48ch',
+                maxWidth: '70ch',
               }}>
                 {data?.narration || fallbackText}
               </p>
               {data && data.price_points.length > 1 && (
-                <PriceMovementChart points={data.price_points} />
+                <PriceMovementChart points={data.price_points} fullWidth />
               )}
             </>
           )}
@@ -193,19 +193,19 @@ export function PriceHistorySection({
   const destinationName = humanizeDestination(destinationSlug);
 
   return (
-    <section style={{ padding: 24 }} aria-labelledby="price-history-heading">
-      <h2
-        id="price-history-heading"
-        style={{
-          fontFamily: 'Newsreader, serif',
-          fontSize: 28,
-          fontWeight: 500,
-          color: '#004349',
-          marginBottom: 16,
-        }}
-      >
-        How prices have moved
-      </h2>
+    <section style={{ padding: 24 }} aria-label="Price history">
+      {/* Framing line, not a duplicate heading — Card A's own heading
+          already says "How {destination} prices have moved"; this explains
+          why there are two cards rather than repeating that fact. */}
+      <p style={{
+        fontFamily: 'Inter, sans-serif',
+        fontSize: 14,
+        color: '#6f797a',
+        marginBottom: 16,
+        maxWidth: '70ch',
+      }}>
+        Two views of the same trend: how {destinationName} overall has moved, and how this specific date pair has moved.
+      </p>
 
       <PriceHistoryCard
         heading={`How ${destinationName} prices have moved`}
@@ -217,12 +217,12 @@ export function PriceHistorySection({
 
       {effectiveCell && (
         <PriceHistoryCard
-          heading="How this date pair has moved"
+          heading="How this itinerary has moved"
           aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
           subtitle="Airfare only — excludes bags, transit and transfers."
           data={cellData}
           loading={cellLoading}
-          fallbackText="Price history for this date pair is not available right now."
+          fallbackText="Price history for this itinerary is not available right now."
         />
       )}
     </section>
