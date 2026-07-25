@@ -214,7 +214,7 @@ export function LegOptionsModal({
                   fontWeight: 700,
                   color: '#004349',
                 }}>
-                  {gbp(selectedCell.totalIncFine)} all-in
+                  {gbp(selectedCell.totalIncFine)} all-in — flights, bags and transport
                 </span>
 
                 {selectedCell.fineGbp > 0 && (
@@ -240,7 +240,7 @@ export function LegOptionsModal({
                 marginTop: 4,
                 marginBottom: 0,
               }}>
-                Cheapest all-in combination for these dates
+                Cheapest all-in combination for these dates — flights, bags and transport
               </p>
 
               {selectedCell.requiresAbsence && (

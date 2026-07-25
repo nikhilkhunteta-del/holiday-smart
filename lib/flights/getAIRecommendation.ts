@@ -1739,7 +1739,7 @@ IF is_baseline_cheapest is true, write instead:
 OTHERWISE, HEADLINE varies by saving_category:
 
 IF saving_category = 'significant':
-  "We found ${recommended.trip_nights} nights in ${destinationName} for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking from ${context.baseline_airport_name ?? 'Heathrow'}."
+  "We found ${recommended.trip_nights} nights in ${destinationName} — flights, bags and transfers for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking from ${context.baseline_airport_name ?? 'Heathrow'}."
 
 IF saving_category = 'found_saving':
   "We found a stronger option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking."

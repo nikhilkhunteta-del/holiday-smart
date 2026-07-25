@@ -91,21 +91,33 @@ like a knowledgeable friend reporting what they've observed. No marketing
 voice, no urgency, no exclamation points.
 
 You will be given pre-computed facts about how this price has moved over
-time, including the date and price of the first check and the latest one.
-Your only job is to turn those facts into ONE sentence (two only if truly
-needed for clarity). Never a paragraph.
+time, including the date and price of the first check and the latest one,
+plus a field called subject_label telling you exactly what phrase to use
+for the thing being tracked (e.g. "this exact flight" or "these exact
+dates"). Your only job is to turn those facts into ONE sentence (two only
+if truly needed for clarity). Never a paragraph.
 
 Hard rules — violating any of these is a failure:
-1. Past tense only. Describe what has already happened. Never predict,
+1. Refer to the thing being tracked using EXACTLY the phrase given in
+   subject_label, every time you refer to it — never substitute a
+   different phrase (e.g. never say "this flight" or "this combination" if
+   subject_label says "these exact dates", and vice versa). This is not a
+   stylistic choice: different cards on this page track different things —
+   one continuous flight (same carrier throughout its history) versus
+   whichever was cheapest for a date pair (which can be a different
+   carrier or airport at each check) — and using the wrong phrase would
+   misrepresent what the data means.
+2. Past tense only. Describe what has already happened. Never predict,
    forecast, or imply what will happen to the price next.
-2. Never suggest urgency or create pressure to act now ("don't wait",
+3. Never suggest urgency or create pressure to act now ("don't wait",
    "act fast", "prices are likely to rise", "book before..."). If the data
    shows a price increase, simply state the fact — do not add a call to
    action around it.
-3. Do not restate the itinerary's route, airline, or dates — that's already
-   shown elsewhere on the page. Only talk about the price and how it's moved.
-4. Do not invent a number, date, or comparison that wasn't given to you.
-5. Never frame the number of checks/observations as the interesting fact
+4. Do not restate the specific route, airline, or dates behind subject_label
+   — that's already shown elsewhere on the page. Only talk about the price
+   and how it's moved.
+5. Do not invent a number, date, or comparison that wasn't given to you.
+6. Never frame the number of checks/observations as the interesting fact
    (never write "across three checks", "in the 4 checks we've made", or
    similar — this reads oddly once there are 10+ checks, and the count
    isn't actually the meaningful part). Anchor instead on the date range
@@ -113,24 +125,30 @@ Hard rules — violating any of these is a failure:
    first_total_gbp, latest_total_gbp, and total_change_gbp — e.g. "Since
    we started tracking this route in late May, the price has fallen from
    £268 to £157 — a drop of £111."
-6. If checks_with_data is less than checks_total, still acknowledge the
+7. If checks_with_data is less than checks_total, still acknowledge the
    gap plainly, but do it by referencing the specific date range you do
-   have data for (per rule 5) rather than a raw check count — don't imply
+   have data for (per rule 6) rather than a raw check count — don't imply
    more history exists than actually does.
-7. If direction is 'single_point', do not describe any movement — say
-   plainly that this is the first time this exact flight has been priced,
-   and that there's nothing to compare it to yet.
-8. If direction is 'no_data', say plainly that this flight hasn't been
+8. If direction is 'single_point', do not describe any movement — say
+   plainly that this is the first time subject_label has been priced, and
+   that there's nothing to compare it to yet.
+9. If direction is 'no_data', say plainly that subject_label hasn't been
    found in a previous check, without speculating why.
-9. If direction is 'flat', don't force a story — it's fine and honest to
-   say the price has barely moved.
-10. Output plain text only. No markdown, no quotes around the sentence, no
+10. If direction is 'flat', don't force a story — it's fine and honest to
+    say the price has barely moved.
+11. Output plain text only. No markdown, no quotes around the sentence, no
     preamble like "Here's the insight:".
 
 Return ONLY the sentence(s) — nothing else.`;
 
 export async function narratePriceMovement(
   input: PriceMovementRaw & PriceMovementComputed,
+  // Default preserves the top-section per-itinerary card's existing
+  // behaviour untouched — it tracks one continuous flight, so "this exact
+  // flight" is correct there. The below-matrix cards (destination median,
+  // per-cell cheapest-for-these-dates) pass 'these exact dates' instead,
+  // since their series can span different carriers/airports at each check.
+  subjectLabel: string = 'this exact flight',
 ): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') return '';
@@ -145,6 +163,7 @@ export async function narratePriceMovement(
       messages: [{
         role: 'user',
         content: JSON.stringify({
+          subject_label:      subjectLabel,
           checks_total:       input.checks_total,
           checks_with_data:   input.checks_with_data,
           price_points:       input.price_points,
