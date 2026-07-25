@@ -5,13 +5,23 @@ import { useFlightInsights } from './flight-insights-context';
 import { PriceMovementChart } from './price-movement-chart';
 import type { PricePoint, PriceMovementDirection } from '@/lib/flights/priceMovement';
 
-// Two cards below the "Find your cheapest dates" matrix — destination-level
-// median history (Card A) and per-cell history defaulting to the current
-// recommendation (Card B). Same visual language, honesty rules, and data
-// source pattern as the top-section price_movement card: cached derived
-// tables only (never a live fare_snapshots scan), airfare only, neutral
-// teal bars, no icon/colour implying direction, past-tense-only narration
-// reusing the exact same system prompt (see lib/flights/priceMovement.ts).
+// One compact card below the "Find your cheapest dates" matrix, toggling
+// between destination-level median history and per-cell history (defaulting
+// to the current recommendation). Same visual language, honesty rules, and
+// data source pattern as the top-section price_movement card: cached
+// derived tables only (never a live fare_snapshots scan), airfare only,
+// neutral teal bars, no icon/colour implying direction, past-tense-only
+// narration reusing the exact same system prompt (see lib/flights/priceMovement.ts).
+//
+// Deliberately no closing "takeaway" line — a bolded sentence concluding
+// "this is a good time to book" from a handful of price checks reads as
+// urgency messaging, which conflicts with the standing no-volatility-score
+// rule. The narrated paragraph and chart are left to speak for themselves.
+//
+// No auto-scroll — this card sits immediately below the matrix already, so
+// it's in the viewport by the time the leg-options modal closes. Clicking a
+// different cell or closing the modal switches the toggle to "These dates"
+// and briefly highlights the card in place, without moving the page.
 
 interface PriceHistoryResponse {
   checks_total: number;
@@ -25,22 +35,6 @@ interface PriceHistoryResponse {
   narration: string;
 }
 
-// Deterministic (not AI-generated) — this is a precise factual claim, so
-// it's a fixed string gated on an exact computed condition rather than
-// something an LLM paraphrases. Only true when the latest price is the
-// lowest the series has ever recorded (is_current_lowest) AND there's
-// actually a series to compare against (direction isn't single_point/no_data).
-// Framed entirely around the dates, never a flight/carrier/combination —
-// this series independently re-picks the cheapest option (any carrier,
-// any pool airport) at every check, so it isn't guaranteed to be the same
-// flight throughout its history.
-function itineraryTakeaway(data: PriceHistoryResponse | null): string | null {
-  if (!data) return null;
-  if (data.direction === 'single_point' || data.direction === 'no_data') return null;
-  if (!data.is_current_lowest) return null;
-  return "This is the cheapest we've found for these dates so far — and it's never been lower than it is right now.";
-}
-
 interface PriceHistorySectionProps {
   destinationSlug: string;
   tripType: string;
@@ -49,6 +43,8 @@ interface PriceHistorySectionProps {
   infants: number;
   recommendation: { outbound_date: string; return_date: string } | null;
 }
+
+type View = 'cell' | 'destination';
 
 const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -62,114 +58,23 @@ function humanizeDestination(slug: string): string {
   return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// ── Shared card shell ────────────────────────────────────────────────────────
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
-function PriceHistoryCard({
-  heading, subtitle, aboveNarration, data, loading, fallbackText, highlighted, innerRef, takeaway,
-}: {
-  heading: string;
-  subtitle: string;
-  aboveNarration?: string; // e.g. "Showing: Fri 30 Oct → Tue 3 Nov" for Card B
-  data: PriceHistoryResponse | null;
-  loading: boolean;
-  fallbackText: string;
-  highlighted?: boolean; // brief pulse after the leg-options modal closes
-  innerRef?: React.Ref<HTMLDivElement>;
-  takeaway?: string | null; // closing line, rendered after the chart
-}) {
-  return (
-    <div
-      ref={innerRef}
-      style={{
-        background: highlighted ? '#f2f7f7' : '#ffffff',
-        borderRadius: 16,
-        boxShadow: highlighted
-          ? '0 0 0 3px rgba(0,67,73,0.35), 0 2px 12px -2px rgba(13,92,99,0.08)'
-          : '0 2px 12px -2px rgba(13,92,99,0.08)',
-        padding: 24,
-        marginBottom: 24,
-        transition: 'box-shadow 0.4s ease, background 0.4s ease',
-      }}
-    >
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div
-          className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white"
-          style={{ background: '#004349' }}
-        >
-          <span className="material-symbols-outlined">query_stats</span>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 style={{
-            fontFamily: 'Newsreader, serif',
-            fontSize: 22,
-            fontWeight: 500,
-            color: '#004349',
-            marginBottom: 4,
-            lineHeight: 1.4,
-          }}>
-            {heading}
-          </h3>
-
-          {aboveNarration && (
-            <p style={{
-              fontFamily: 'Inter, sans-serif',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#004349',
-              marginBottom: 8,
-            }}>
-              {aboveNarration}
-            </p>
-          )}
-
-          <p style={{
-            fontFamily: 'Inter, sans-serif',
-            fontSize: 13,
-            color: '#6f797a',
-            lineHeight: 1.5,
-            marginBottom: 8,
-            maxWidth: '70ch',
-          }}>
-            {subtitle}
-          </p>
-
-          {loading ? (
-            <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, color: '#6f797a' }}>
-              Loading price history…
-            </p>
-          ) : (
-            <>
-              <p style={{
-                fontFamily: 'Inter, sans-serif',
-                fontSize: 15,
-                color: '#3f484a',
-                lineHeight: 1.6,
-                maxWidth: '70ch',
-              }}>
-                {data?.narration || fallbackText}
-              </p>
-              {data && data.price_points.length > 1 && (
-                <PriceMovementChart points={data.price_points} fullWidth />
-              )}
-              {takeaway && (
-                <p style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: '#004349',
-                  lineHeight: 1.6,
-                  marginTop: 12,
-                  maxWidth: '70ch',
-                }}>
-                  {takeaway}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+function tabStyle(active: boolean): React.CSSProperties {
+  return {
+    fontFamily: 'Inter, sans-serif',
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '5px 12px',
+    borderRadius: 6,
+    border: 'none',
+    cursor: 'pointer',
+    background: active ? '#004349' : 'transparent',
+    color: active ? '#ffffff' : '#3f484a',
+  };
 }
 
 // ── Main section ─────────────────────────────────────────────────────────────
@@ -185,27 +90,40 @@ export function PriceHistorySection({
   const [cellData, setCellData] = useState<PriceHistoryResponse | null>(null);
   const [cellLoading, setCellLoading] = useState(false);
 
-  // Auto-scroll + highlight the itinerary card when the leg-options modal
-  // closes (X / outside click / Esc — all routed through modalCloseCount).
-  // First-time-only per page visit: subsequent cell clicks update the
-  // chart in place without yanking the page around again.
-  const itineraryCardRef = useRef<HTMLDivElement>(null);
-  const hasAutoScrolledRef = useRef(false);
-  const [itineraryHighlighted, setItineraryHighlighted] = useState(false);
+  const effectiveCell = selectedMatrixCell ?? (recommendation
+    ? { outboundDate: recommendation.outbound_date, returnDate: recommendation.return_date }
+    : null);
 
+  const [view, setView] = useState<View>(() => (effectiveCell ? 'cell' : 'destination'));
+  const [highlighted, setHighlighted] = useState(false);
+  const isFirstCellRender = useRef(true);
+
+  // Switch to "These dates" and pulse whenever a different cell is clicked —
+  // skip the pulse (but still land on the right tab) for prefers-reduced-motion.
   useEffect(() => {
-    if (modalCloseCount === 0) return; // no close has happened yet
-    if (hasAutoScrolledRef.current) return; // first-time-only
-    hasAutoScrolledRef.current = true;
+    if (!effectiveCell) return;
+    if (isFirstCellRender.current) { isFirstCellRender.current = false; return; }
+    setView('cell');
+    if (prefersReducedMotion()) return;
+    setHighlighted(true);
+    const t = setTimeout(() => setHighlighted(false), 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveCell?.outboundDate, effectiveCell?.returnDate]);
 
-    itineraryCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setItineraryHighlighted(true);
-    const t = setTimeout(() => setItineraryHighlighted(false), 1000);
+  // Same treatment when the leg-options modal closes (X / outside click /
+  // Esc — all routed through modalCloseCount), even if the cell didn't change.
+  useEffect(() => {
+    if (modalCloseCount === 0) return;
+    setView('cell');
+    if (prefersReducedMotion()) return;
+    setHighlighted(true);
+    const t = setTimeout(() => setHighlighted(false), 900);
     return () => clearTimeout(t);
   }, [modalCloseCount]);
 
-  // Card A — fetched once; destination/trip_type/composition don't change
-  // without a full page navigation.
+  // Destination view — fetched once; destination/trip_type/composition don't
+  // change without a full page navigation.
   useEffect(() => {
     setDestinationLoading(true);
     const params = new URLSearchParams({
@@ -222,13 +140,9 @@ export function PriceHistorySection({
       .finally(() => setDestinationLoading(false));
   }, [destinationSlug, tripType, adults, children, infants]);
 
-  // Card B — defaults to the current recommendation's date pair until a
+  // Cell view — defaults to the current recommendation's date pair until a
   // matrix cell is clicked (selectedMatrixCell, shared via context), then
   // re-fetches on every change.
-  const effectiveCell = selectedMatrixCell ?? (recommendation
-    ? { outboundDate: recommendation.outbound_date, returnDate: recommendation.return_date }
-    : null);
-
   useEffect(() => {
     if (!effectiveCell) return;
     setCellLoading(true);
@@ -250,41 +164,99 @@ export function PriceHistorySection({
 
   const destinationName = humanizeDestination(destinationSlug);
 
+  const showingCell = view === 'cell' && !!effectiveCell;
+  const data = showingCell ? cellData : destinationData;
+  const loading = showingCell ? cellLoading : destinationLoading;
+  const subtitle = showingCell
+    ? 'Airfare only — excludes bags, transit and transfers. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
+    : 'Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date on the grid above — not just one flight.';
+  const fallbackText = showingCell
+    ? 'Price history for this itinerary is not available right now.'
+    : `Price history for ${destinationName} is not available right now.`;
+
   return (
     <section style={{ padding: 24 }} aria-label="Price history">
-      {/* Framing anchored to the product's ongoing-research premise, not a
-          mechanical description of "there are two cards below." */}
       <p style={{
         fontFamily: 'Inter, sans-serif',
         fontSize: 14,
         color: '#6f797a',
-        marginBottom: 16,
+        marginBottom: 12,
         maxWidth: '70ch',
       }}>
         We don't just check the price once — we keep watching. Here's how it's moved since we started.
       </p>
 
-      {effectiveCell && (
-        <PriceHistoryCard
-          innerRef={itineraryCardRef}
-          highlighted={itineraryHighlighted}
-          heading="How the cheapest fare for these dates has moved"
-          aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
-          subtitle="Airfare only — excludes bags, transit and transfers. This is the cheapest fare found for this exact date pair. This may be a different carrier or airport at each check — it reflects whatever was cheapest for these exact dates at the time."
-          data={cellData}
-          loading={cellLoading}
-          fallbackText="Price history for this itinerary is not available right now."
-          takeaway={itineraryTakeaway(cellData)}
-        />
-      )}
+      <div
+        style={{
+          background: highlighted ? '#f2f7f7' : '#ffffff',
+          borderRadius: 16,
+          boxShadow: highlighted
+            ? '0 0 0 3px rgba(0,67,73,0.35), 0 2px 12px -2px rgba(13,92,99,0.08)'
+            : '0 2px 12px -2px rgba(13,92,99,0.08)',
+          padding: 18,
+          transition: prefersReducedMotion() ? 'none' : 'box-shadow 0.4s ease, background 0.4s ease',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+          <h3 style={{
+            fontFamily: 'Newsreader, serif',
+            fontSize: 18,
+            fontWeight: 500,
+            color: '#004349',
+          }}>
+            How the price has moved
+          </h3>
 
-      <PriceHistoryCard
-        heading="How the whole matrix has moved"
-        subtitle="Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date on the grid above — not just this one flight."
-        data={destinationData}
-        loading={destinationLoading}
-        fallbackText={`Price history for ${destinationName} is not available right now.`}
-      />
+          {effectiveCell && (
+            <div role="tablist" aria-label="Price history view" style={{ display: 'flex', gap: 4, background: '#eef2f2', borderRadius: 8, padding: 3 }}>
+              <button role="tab" aria-selected={view === 'cell'} onClick={() => setView('cell')} style={tabStyle(view === 'cell')}>
+                These dates
+              </button>
+              <button role="tab" aria-selected={view === 'destination'} onClick={() => setView('destination')} style={tabStyle(view === 'destination')}>
+                Whole matrix
+              </button>
+            </div>
+          )}
+        </div>
+
+        {showingCell && effectiveCell && (
+          <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, color: '#004349', marginBottom: 6 }}>
+            {fmtShort(effectiveCell.outboundDate)} → {fmtShort(effectiveCell.returnDate)}
+          </p>
+        )}
+
+        <p style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 12,
+          color: '#6f797a',
+          lineHeight: 1.5,
+          marginBottom: 8,
+          maxWidth: '70ch',
+        }}>
+          {subtitle}
+        </p>
+
+        {loading ? (
+          <p style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
+            Loading price history…
+          </p>
+        ) : (
+          <>
+            <p style={{
+              fontFamily: 'Inter, sans-serif',
+              fontSize: 14,
+              color: '#3f484a',
+              lineHeight: 1.5,
+              maxWidth: '70ch',
+            }}>
+              {data?.narration || fallbackText}
+            </p>
+            {data && data.price_points.length > 1 && (
+              <PriceMovementChart points={data.price_points} fullWidth compact />
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }

@@ -14,12 +14,9 @@ interface PricePoint {
 }
 
 const WIDTH = 480;
-const HEIGHT = 160;
 const PAD_LEFT = 8;
 const PAD_RIGHT = 8;
 const PAD_TOP = 12;
-const PAD_BOTTOM = 28;
-const BAR_GAP = 12;
 const BAR_RADIUS = 4;
 // Headroom above the tallest bar — large enough to fit its price label
 // without clipping against the top of the viewBox.
@@ -46,44 +43,71 @@ function roundedTopBarPath(x: number, y: number, width: number, height: number, 
 }
 
 export function PriceMovementChart({
-  points, fullWidth = false,
+  points, fullWidth = false, compact = false,
 }: {
   points: PricePoint[];
   // The top-section card lives in a narrower ~7-column area, where a
-  // 480px cap looks intentional. The below-matrix cards (price-history-
-  // section.tsx) are genuinely full-width with no adjacent booking box —
-  // capping them the same way just leaves empty space. fullWidth drops the
-  // cap so the SVG (bars, gaps, labels) scales up with its real container
-  // width instead of stopping at 480px.
+  // 480px cap looks intentional. The below-matrix section is genuinely
+  // full-width with no adjacent booking box — capping it the same way
+  // just leaves empty space. fullWidth drops the cap so the SVG (bars,
+  // gaps, labels) scales up with its real container width instead of
+  // stopping at 480px.
   fullWidth?: boolean;
+  // Shrinks the viewBox height/padding for the compact below-matrix card,
+  // which shows this chart at a much smaller visual weight than the
+  // top-section card. Does not change the top-section card, which never
+  // passes this prop.
+  compact?: boolean;
 }) {
   if (points.length < 2) return null;
+
+  const HEIGHT = compact ? 124 : 160;
+  const PAD_BOTTOM = compact ? 22 : 28;
+
+  // Defensive sort — the x-axis math below depends on ascending order.
+  const sorted = [...points].sort((a, b) => a.checked_on.localeCompare(b.checked_on));
 
   const chartWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
   const chartHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
   const baselineY = HEIGHT - PAD_BOTTOM;
 
-  const maxVal = Math.max(...points.map(p => p.total_gbp));
+  const maxVal = Math.max(...sorted.map(p => p.total_gbp));
   const scaleMax = maxVal * HEADROOM_MULTIPLIER;
 
-  const barWidth = (chartWidth - BAR_GAP * (points.length - 1)) / points.length;
+  // x-position is proportional to elapsed time between checks, not index —
+  // equal-index spacing was misrepresenting genuinely uneven check
+  // intervals (e.g. a 48-day gap rendered the same width as a 9-day gap).
+  const t0 = new Date(sorted[0].checked_on + 'T00:00:00').getTime();
+  const tLast = new Date(sorted[sorted.length - 1].checked_on + 'T00:00:00').getTime();
+  const span = tLast - t0;
+
+  const avgSlot = chartWidth / sorted.length;
+  const barWidth = Math.max(10, Math.min(compact ? 22 : 28, avgSlot * 0.6));
+  const trackWidth = chartWidth - barWidth;
+
+  function centerX(iso: string): number {
+    if (span <= 0) return PAD_LEFT + barWidth / 2 + trackWidth / 2;
+    const t = new Date(iso + 'T00:00:00').getTime();
+    return PAD_LEFT + barWidth / 2 + ((t - t0) / span) * trackWidth;
+  }
 
   return (
-    <div style={{ marginTop: 12, marginBottom: 4 }}>
+    <div style={{ marginTop: compact ? 8 : 12, marginBottom: 4 }}>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         style={{ width: '100%', maxWidth: fullWidth ? 'none' : WIDTH, height: 'auto', display: 'block' }}
         role="img"
-        aria-label="Bar chart of this flight's airfare across past checks (excludes bags, transit and transfers)"
+        aria-label="Bar chart of this flight's airfare across past checks, spaced by actual date (excludes bags, transit and transfers)"
       >
         <line
           x1={PAD_LEFT} y1={baselineY}
           x2={WIDTH - PAD_RIGHT} y2={baselineY}
           stroke="#e2e8e8" strokeWidth={1}
         />
-        {points.map((p, i) => {
+        {sorted.map((p, i) => {
           const barHeight = scaleMax > 0 ? Math.max((p.total_gbp / scaleMax) * chartHeight, 2) : 2;
-          const x = PAD_LEFT + i * (barWidth + BAR_GAP);
+          const cx = centerX(p.checked_on);
+          const x = cx - barWidth / 2;
           const y = baselineY - barHeight;
           return (
             <g key={`${p.checked_on}-${i}`}>
@@ -91,15 +115,15 @@ export function PriceMovementChart({
               <path d={roundedTopBarPath(x, y, barWidth, barHeight, BAR_RADIUS)} fill="#004349" />
               {/* Price label — visible at a glance, not hidden behind hover/click */}
               <text
-                x={x + barWidth / 2}
+                x={cx}
                 y={y - 6}
                 textAnchor="middle"
-                style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600, fill: '#004349' }}
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: compact ? 11 : 12, fontWeight: 600, fill: '#004349' }}
               >
                 £{Math.round(p.total_gbp).toLocaleString('en-GB')}
               </text>
               <text
-                x={x + barWidth / 2}
+                x={cx}
                 y={baselineY + 16}
                 textAnchor="middle"
                 style={{ fontFamily: 'Inter, sans-serif', fontSize: 10, fill: '#6f797a' }}
