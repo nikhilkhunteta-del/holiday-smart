@@ -166,6 +166,9 @@ export interface FamilyContext {
   price_previous_total_gbp?: number | null;
   price_delta_gbp?: number | null;
   price_direction?: 'up' | 'down' | 'flat' | 'single_point' | 'no_data';
+  price_first_checked_on?: string | null;
+  price_first_total_gbp?: number | null;
+  price_total_change_gbp?: number | null;
 }
 
 interface CardSpec {
@@ -507,16 +510,27 @@ export async function getAIRecommendation(
   // concurrently with the main insight call rather than adding serial
   // latency — awaited together in the Promise.all further down.
   const priceDirection = context.price_direction ?? 'no_data';
+  const pricePointsForMovement = context.price_points ?? [];
+  // Not sent to the AI or used by this card's rendering (the "never been
+  // cheaper" takeaway is itinerary-card-specific UI in
+  // price-history-section.tsx) — computed here only to satisfy
+  // narratePriceMovement's shared PriceMovementComputed type.
+  const isPriceMovementCurrentLowest = pricePointsForMovement.length > 0
+    && (context.price_latest_total_gbp ?? Infinity) === Math.min(...pricePointsForMovement.map(p => Math.round(p.total_gbp)));
   const priceMovementNarrationPromise: Promise<string> = isBaselineCheapest
     ? Promise.resolve('')
     : narratePriceMovement({
         checks_total:       context.price_checks_total ?? 0,
         checks_with_data:   context.price_checks_with_data ?? 0,
-        price_points:       context.price_points ?? [],
+        price_points:       pricePointsForMovement,
         latest_total_gbp:   context.price_latest_total_gbp ?? null,
         previous_total_gbp: context.price_previous_total_gbp ?? null,
         delta_gbp:          context.price_delta_gbp ?? null,
         direction:          priceDirection,
+        first_checked_on:   context.price_first_checked_on ?? null,
+        first_total_gbp:    context.price_first_total_gbp ?? null,
+        total_change_gbp:   context.price_total_change_gbp ?? null,
+        is_current_lowest:  isPriceMovementCurrentLowest,
       });
 
   // ── Winner vs best-inset-in-pool identity check ─────────────────────────
