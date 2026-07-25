@@ -47,7 +47,11 @@ export async function GET(req: NextRequest) {
 
   const raw: PriceMovementRaw = result.data ?? { checks_total: 0, checks_with_data: 0, price_points: [] };
   const computed = computePriceMovement(raw);
-  const narration = await narratePriceMovement({ ...raw, ...computed });
+  // This series is the cheapest fare for one exact date pair, independently
+  // recomputed across the whole airport pool/any carrier at each check — it
+  // is NOT guaranteed to be the same flight throughout its history. "these
+  // exact dates" is correct here; "this exact flight" (the default) is not.
+  const narration = await narratePriceMovement({ ...raw, ...computed }, 'these exact dates');
 
   return NextResponse.json({
     checks_total:     raw.checks_total,

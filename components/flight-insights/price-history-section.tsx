@@ -30,11 +30,15 @@ interface PriceHistoryResponse {
 // something an LLM paraphrases. Only true when the latest price is the
 // lowest the series has ever recorded (is_current_lowest) AND there's
 // actually a series to compare against (direction isn't single_point/no_data).
+// Framed entirely around the dates, never a flight/carrier/combination —
+// this series independently re-picks the cheapest option (any carrier,
+// any pool airport) at every check, so it isn't guaranteed to be the same
+// flight throughout its history.
 function itineraryTakeaway(data: PriceHistoryResponse | null): string | null {
   if (!data) return null;
   if (data.direction === 'single_point' || data.direction === 'no_data') return null;
   if (!data.is_current_lowest) return null;
-  return "This is the same flight we're recommending today — and it's never been cheaper than it is right now.";
+  return "This is the cheapest we've found for these dates so far — and it's never been lower than it is right now.";
 }
 
 interface PriceHistorySectionProps {
@@ -264,9 +268,9 @@ export function PriceHistorySection({
         <PriceHistoryCard
           innerRef={itineraryCardRef}
           highlighted={itineraryHighlighted}
-          heading="How this flight's price has moved"
+          heading="How the cheapest fare for these dates has moved"
           aboveNarration={`Showing: ${fmtShort(effectiveCell.outboundDate)} → ${fmtShort(effectiveCell.returnDate)}`}
-          subtitle="Airfare only — excludes bags, transit and transfers. This is the cheapest fare found for this exact date pair."
+          subtitle="Airfare only — excludes bags, transit and transfers. This is the cheapest fare found for this exact date pair. This may be a different carrier or airport at each check — it reflects whatever was cheapest for these exact dates at the time."
           data={cellData}
           loading={cellLoading}
           fallbackText="Price history for this itinerary is not available right now."
