@@ -108,6 +108,18 @@ const LEVER_ICONS: Record<string, string> = {
   lead_research:        'manage_search',
   lead_saving:          'savings',
   selection_story:      'route',
+  // Left-column card icons — previously all four of these fell through to
+  // the 'lightbulb' default (none had an explicit entry), so every card
+  // looked like a casual tip regardless of stakes. Differentiated by
+  // shape only, per design review — colour (isAmber below) is untouched,
+  // none of these four are in that list, so all stay teal.
+  quality_advantage:    'lightbulb',   // "Why this over the alternatives" — genuinely is a tip
+  penalty_notice:       'warning',     // caution/importance, not a casual tip
+  alternative_option:   'alt_route',   // "If you want to avoid the fine" — an alternative path
+  early_return:         'schedule',    // "The one trade-off that matters most" variants — a clock
+  early_outbound:       'schedule',
+  split_booking:        'schedule',
+  timing_summary:       'schedule',
   // 'query_stats' (magnifying glass over a small bar chart) — deliberately
   // neutral. 'show_chart' was dropped because its upward-slanted line reads
   // as "price went up" regardless of what the data shows, contradicting the
@@ -1090,9 +1102,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     onClick={() => { if (email.includes('@')) setEmailSent(true); }}
                     style={{
                       padding: '10px 16px',
-                      background: '#fdba49',
-                      color: '#191c1d',
-                      border: 'none',
+                      background: 'transparent',
+                      color: '#004349',
+                      border: '1.5px solid #004349',
                       borderRadius: 8,
                       fontSize: 13,
                       fontWeight: 600,
