@@ -10,6 +10,39 @@ or blog.
 
 ---
 
+## Known Issues / Deferred Fixes
+
+### KNOWN ISSUE — Matrix cell price may not be the true cheapest for that date pair
+
+**Location:** `components/flight-insights/compliance-calculator.tsx`, `cellMap` construction (~line 251-255).
+
+The matrix's per-cell price is selected via "first entry in the combinations array wins" for a
+given (outbound_date, return_date) key — not "cheapest entry wins." `get_smart_recommendation`
+can return multiple combinations for the same date pair (different carrier/airport routing),
+and the matrix currently displays whichever happens to appear first in the array, which is not
+guaranteed to be the lowest-cost option.
+
+**Confirmed NOT the cause of a separate concern:** the modal's headline total (e.g. "£760
+all-in") always matches the matrix cell exactly, since both read the same `cellMap.get()`
+result (`handleCellClick`, ~line 279-294) — so there's no cell-vs-modal-headline discrepancy.
+
+**Still unconfirmed, flagged for future investigation:** whether the modal's own two
+"cheapest" per-leg tables (outbound/return, sourced independently from `get_leg_options.sql`
+via `/api/leg-options`) can sum to a different total than the modal's own headline figure —
+these are two separate code paths with nothing keeping them in sync, so this should be checked
+before or alongside the cellMap fix.
+
+**Fix approach (not yet implemented):** change `cellMap` construction to select the
+minimum-total combination per date-pair key, not the first one encountered. Should be
+low-risk/isolated once undertaken — confined to this one component's cell-selection logic.
+
+**Priority:** this affects the accuracy of the comparison matrix, which `feature-list.md` and
+`CONTEXT.md` both describe as core/non-negotiable ("without it, the product is a blog, not an
+advisor"). Deferred deliberately for MVP scope, not because it's considered low-impact —
+revisit before treating the matrix's numbers as fully trustworthy for real users.
+
+---
+
 ## Current Build Phase
 **Phase 1 — Flight Insights results page.**
 A parent has selected their borough and school break. The page surfaces flight
