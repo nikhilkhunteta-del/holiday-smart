@@ -41,7 +41,11 @@ export async function GET(req: NextRequest) {
 
   const raw: PriceMovementRaw = result.data ?? { checks_total: 0, checks_with_data: 0, price_points: [] };
   const computed = computePriceMovement(raw);
-  const narration = await narratePriceMovement({ ...raw, ...computed });
+  // This series is a median across every date pair on the matrix — not
+  // tied to one flight or even one date pair. "this exact flight" (the
+  // default) would be wrong here for the same reason it was wrong on the
+  // per-cell card, only more so.
+  const narration = await narratePriceMovement({ ...raw, ...computed }, 'the typical fare across this destination');
 
   return NextResponse.json({
     checks_total:     raw.checks_total,
