@@ -41,6 +41,45 @@ low-risk/isolated once undertaken — confined to this one component's cell-sele
 advisor"). Deferred deliberately for MVP scope, not because it's considered low-impact —
 revisit before treating the matrix's numbers as fully trustworthy for real users.
 
+**Related — modal's "Book these dates" button (added after this issue was documented):** the
+button in `leg-options-modal.tsx` builds its Google Flights link from `getCheapestOption()`
+(`components/flight-insights/leg-options.tsx`) applied independently to each of the outbound/
+return option lists — i.e. the genuinely cheapest leg in each table, NOT the `cellMap`-selected
+combination the headline total above it displays. In the common case these should coincide, but
+until the `cellMap` fix above lands, it's possible for the button's target itinerary to differ
+slightly from the "£X all-in" figure shown directly above it. Revisit this note once the
+`cellMap` fix is done — the two should be provably identical after that.
+
+---
+
+### KNOWN ISSUE — Google Flights deep links don't encode carrier or party size
+
+**Location:** `lib/flights/googleFlightsUrl.ts` (`encodeTfs` and all three exported builders —
+`buildGoogleFlightsUrl`, `buildGoogleFlightsRoundTripUrl`, `buildGoogleFlightsMultiLegUrl`).
+
+The `tfs` protobuf schema used for these deep links only encodes origin, destination, date, and
+one-way/round-trip — there is no field for airline/carrier or passenger count. A link built from
+a specific carrier's fare (e.g. a Ryanair row) opens a generic Google Flights search for that
+route and date; the user may land on a page where a different carrier is the top result, and
+passenger count defaults to whatever Google Flights defaults to, not the family's actual party
+size passed into these functions (`adults`/`children` params exist on the builders but are
+currently unused inside them).
+
+**Where this currently applies:**
+- The matrix modal's "Book these dates" button (`leg-options-modal.tsx`) already carries an
+  explicit disclaimer next to it: "Opens Google Flights for these dates — confirm the airline
+  and price match before booking."
+- The top-section booking box's "Book on Google Flights" button (`ai-recommendation-client.tsx`)
+  has the **same underlying limitation but no equivalent disclaimer yet** — flagged here, not
+  fixed, per explicit instruction when this was raised. Should get the same treatment at some
+  point.
+
+**Fix approach (not yet implemented, and not obviously worth it):** either add the same
+disclaimer copy near the top-section Book button, or investigate whether Google Flights' actual
+`tfs` protobuf supports an airline-filter field that this reverse-engineered schema hasn't
+captured (the Google Flights UI itself does support airline filtering, so the field likely
+exists — untested here).
+
 ---
 
 ## Current Build Phase

@@ -7,7 +7,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { LegOptions } from './leg-options';
+import { LegOptions, getCheapestOption } from './leg-options';
+import { buildGoogleFlightsMultiLegUrl } from '@/lib/flights/googleFlightsUrl';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,7 +35,11 @@ interface LegOptionsModalProps {
   seatsTogether: boolean;
   transportMode: string;
   postcodeDistrict: string;
-  recommendation: { outbound_carrier: string; origin_iata: string; out_dest_iata: string; return_carrier: string; ret_dest_iata: string } | null;
+  recommendation: {
+    outbound_carrier: string; origin_iata: string; out_dest_iata: string;
+    return_carrier: string; ret_dest_iata: string;
+    outbound_date: string; return_date: string;
+  } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -169,6 +174,36 @@ export function LegOptionsModal({
     departure_time:   '',
   } : null;
 
+  // ── "Book these dates" — the cheapest outbound + cheapest return option
+  // shown in this modal (the same rows LegOptions itself badges CHEAPEST),
+  // not the matrix's own cellMap-selected combination — see CLAUDE.md
+  // "Known Issues" for why those two aren't guaranteed to be the same
+  // total. Hidden entirely when the clicked cell already IS the current
+  // recommendation, since that combination is already bookable from the
+  // top-section booking box.
+  const cheapestOutbound = getCheapestOption(outboundData);
+  const cheapestReturn   = getCheapestOption(returnData);
+
+  const isCurrentRecommendation = !!(
+    recommendation && selectedCell &&
+    recommendation.outbound_date === selectedCell.outboundDate &&
+    recommendation.return_date   === selectedCell.returnDate
+  );
+
+  const showBookButton = !isCurrentRecommendation && !!cheapestOutbound && !!cheapestReturn && !!selectedCell;
+
+  // Built from each leg's own airports, not assumed symmetric — the
+  // cheapest outbound and cheapest return can use different abroad
+  // airports (e.g. Barcelona: BCN out, GRO back) via nearby-airport
+  // arbitrage, same reason get_smart_recommendation exposes ret_orig_iata
+  // separately rather than assuming it equals out_dest_iata.
+  const bookUrl = showBookButton
+    ? buildGoogleFlightsMultiLegUrl([
+        { origin: cheapestOutbound!.origin_iata, dest: cheapestOutbound!.destination_iata, date: selectedCell!.outboundDate },
+        { origin: cheapestReturn!.origin_iata,   dest: cheapestReturn!.destination_iata,   date: selectedCell!.returnDate },
+      ])
+    : null;
+
   return (
     <Dialog open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
       <DialogContent
@@ -242,6 +277,38 @@ export function LegOptionsModal({
               }}>
                 Cheapest all-in combination for these dates — flights, bags and transport
               </p>
+
+              {showBookButton && bookUrl && (
+                <div style={{ marginTop: 12 }}>
+                  <a
+                    href={bookUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-block',
+                      background: '#004349',
+                      color: '#ffffff',
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Book these dates
+                  </a>
+                  <p style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 11,
+                    color: '#6f797a',
+                    marginTop: 6,
+                    marginBottom: 0,
+                  }}>
+                    Opens Google Flights for these dates — confirm the airline and price match before booking.
+                  </p>
+                </div>
+              )}
 
               {selectedCell.requiresAbsence && (
                 <p style={{

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
+import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface FetchParams {
@@ -85,67 +86,10 @@ function fmtDuration(mins: number | null | undefined): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-// ── Google Flights URL builder (protobuf tfs encoding) ────────────────────────
-// Google Flights uses a base64url-encoded protobuf in the ?tfs= query param.
-// Schema reverse-engineered from live Google Flights URLs:
-//   field 1 (varint 28), field 2 (varint 2) — constants
-//   field 3 (msg): flight leg { field 13: origin airport, field 2: date, field 14: dest airport }
-//   airport msg: { field 1: 1 (IATA type), field 2: IATA code }
-//   field 14 (varint 1) = economy, field 8/9 = 1, field 19 = 1 (round-trip) / 2 (one-way)
-
-function encodeTfs(legs: Array<{ origin: string; dest: string; date: string }>, oneWay: boolean): string {
-  function varint(v: number): number[] {
-    const bytes: number[] = []; v = v >>> 0;
-    while (v > 0x7f) { bytes.push((v & 0x7f) | 0x80); v >>>= 7; }
-    bytes.push(v & 0x7f); return bytes;
-  }
-  function tag(f: number, w: number) { return varint((f << 3) | w); }
-  function str(f: number, s: string) {
-    const b = Array.from(new TextEncoder().encode(s));
-    return [...tag(f, 2), ...varint(b.length), ...b];
-  }
-  function vi(f: number, v: number) { return [...tag(f, 0), ...varint(v)]; }
-  function msg(f: number, inner: number[]) { return [...tag(f, 2), ...varint(inner.length), ...inner]; }
-  function airport(f: number, iata: string) { return msg(f, [...vi(1, 1), ...str(2, iata)]); }
-  function leg(o: string, d: string, date: string) {
-    return msg(3, [...airport(13, o), ...str(2, date), ...airport(14, d)]);
-  }
-
-  const bytes = [
-    ...vi(1, 28), ...vi(2, 2),
-    ...legs.flatMap(l => leg(l.origin, l.dest, l.date)),
-    ...vi(14, 1), ...vi(8, 1), ...vi(9, 1),
-    ...vi(19, oneWay ? 2 : 1),
-  ];
-  const binary = String.fromCharCode(...bytes);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function buildGoogleFlightsUrl(params: {
-  origin: string;
-  destination: string;
-  date: string;
-  adults: number;
-  children: number;
-}): string {
-  const tfs = encodeTfs([{ origin: params.origin, dest: params.destination, date: params.date }], true);
-  return `https://www.google.com/travel/flights/search?tfs=${tfs}&curr=GBP&hl=en-GB`;
-}
-
-function buildGoogleFlightsRoundTripUrl(params: {
-  origin:      string;
-  destination: string;
-  outbound:    string;
-  return_date: string;
-  adults:      number;
-  children:    number;
-}): string {
-  const tfs = encodeTfs([
-    { origin: params.origin, dest: params.destination, date: params.outbound },
-    { origin: params.destination, dest: params.origin, date: params.return_date },
-  ], false);
-  return `https://www.google.com/travel/flights/search?tfs=${tfs}&curr=GBP&hl=en-GB`;
-}
+// Google Flights URL builders (buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl)
+// moved to lib/flights/googleFlightsUrl.ts, unchanged, so the matrix
+// modal's "Book these dates" button can reuse them without duplicating
+// the protobuf encoding. Imported above.
 
 const LEVER_ICONS: Record<string, string> = {
   inset_day:            'calendar_today',

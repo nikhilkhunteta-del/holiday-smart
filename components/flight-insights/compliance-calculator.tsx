@@ -302,6 +302,11 @@ export function ComplianceCalculator({
     out_dest_iata:    recommendation.out_dest_iata ?? '',
     return_carrier:   recommendation.return_carrier ?? '',
     ret_dest_iata:    recommendation.ret_dest_iata ?? '',
+    // Dates — needed so the modal can tell whether the clicked cell IS the
+    // current recommendation (in which case its "Book these dates" button
+    // would just duplicate the top-section booking box).
+    outbound_date:    recommendation.outbound_date ?? '',
+    return_date:      recommendation.return_date ?? '',
   } : null;
 
   return (
