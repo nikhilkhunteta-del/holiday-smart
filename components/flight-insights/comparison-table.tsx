@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
+import { BASELINE_NAME_LABEL } from '@/lib/flights/copyConstants';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 // Unified 4-tier scale across all three quality dimensions (departure,
@@ -232,12 +233,14 @@ function extractColumn(
 
 // ── Label derivation ─────────────────────────────────────────────────────────
 // is_baseline is checked first — above isWinner, above is_inset_day, above
-// everything — so the baseline column always reads "Typical Saturday" even
+// everything — so the baseline column always reads BASELINE_NAME_LABEL even
 // when it also happens to be the winner (baseline_cheapest) or its airport
-// differs from the winner's.
+// differs from the winner's. Sourced from copyConstants.ts (BASELINE_NAME
+// is the prose form used everywhere else the baseline is named — headline,
+// booking box, penalty card) so the name can't drift out of sync.
 
 function deriveLabel(col: ColumnData, winner: ColumnData, n: number): string {
-  if (col.isBaseline) return 'Typical Saturday';
+  if (col.isBaseline) return BASELINE_NAME_LABEL;
   if (col.isWinner) return 'Recommended';
   if (col.is_inset_day) return 'Inset day';
 

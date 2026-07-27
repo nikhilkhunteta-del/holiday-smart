@@ -582,7 +582,7 @@ export function LegOptions({
           </div>
           {isSmartDate ? (
             <div style={{ fontSize: 13, color: '#6f797a', lineHeight: 1.4 }}>
-              Best option per airport — true all-in cost including fare, bags, seats and transport.
+              Best option per airport — true all-in cost.
             </div>
           ) : (
             <div style={{ fontSize: 12, color: '#6f797a', lineHeight: 1.4 }}>

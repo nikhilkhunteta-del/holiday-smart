@@ -5,6 +5,7 @@ import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
 import { computePriceMovement, buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
+import { BASELINE_NAME, ALL_IN_DEFINITION } from '@/lib/flights/copyConstants';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
@@ -627,6 +628,19 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             {aiResult.subheadline}
           </p>
         )}
+        {/* The one place "all-in" is defined for the reader — every other
+            mention on the page says the bare word and relies on this. */}
+        {aiResult?.subheadline && (
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 12,
+            color: '#8b9495',
+            lineHeight: 1.5,
+            marginTop: 4,
+          }}>
+            {ALL_IN_DEFINITION}
+          </p>
+        )}
       </div>
 
       {/* ── Two-column grid ───────────────────────────────── */}
@@ -679,8 +693,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       marginBottom: 8,
                       maxWidth: '42ch',
                     }}>
-                      Airfare only — excludes bags, transit and transfers, which make up
-                      the rest of {(rec as any)?.total_cost_gbp != null
+                      Airfare only — the rest is folded into {(rec as any)?.total_cost_gbp != null
                         ? `the £${Math.round((rec as any).total_cost_gbp).toLocaleString('en-GB')} all-in total`
                         : 'the all-in total'}.
                     </p>
@@ -817,8 +830,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   maxWidth: '42ch',
                 }}>
                   {benchmarkCost != null
-                    ? `Compared to the typical Saturday booking from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
-                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to a typical Saturday Heathrow booking.`
+                    ? `Compared to ${BASELINE_NAME} from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
+                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to ${BASELINE_NAME} from Heathrow.`
                   }
                 </p>
                 <div style={{
@@ -1105,7 +1118,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     marginTop: 8,
                     textAlign: 'center',
                   }}>
-                    £{Math.round(aiSaving)} below the typical booking
+                    £{Math.round(aiSaving)} below {BASELINE_NAME}
                   </p>
                 </div>
               )}

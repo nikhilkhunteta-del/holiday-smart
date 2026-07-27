@@ -3,6 +3,7 @@ import { combinationKey, type ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
 import type { ScenarioResult } from './buildScenarioResults';
 import { narratePriceMovement } from './priceMovement';
+import { BASELINE_NAME } from './copyConstants';
 
 export interface AIRecommendationOutput {
   problem_statement: string;
@@ -1388,7 +1389,7 @@ One sentence. Specific. No carrier saving numbers.`,
       } else {
         sentence1 = `We scored ${combCount} combinations on both cost and timing — departure hour, arrival quality, and transit changes.`;
         sentence2 = `Quality was similar across the top options for this window.`;
-        sentence3 = `This combination came out best on total all-in cost once bags, transit, and transfers were counted.`;
+        sentence3 = `This combination came out best on total all-in cost.`;
       }
 
       nonBaselineCards.push({
@@ -1471,7 +1472,7 @@ One sentence. Specific. No carrier saving numbers.`,
         });
       } else {
         const sentence2 = fineWipesSaving
-          ? `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`
+          ? `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than ${BASELINE_NAME}.`
           : `Your net saving after the fine drops to £${savingForCards - fineGbp}.`;
 
         nonBaselineCards.push({
@@ -1643,8 +1644,10 @@ One sentence. Specific. No carrier saving numbers.`,
   const baselineOriginCity = BASELINE_CITY_NAMES[blOriginForPS] ?? blOriginForPS;
   const baselineDateShort = baselineDepartureLabel.replace(/^\w+\s+/, '');
 
+  // "all-in" is defined once, directly under the subheadline — say the
+  // bare word here, don't restate what it includes.
   const otherwiseProblemStatement = `Write the problem statement as EXACTLY this sentence, no changes:
-"The obvious way to book ${context.borough ?? 'London'}'s half-term is the first Saturday — ${baselineDateShort || baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That comes to £${context.baseline_allin ?? 'unknown'} all-in once bags and transport are counted. We priced ${combCount} combinations across five London airports and every viable date pair against it."`;
+"The obvious way to book ${context.borough ?? 'London'}'s half-term is the first Saturday — ${baselineDateShort || baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That comes to £${context.baseline_allin ?? 'unknown'} all-in. We priced ${combCount} combinations across five London airports and every viable date pair against it."`;
 
   // ── Subheadline for significant/found_saving — pre-resolved in TS ────────
   // When the winner's outbound and return use different London airports
@@ -1652,11 +1655,14 @@ One sentence. Specific. No carrier saving numbers.`,
   // fact for the family (rules out driving/parking, changes the return
   // journey, and is the reason return transit costs diverge from baseline).
   const subheadlineAirportsDiffer = recommended.origin_iata !== recommended.ret_dest_iata;
+  // "all-in" is defined once, directly under the subheadline (see
+  // ALL_IN_DEFINITION in copyConstants.ts) — say the bare word here, don't
+  // restate what it includes.
   const otherwiseSubheadline = subheadlineAirportsDiffer
     ? `Write the subheadline as EXACTLY this sentence, no changes:
-"Out from ${an(recommended.origin_iata)} with ${cn(recommended.outbound_carrier)} on ${fmtDLong(recommended.outbound_date)}, back into ${an(recommended.ret_dest_iata)} with ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — two separate bookings, fare, bags and transport included."`
+"Out from ${an(recommended.origin_iata)} with ${cn(recommended.outbound_carrier)} on ${fmtDLong(recommended.outbound_date)}, back into ${an(recommended.ret_dest_iata)} with ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — two separate bookings, all-in."`
     : `Write the subheadline as EXACTLY this sentence, no changes:
-"Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${fmtDLong(recommended.outbound_date)}, returning ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — fare, bags, transit, and transfers included."`;
+"Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${fmtDLong(recommended.outbound_date)}, returning ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — all-in."`;
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
@@ -1729,19 +1735,19 @@ SELECTION CONTEXT:
 HEADLINE
 ──────────────────────────────────────────
 IF is_baseline_cheapest is true, write instead:
-  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'}, the closest airport to your school — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in, cabin bags and transfers included."
+  "${context.baseline_trip_nights ?? recommended.trip_nights} nights in ${destinationName} with ${cn(context.baseline_carrier ?? 'BA')} from ${context.baseline_airport_name ?? 'Heathrow'}, the closest airport to your school — £${context.baseline_allin ?? round(recommended.total_cost_gbp)} all-in."
   Do not use "We found", "beat", "typical", or comparison language. Lead with the trip.
 
 OTHERWISE, HEADLINE varies by saving_category:
 
 IF saving_category = 'significant':
-  "We found ${recommended.trip_nights} nights in ${destinationName} — flights, bags and transfers for £${round(recommended.total_cost_gbp)} — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking from ${context.baseline_airport_name ?? 'Heathrow'}."
+  "We found ${recommended.trip_nights} nights in ${destinationName} — £${round(recommended.total_cost_gbp)} all-in — £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than ${BASELINE_NAME} from ${context.baseline_airport_name ?? 'Heathrow'}."
 
 IF saving_category = 'found_saving':
-  "We found a stronger option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than the standard Saturday booking."
+  "We found a stronger option for ${destinationName} this half-term — £${round(recommended.total_cost_gbp)} all-in, £${context.baseline_allin != null ? round(context.baseline_allin - recommended.total_cost_gbp) : '[saving]'} less than ${BASELINE_NAME}."
 
 RULES:
-- Never say "typical booking." Say "the standard Saturday booking from {airport}" or "the obvious option."
+- Always call the comparison baseline "${BASELINE_NAME}" (optionally followed by "from {airport}") — never "typical booking," "standard booking," "the obvious option," or any other phrasing. This exact name is used verbatim everywhere else the baseline is mentioned on the page (booking box, penalty card, comparison table) — do not vary it here.
 - Never say "we found savings." Say "we found a better-value option" or "a stronger option."
 - Never say "cheapest option" in the headline
 - Never use decimal places

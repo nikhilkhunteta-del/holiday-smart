@@ -303,10 +303,36 @@ cheapest headline fare" card that used to occupy card 3's slot, and (as of this 
 standalone `alternative_option` card — folded into `penalty_notice`, see above.
 
 ### Problem statement (significant/found_saving)
-Fixed four-sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
-reference point ("When half-term begins, most {borough} parents open Google Flights and search
-for the first weekend...") → true cost → methodology → finding. No fine mention — that's the
-penalty notice card's job now.
+Fixed sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
+reference point ("The obvious way to book {borough}'s half-term is the first Saturday —
+{date} from {airport}...") → true cost → methodology → finding. No fine mention — that's the
+penalty notice card's job now. (Earlier version above was itself stale — it still showed a
+since-replaced "When half-term begins, most {borough} parents..." wording that invented an
+unmeasured behavioural claim and described searching for flights at a point when it's already
+too late to book well; replaced for both reasons, not just tone.)
+
+### Shared copy constants (`lib/flights/copyConstants.ts`)
+Two page-wide strings previously duplicated (with drifting wording) across five-plus locations
+each — centralised so a future wording change only happens in one place:
+- **`ALL_IN_DEFINITION`** — `"All-in = fare + bags + seats + transport to and from both
+  airports."` Rendered exactly once, directly under the subheadline
+  (`ai-recommendation-client.tsx`). Every other mention of cost inclusions on the page — problem
+  statement, subheadline itself, "Why this over the alternatives" card, both price-history
+  subtitles, the modal subtitle, the matrix subtitle, the leg-options "Best option" line — says
+  the bare word **"all-in"** and relies on this definition rather than restating "bags, transit
+  and transfers" (or any close variant) each time. Do not re-add an inline explanation next to
+  "all-in" anywhere else; if the definition itself needs to change, change it only here.
+- **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
+  (`"Typical Saturday Booking"`, Title Case for compact UI contexts like the comparison table's
+  column header, kept in sync with `BASELINE_NAME` by hand) — the comparison baseline (a direct
+  BA flight on the first Saturday of half-term) used to be called four different things across
+  the headline ("the standard Saturday booking from Heathrow"), booking box ("the typical
+  booking" / "a typical Saturday Heathrow booking" — two different variants in the same file),
+  penalty card ("the Saturday booking"), and comparison table ("Typical Saturday"). All four now
+  import and reference the shared constant instead of hardcoding their own phrasing — including
+  the AI headline prompt's own RULES section, which now instructs the model to use
+  `BASELINE_NAME` verbatim rather than picking between "typical booking"/"standard booking"/"the
+  obvious option."
 
 ### Other UI pieces touched alongside the card system
 - `components/flight-insights/savings-breakdown.tsx` (`SavingsBreakdown`) is now a **no-op** —
