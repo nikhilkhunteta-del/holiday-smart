@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { PriceMovementChart } from './price-movement-chart';
-import type { PricePoint, PriceMovementDirection } from '@/lib/flights/priceMovement';
+import { buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
+import type { PricePoint, PriceMovementDirection, PricePositionTier } from '@/lib/flights/priceMovement';
 
 // One compact card below the "Find your cheapest dates" matrix, toggling
 // between destination-level median history and per-cell history (defaulting
@@ -11,12 +12,18 @@ import type { PricePoint, PriceMovementDirection } from '@/lib/flights/priceMove
 // data source pattern as the top-section price_movement card: cached
 // derived tables only (never a live fare_snapshots scan), airfare only,
 // neutral teal bars, no icon/colour implying direction, past-tense-only
-// narration reusing the exact same system prompt (see lib/flights/priceMovement.ts).
+// narration reusing the exact same system prompt (see
+// lib/flights/priceMovementNarration.ts — server-only, called by the API
+// routes this component fetches from, never imported here directly).
 //
-// Deliberately no closing "takeaway" line — a bolded sentence concluding
-// "this is a good time to book" from a handful of price checks reads as
-// urgency messaging, which conflicts with the standing no-volatility-score
-// rule. The narrated paragraph and chart are left to speak for themselves.
+// Closing line is deterministic (buildPriceRangeLine in priceMovement.ts),
+// not AI-generated, and renders with identical structure and weight in
+// every case — series low, series high, or neither. A prior version of
+// this card (and the AI narration above it) only ever concluded something
+// when the news favoured booking ("it's never been cheaper"), which is a
+// structurally biased instrument regardless of how the sentence is worded.
+// The standing "We don't predict where prices go next" line is likewise
+// hardcoded and always present, never conditional on what the data shows.
 //
 // No auto-scroll — this card sits immediately below the matrix already, so
 // it's in the viewport by the time the leg-options modal closes. Clicking a
@@ -31,7 +38,11 @@ interface PriceHistoryResponse {
   previous_total_gbp: number | null;
   delta_gbp: number | null;
   direction: PriceMovementDirection;
+  first_checked_on: string | null;
   is_current_lowest: boolean;
+  range_low_gbp: number | null;
+  range_high_gbp: number | null;
+  price_position: PricePositionTier | null;
   narration: string;
 }
 
@@ -175,11 +186,15 @@ export function PriceHistorySection({
   const data = showingCell ? cellData : destinationData;
   const loading = showingCell ? cellLoading : destinationLoading;
   const subtitle = showingCell
-    ? 'Airfare only — excludes bags, transit and transfers. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
-    : 'Airfare only — excludes bags, transit and transfers. The typical cheapest fare across every date on the grid above — not just one flight.';
+    ? 'Airfare only, not all-in. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
+    : 'Airfare only, not all-in. The typical cheapest fare across every date on the grid above — not just one flight.';
   const fallbackText = showingCell
     ? 'Price history for this itinerary is not available right now.'
     : `Price history for ${destinationName} is not available right now.`;
+  // Deterministic, unconditional closing line — see buildPriceRangeLine's
+  // own comment for why this replaced the old AI-driven "never been
+  // cheaper" takeaway.
+  const rangeLine = data ? buildPriceRangeLine(data) : null;
 
   return (
     <section aria-label="Price history">
@@ -292,11 +307,37 @@ export function PriceHistorySection({
             }}>
               {data?.narration || fallbackText}
             </p>
+            {/* Unconditional — same structure and weight whether the
+                current price is the series low, the series high, or
+                neither. Never AI-generated. */}
+            {rangeLine && (
+              <p style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#004349',
+                lineHeight: 1.5,
+                marginTop: 4,
+                maxWidth: '70ch',
+              }}>
+                {rangeLine}
+              </p>
+            )}
             {data && data.price_points.length > 1 && (
               <PriceMovementChart points={data.price_points} fullWidth compact />
             )}
           </>
         )}
+        {/* Standing disclaimer — hardcoded, always present regardless of
+            what the data shows, never conditional. */}
+        <p style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: 12,
+          color: '#6f797a',
+          marginTop: 8,
+        }}>
+          {PRICE_MOVEMENT_STANDING_LINE}
+        </p>
       </div>
       )}
     </section>

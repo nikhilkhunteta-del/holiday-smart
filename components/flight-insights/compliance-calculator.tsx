@@ -337,8 +337,8 @@ export function ComplianceCalculator({
       {/* ── 2. Subtitle — dynamic price spread ── */}
       <p className="font-inter mb-lg" style={{ fontSize: 14, color: '#6f797a' }}>
         {priceSpread != null && priceSpread > 0
-          ? `£${priceSpread.toLocaleString('en-GB')} separates the best and worst date combinations this half-term. Each cell shows the cheapest all-in price (flights, bags and transport) for that date pair — click for the airport breakdown.`
-          : 'Each cell shows the cheapest all-in price (flights, bags and transport) for that date pair — click for the airport breakdown.'}
+          ? `£${priceSpread.toLocaleString('en-GB')} separates the best and worst date combinations this half-term. Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.`
+          : 'Each cell shows the cheapest all-in price for that date pair — click for the airport breakdown.'}
       </p>
 
       {combinations.length === 0 ? (

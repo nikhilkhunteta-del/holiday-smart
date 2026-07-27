@@ -252,32 +252,87 @@ also carries:
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
 1. **quality_advantage** — "Why this over the alternatives". Always shows.
-2. **penalty_notice** — only when `absence_days > 0`. Two variants depending on
-   `fine_wipes_saving` (four sentences if the fine wipes out the saving, three if not).
-3. **alternative_option** — "If you want to avoid the fine". Only when `absence_days > 0`
-   AND a fine-free (or cheaper) alternative exists — this card is fine-avoidance only now,
-   it no longer has a no-absence "Next best option" variant.
-4. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
+2. **penalty_notice** — only when `absence_days > 0`. Single merged card (lever
+   `penalty_notice`) — as of this update it absorbs what used to be a separate
+   `alternative_option` card ("If you want to avoid the fine"); see below for why they were
+   merged. Headline is now dynamic and states the stake directly: `"This trip misses {N}
+   school day(s) — £{fine_gbp} if your school fines you"` (previously the static, procedurally
+   neutral "Penalty notice"). Two variants:
+   - **Fine-free alternative exists** (`alt_total_cost != null`): three sentences — which days
+     are missed, then a dual-basis comparison sentence stating the fine-free alternative's cost
+     against BOTH the no-fine winner total AND the fine-inclusive winner total explicitly (see
+     below), then the plain disclaimer.
+   - **No fine-free alternative exists**: three sentences — which days are missed, net
+     cost/saving after the fine (branches on `fine_wipes_saving`), then the same disclaimer.
+   - Disclaimer sentence (both variants): `"We're not recommending unauthorised absence — you
+     should know the numbers before you book."` — **do not** prepend "Schools apply this
+     inconsistently" or similar back to this; a prior version had that clause immediately
+     before the disclaimer and it read as "you'll probably get away with it" directly
+     contradicting the disclaimer one sentence later. Cut entirely, not reworded.
+   - **Why merged, and why "dual-basis" is now the standing rule**: the old two-card version
+     picked a different cost basis in each card without saying so — the penalty notice compared
+     the fine-*inclusive* winner total against baseline, while the separate alternative-option
+     card compared the fine-*free* alternative against the fine-*exclusive* winner total. Both
+     comparisons happened to make the recommendation look better, and nothing on the page ever
+     stated that the two bases disagree on which option is actually cheaper (a real case: winner
+     £440 no-fine / £760 with-fine; alternative £583 flat — the alternative is £143 *more* than
+     the no-fine comparison but £177 *less* than the fine-inclusive one). Whenever a fine-free
+     alternative exists, state both comparisons side by side and let the reader pick the basis
+     that matches their own school's enforcement — never silently pick one. Apply this same
+     dual-basis pattern to any future absence-day trade-off copy, not just this card.
+   - Also removed (do not resurrect): the old alternative-option card's closing editorial line
+     `"The price gap is significant — worth checking the date matrix to see if it fits your
+     window"` — it editorialised against the product's own alternative and the "if it fits"
+     framing was a non-answer given the date was already known to fit and already priced into
+     the comparison table.
+3. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
    "The one trade-off that matters most". `early_return` absorbed the old "Early Departure"
    sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
-5. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
+4. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
    isn't the winner itself (via `combinationKey()` comparison).
 
-When `absence_days === 0`, cards 2 and 3 are skipped entirely — order is just quality → trade-off
+When `absence_days === 0`, card 2 is skipped entirely — order is just quality → trade-off
 (→ inset, when it applies). `baseline_cheapest` has its own separate, unrelated card set —
 untouched by any of the above.
 
 Removed entirely from the significant/found_saving set (do not resurrect without checking why
 they were cut): `split_carrier`, `transport_outbound`/`transport_return`, `selection_story`
 ("Why this routing"), `saving_explainer` ("How the saving works" — the problem
-statement/headline/subheadline already carry that), and the old `allin_trap` "why not the
-cheapest headline fare" card that used to occupy card 3's slot.
+statement/headline/subheadline already carry that), the old `allin_trap` "why not the
+cheapest headline fare" card that used to occupy card 3's slot, and (as of this update) the
+standalone `alternative_option` card — folded into `penalty_notice`, see above.
 
 ### Problem statement (significant/found_saving)
-Fixed four-sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
-reference point ("When half-term begins, most {borough} parents open Google Flights and search
-for the first weekend...") → true cost → methodology → finding. No fine mention — that's the
-penalty notice card's job now.
+Fixed sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
+reference point ("The obvious way to book {borough}'s half-term is the first Saturday —
+{date} from {airport}...") → true cost → methodology → finding. No fine mention — that's the
+penalty notice card's job now. (Earlier version above was itself stale — it still showed a
+since-replaced "When half-term begins, most {borough} parents..." wording that invented an
+unmeasured behavioural claim and described searching for flights at a point when it's already
+too late to book well; replaced for both reasons, not just tone.)
+
+### Shared copy constants (`lib/flights/copyConstants.ts`)
+Two page-wide strings previously duplicated (with drifting wording) across five-plus locations
+each — centralised so a future wording change only happens in one place:
+- **`ALL_IN_DEFINITION`** — `"All-in = fare + bags + seats + transport to and from both
+  airports."` Rendered exactly once, directly under the subheadline
+  (`ai-recommendation-client.tsx`). Every other mention of cost inclusions on the page — problem
+  statement, subheadline itself, "Why this over the alternatives" card, both price-history
+  subtitles, the modal subtitle, the matrix subtitle, the leg-options "Best option" line — says
+  the bare word **"all-in"** and relies on this definition rather than restating "bags, transit
+  and transfers" (or any close variant) each time. Do not re-add an inline explanation next to
+  "all-in" anywhere else; if the definition itself needs to change, change it only here.
+- **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
+  (`"Typical Saturday Booking"`, Title Case for compact UI contexts like the comparison table's
+  column header, kept in sync with `BASELINE_NAME` by hand) — the comparison baseline (a direct
+  BA flight on the first Saturday of half-term) used to be called four different things across
+  the headline ("the standard Saturday booking from Heathrow"), booking box ("the typical
+  booking" / "a typical Saturday Heathrow booking" — two different variants in the same file),
+  penalty card ("the Saturday booking"), and comparison table ("Typical Saturday"). All four now
+  import and reference the shared constant instead of hardcoding their own phrasing — including
+  the AI headline prompt's own RULES section, which now instructs the model to use
+  `BASELINE_NAME` verbatim rather than picking between "typical booking"/"standard booking"/"the
+  obvious option."
 
 ### Other UI pieces touched alongside the card system
 - `components/flight-insights/savings-breakdown.tsx` (`SavingsBreakdown`) is now a **no-op** —
@@ -314,6 +369,39 @@ penalty notice card's job now.
   sections — `page.tsx`'s wrapper around `<ComparisonTable>` carries `marginTop: 24` (on top of
   `ComplianceCalculator`'s own 24px bottom padding) to reach 48px, since `ComparisonTable` and
   `PriceHistorySection` both render with no self-padding of their own.
+  **Closing line is deterministic, not AI-generated** — every price-history card (this section's
+  two tabs, and the top-section `price_movement` card in `ai-recommendation-client.tsx`) ends
+  with a line built by `buildPriceRangeLine()` (`lib/flights/priceMovement.ts`), stating the
+  current price's exact position within the observed range with identical structure and weight
+  every time: series low, series high, or neither. A prior version relied on an AI-narrated
+  and/or conditionally-rendered takeaway ("it's never been cheaper than it is right now") that
+  only ever appeared in the favourable case — a structurally biased instrument regardless of how
+  the sentence was worded. `computePriceMovement()` now also returns `range_low_gbp` /
+  `range_high_gbp` / `price_position`, and the shared narration prompt
+  (`PRICE_MOVEMENT_SYSTEM_PROMPT`) has hard rules forbidding the AI narration from (a) claiming
+  the price "held steady"/"stabilised"/"settled" off a handful of checks (an implicit forecast
+  the data can't support) and (b) making any "never been cheaper/lower" style claim itself, since
+  the deterministic line already owns that comparison. Beneath that, every price-history card
+  also carries one hardcoded, always-present standing line — `PRICE_MOVEMENT_STANDING_LINE`,
+  "We don't predict where prices go next." — never AI-generated, never conditional.
+  **`lib/flights/priceMovement.ts` vs `lib/flights/priceMovementNarration.ts` — client/server
+  split, do not merge back together.** `priceMovement.ts` holds only pure, dependency-free
+  computation (`computePriceMovement`, `buildPriceRangeLine`, the `PriceMovement*`/`PriceRange*`
+  types, `PRICE_MOVEMENT_STANDING_LINE`) and is safe to import from client components —
+  `price-history-section.tsx` and `ai-recommendation-client.tsx` both do, to render the
+  deterministic range line above without a round trip. `priceMovementNarration.ts` holds
+  `narratePriceMovement` and `PRICE_MOVEMENT_SYSTEM_PROMPT`, imports `@anthropic-ai/sdk`, and is
+  **server-only** — only ever import it from API routes (`cell-price-history`,
+  `destination-price-history`) or `getAIRecommendation.ts`, never from a `'use client'` file.
+  These were one file until a Vercel build broke with "Reading from node:child_process /
+  node:crypto / node:fs/promises / node:fs / node:path is not handled by plugins": the first time
+  a client component did a plain value-import from the combined file (to reuse
+  `computePriceMovement`/`buildPriceRangeLine` for the range-line work above), webpack pulled the
+  whole module — including its top-level `import Anthropic from '@anthropic-ai/sdk'` — into the
+  browser bundle, and the SDK's Node-only dependencies aren't polyfillable. `import type` from the
+  combined file was always safe (erased at compile time, which is why nothing broke for the
+  months this was one file); a plain value-import was the trigger. If either file grows again,
+  keep the SDK import strictly confined to `priceMovementNarration.ts`.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

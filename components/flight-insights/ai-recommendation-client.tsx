@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
+import { computePriceMovement, buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
+import { BASELINE_NAME, ALL_IN_DEFINITION } from '@/lib/flights/copyConstants';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
@@ -130,8 +132,8 @@ const LEVER_ICONS: Record<string, string> = {
   // shape only, per design review — colour (isAmber below) is untouched,
   // none of these four are in that list, so all stay teal.
   quality_advantage:    'lightbulb',   // "Why this over the alternatives" — genuinely is a tip
-  penalty_notice:       'warning',     // caution/importance, not a casual tip
-  alternative_option:   'alt_route',   // "If you want to avoid the fine" — an alternative path
+  penalty_notice:       'warning',     // caution/importance, not a casual tip — now also covers
+                                       // the fine-avoiding alternative, merged into this card
   early_return:         'schedule',    // "The one trade-off that matters most" variants — a clock
   early_outbound:       'schedule',
   split_booking:        'schedule',
@@ -506,6 +508,17 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
     ? priceHistoryPoints[priceHistoryPoints.length - 1].checked_on
     : null;
 
+  // Deterministic, unconditional closing line for the price-history card —
+  // same structure and weight whether the current price is the series low,
+  // the series high, or neither. Never AI-generated. See priceMovement.ts.
+  const priceMovementRangeLine = aiResult?.price_movement
+    ? buildPriceRangeLine(computePriceMovement({
+        checks_total:     aiResult.price_movement.checks_total,
+        checks_with_data: aiResult.price_movement.checks_with_data,
+        price_points:     aiResult.price_movement.price_points,
+      }))
+    : null;
+
   const roundTripUrl = rec ? buildGoogleFlightsRoundTripUrl({
     origin,
     destination: outDest,
@@ -615,6 +628,19 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             {aiResult.subheadline}
           </p>
         )}
+        {/* The one place "all-in" is defined for the reader — every other
+            mention on the page says the bare word and relies on this. */}
+        {aiResult?.subheadline && (
+          <p style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 12,
+            color: '#8b9495',
+            lineHeight: 1.5,
+            marginTop: 4,
+          }}>
+            {ALL_IN_DEFINITION}
+          </p>
+        )}
       </div>
 
       {/* ── Two-column grid ───────────────────────────────── */}
@@ -667,8 +693,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                       marginBottom: 8,
                       maxWidth: '42ch',
                     }}>
-                      Airfare only — excludes bags, transit and transfers, which make up
-                      the rest of {(rec as any)?.total_cost_gbp != null
+                      Airfare only — the rest is folded into {(rec as any)?.total_cost_gbp != null
                         ? `the £${Math.round((rec as any).total_cost_gbp).toLocaleString('en-GB')} all-in total`
                         : 'the all-in total'}.
                     </p>
@@ -678,11 +703,40 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     fontSize: 16,
                     color: '#3f484a',
                     lineHeight: 1.6,
-                    marginBottom: 12,
+                    marginBottom: card.lever === 'price_movement' ? 4 : 12,
                     maxWidth: '42ch',
                   }}>
                     {card.insight}
                   </p>
+                  {/* Unconditional closing line — same structure and weight
+                      whether the current price is the series low, the
+                      series high, or neither. Never AI-generated. */}
+                  {card.lever === 'price_movement' && priceMovementRangeLine && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: '#004349',
+                      lineHeight: 1.6,
+                      marginBottom: 4,
+                      maxWidth: '42ch',
+                    }}>
+                      {priceMovementRangeLine}
+                    </p>
+                  )}
+                  {/* Standing disclaimer — hardcoded, always present
+                      regardless of what the data shows, never conditional. */}
+                  {card.lever === 'price_movement' && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      color: '#6f797a',
+                      marginBottom: 12,
+                      maxWidth: '42ch',
+                    }}>
+                      {PRICE_MOVEMENT_STANDING_LINE}
+                    </p>
+                  )}
                   {/* "See the numbers ↓" — only when there's more than one
                       usable price point to chart (checks_with_data <= 1
                       means the card text alone already says everything). */}
@@ -776,8 +830,8 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   maxWidth: '42ch',
                 }}>
                   {benchmarkCost != null
-                    ? `Compared to the typical Saturday booking from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
-                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to a typical Saturday Heathrow booking.`
+                    ? `Compared to ${BASELINE_NAME} from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
+                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to ${BASELINE_NAME} from Heathrow.`
                   }
                 </p>
                 <div style={{
@@ -1036,9 +1090,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                           </span>
                         </div>
                         <div className="flex gap-sm text-label-sm font-label-sm text-outline items-center">
-                          <span>{(rec as any).ret_dest_iata ?? rec.out_dest_iata}</span>
+                          <span>{rec.out_dest_iata}</span>
                           <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-                          <span>{rec.origin_iata}</span>
+                          <span>{(rec as any).ret_dest_iata ?? rec.origin_iata}</span>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1064,7 +1118,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     marginTop: 8,
                     textAlign: 'center',
                   }}>
-                    £{Math.round(aiSaving)} below the typical booking
+                    £{Math.round(aiSaving)} below {BASELINE_NAME}
                   </p>
                 </div>
               )}

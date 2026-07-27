@@ -97,7 +97,7 @@ export function PriceMovementChart({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         style={{ width: '100%', maxWidth: fullWidth ? 'none' : WIDTH, height: 'auto', display: 'block' }}
         role="img"
-        aria-label="Bar chart of this flight's airfare across past checks, spaced by actual date (excludes bags, transit and transfers)"
+        aria-label="Bar chart of this flight's airfare across past checks, spaced by actual date (airfare only, not all-in)"
       >
         <line
           x1={PAD_LEFT} y1={baselineY}
