@@ -29,6 +29,7 @@ interface FetchParams {
   currentPageUrl?: string;
   savingCategory: string;
   combinationCount: number;
+  distinctDatePairs: number;
   baselineIsRecommended?: boolean;
 }
 
@@ -1177,7 +1178,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a',
                   textAlign: 'center', margin: 0,
                 }}>
-                  Prices checked {fmtShortDate(lastCheckedOn)}
+                  Fares observed {fmtShortDate(lastCheckedOn)}
                 </p>
               )}
 

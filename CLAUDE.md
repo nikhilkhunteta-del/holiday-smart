@@ -87,6 +87,32 @@ confirmed correct against live data — not bundled into this fix.
 
 ---
 
+### RESOLVED — Matrix subtitle's price spread compared against never-rendered combinations
+
+**Location:** `components/flight-insights/compliance-calculator.tsx`, `priceSpread` (~line 285).
+
+The subtitle claimed a spread (e.g. "£1,417 separates the best and worst date combinations this
+half-term") computed as `Math.max(...) - Math.min(...)` over the raw `combinations` prop — every
+carrier/airport combination priced (126, say), not the ~16 values actually shown in the grid's
+cells. Because `cellMap` dedupes multiple combinations down to one per (outbound_date,
+return_date) key, most of that raw pool never surfaces as a visible cell price — the max in
+particular was very likely an obscure, never-rendered combination for a date pair whose cell
+displays a cheaper alternative instead. Confirmed against a live case: subtitle claimed £1,417,
+but the visible cells only ranged £440–£691 (a real spread of £251).
+
+**Fix:** `priceSpread` is now computed from `Array.from(cellMap.values())` — the exact same
+values each cell renders — plus `baselineTotal` when `baselineIsRecommended` (the one cell that's
+rendered from a hardcoded value outside `cellMap`, since the baseline's own date pair isn't
+guaranteed to appear in the raw `combinations` pool — see "Include baseline dates in the matrix
+axes" a few lines above `cellMap`'s own construction).
+
+**Related, NOT fixed (found while investigating, confirmed unused):** `page.tsx` independently
+computes its own `combinationRange` (`Math.max(total_inc_fine) - Math.min(total_inc_fine over
+non-absence combos)`) and passes it into `<ComplianceCalculator combinationRange={...}>` — but
+the prop is destructured and never referenced anywhere in the component. Dead code with its own
+inconsistent basis (max includes fined combinations, min excludes them) — flagging since it's the
+same class of bug, not fixing since it's provably never rendered and wasn't asked for.
+
 ### DEFERRED DECISION — Date matrix format (grid vs. sorted list) for city-type destinations
 
 An independent design review raised that the date matrix is ~80% empty for Barcelona (a
@@ -248,6 +274,14 @@ also carries:
   departure/arrival times and quality tiers for winner, baseline, and the alternative, plus a
   pre-computed `winner_quality_advantage` (`'departure_vs_baseline' | 'arrival_vs_alternative'
   | 'return_vs_alternative' | 'cost_driven'`) picking the single most meaningful contrast.
+- **`distinctDatePairs`** — count of distinct `(outbound_date, return_date)` pairs among
+  `combinationCount`'s raw combinations, computed identically to the date matrix's own `cellMap`
+  (`new Set(combinations.map(c => \`${c.outbound_date}|${c.return_date}\`)).size`), computed once
+  in `page.tsx` and threaded through `aiFetchParams` → the `/api/recommend` POST body → here —
+  **not** recomputed independently anywhere downstream, specifically so it can never drift from
+  what the matrix actually shows. Used in the problem statement to reconcile "N combinations
+  priced" against the visibly smaller grid (see below) — multiple carrier/airport combinations
+  can share one date-pair cell, which is why this is always <= `combinationCount`, often by a lot.
 
 ### Card headings — heading register per card, and a note on icons
 Headings deliberately do **not** use one uniform grammatical template across all cards. Each
@@ -350,6 +384,30 @@ penalty notice card's job now. (Earlier version above was itself stale — it st
 since-replaced "When half-term begins, most {borough} parents..." wording that invented an
 unmeasured behavioural claim and described searching for flights at a point when it's already
 too late to book well; replaced for both reasons, not just tone.)
+
+The methodology sentence now also states (a) a real observed date — `combinationsPricedOn`, the
+most recent `checked_on` in `context.price_points` (the same series behind the booking box's
+"Fares observed" stamp and the price-history chart) — and (b) the `distinctDatePairs` count, so
+"we priced N combinations" reconciles against the matrix's visibly smaller cell count rather than
+reading as a mismatch (e.g. "We priced 126 combinations on 25 Oct across five London airports and
+every viable date — collapsed to the best option per date, 16 distinct date pairs shown below").
+`get_smart_recommendation` has no pool-wide "priced as of" timestamp of its own (its return is
+just `{combinations, baseline}` — no run id or `completed_at`) — reusing the itinerary-level
+check date as the best real proxy available is a deliberate choice, not an oversight; if a
+provably-exact pool-wide timestamp is ever wanted, that needs a small RPC change to return
+`snapshot_runs.completed_at`, not yet done. Same treatment applied to the parallel
+`is_baseline_cheapest` problem statement branch for consistency.
+
+### Date matrix naming
+User-facing copy uses **"the date matrix"** (or bare "the matrix" in space-constrained spots
+like the price-history tab label "Whole matrix") consistently wherever the widget is referred to
+by name in prose — e.g. `leg-options.tsx`'s "Click any date in the matrix above," the trade-off
+card's "the date matrix below shows alternatives," and the price-history destination subtitle
+(fixed from "the grid above," the one outlier found). The matrix's own section heading, "Find
+your cheapest dates," is left as its own benefit-oriented H2 rather than forced to literally
+contain the word "matrix" — it's a call-to-action, not a competing name for the same noun, so it
+doesn't reintroduce the naming clash this was fixing. Internal code/variable names (`cellMap`,
+`ComplianceCalculator`, etc.) are unaffected — this is a user-facing-copy-only convention.
 
 ### Shared copy constants (`lib/flights/copyConstants.ts`)
 Two page-wide strings previously duplicated (with drifting wording) across five-plus locations

@@ -70,6 +70,12 @@ export interface FamilyContext {
   scenarios?: ScenarioResult[];
   savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest';
   combinationCount: number;
+  // Distinct (outbound_date, return_date) pairs among combinationCount —
+  // i.e. how many cells the date matrix actually shows, computed the same
+  // way as its own cellMap (page.tsx). Multiple carrier/airport
+  // combinations can share one cell, which is why this is always <=
+  // combinationCount, often by a lot.
+  distinctDatePairs: number;
   // Fine/absence-aware warning fields — computed in assembleRecommendation.ts
   absence_days: number;
   absence_out_days: number; // departure before the window opens
@@ -1653,8 +1659,33 @@ One sentence. Specific. No carrier saving numbers.`,
 
   // "all-in" is defined once, directly under the subheadline — say the
   // bare word here, don't restate what it includes.
+  //
+  // combCount (126, say) counts every carrier/airport combination priced —
+  // several of which can share the same (outbound_date, return_date) date
+  // pair, which is why the date matrix below only ever shows
+  // distinctDatePairs cells (~16), not combCount. Stating both numbers and
+  // the relationship between them here, rather than just combCount alone,
+  // so "126 combinations" doesn't read as a mismatch against what's
+  // visibly a much smaller grid.
+  const distinctDatePairsCount = context.distinctDatePairs > 0 ? context.distinctDatePairs : null;
+  // Real observed timestamp, not invented: the most recent checked_on date
+  // in the same price_points series that powers the price-history chart
+  // and the booking box's "Fares observed" stamp — the actual last time
+  // this pool of fares was checked. There is no separate, pool-wide
+  // "combinations priced on" timestamp exposed by get_smart_recommendation
+  // (its return is just {combinations, baseline} — no run/completed_at
+  // field) — this reuses the itinerary-level check date as the best real
+  // proxy available, since both come from the same nightly snapshot run.
+  const pricePointsForPS = context.price_points ?? [];
+  const combinationsPricedOn = pricePointsForPS.length
+    ? (() => {
+        const d = new Date(pricePointsForPS[pricePointsForPS.length - 1].checked_on + 'T00:00:00');
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return `${d.getDate()} ${months[d.getMonth()]}`;
+      })()
+    : null;
   const otherwiseProblemStatement = `Write the problem statement as EXACTLY this sentence, no changes:
-"The obvious way to book ${context.borough ?? 'London'}'s half-term is the first Saturday — ${baselineDateShort || baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That comes to £${context.baseline_allin ?? 'unknown'} all-in. We priced ${combCount} combinations across five London airports and every viable date pair against it."`;
+"The obvious way to book ${context.borough ?? 'London'}'s half-term is the first Saturday — ${baselineDateShort || baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That comes to £${context.baseline_allin ?? 'unknown'} all-in. We priced ${combCount} combinations${combinationsPricedOn ? ` on ${combinationsPricedOn}` : ''} across five London airports and every viable date — collapsed to the best option per date${distinctDatePairsCount ? `, ${distinctDatePairsCount} distinct date pairs shown below` : ''}."`;
 
   // ── Subheadline for significant/found_saving — pre-resolved in TS ────────
   // When the winner's outbound and return use different London airports
@@ -1778,7 +1809,7 @@ Use these values from SELECTION CONTEXT:
 - baseline_allin = what it actually costs (fare + bags + transport)
 
 IF is_baseline_cheapest is true:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount : '128'} combinations to see if anything came out lower."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount : '128'} combinations${combinationsPricedOn ? ` on ${combinationsPricedOn}` : ''} to see if anything came out lower — collapsed to the best option per date${context.distinctDatePairs > 0 ? `, ${context.distinctDatePairs} distinct date pairs shown below` : ''}."
 
 OTHERWISE (saving_category = 'significant' or 'found_saving'):
 ${otherwiseProblemStatement}

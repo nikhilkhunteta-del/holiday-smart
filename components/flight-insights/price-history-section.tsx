@@ -187,7 +187,7 @@ export function PriceHistorySection({
   const loading = showingCell ? cellLoading : destinationLoading;
   const subtitle = showingCell
     ? 'Airfare only, not all-in. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
-    : 'Airfare only, not all-in. The typical cheapest fare across every date on the grid above — not just one flight.';
+    : 'Airfare only, not all-in. The typical cheapest fare across every date on the date matrix above — not just one flight.';
   const fallbackText = showingCell
     ? 'Price history for this itinerary is not available right now.'
     : `Price history for ${destinationName} is not available right now.`;

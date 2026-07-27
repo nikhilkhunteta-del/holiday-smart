@@ -282,9 +282,26 @@ export function ComplianceCalculator({
   const minCost = Math.min(...combinations.map(c => c.total_cost_gbp));
 
   // ── 2. Dynamic price spread for subtitle ─────────────────────────────────
-  const allTotals = combinations.map(c => c.total_cost_gbp);
-  const priceSpread = allTotals.length >= 2
-    ? Math.round(Math.max(...allTotals) - Math.min(...allTotals))
+  // Must be computed from what the grid actually DISPLAYS (one price per
+  // visible cell, via cellMap), not from the raw `combinations` pool —
+  // that pool can hold several carrier/airport combinations per date pair
+  // (the same reason cellMap dedupes it in the first place; see the
+  // cellMap "first entry wins" KNOWN ISSUE in CLAUDE.md), most of which
+  // never surface as a cell's price because a cheaper one for that same
+  // date pair occupies the slot. Using the raw pool here previously
+  // overstated the spread — e.g. showing a £1,417 spread against a grid
+  // whose actual visible cells only ranged £440–£691 (a £251 spread) —
+  // by comparing an obscure, never-rendered high-priced combination
+  // against the true minimum. Also fold in `baselineTotal` when it's
+  // rendered as the hardcoded baseline-recommended cell (see ~line 457
+  // below) — that one price is displayed outside cellMap entirely, since
+  // the baseline's own date pair isn't guaranteed to appear in the raw
+  // `combinations` pool (see "Include baseline dates in the matrix axes"
+  // above, which exists precisely because it sometimes doesn't).
+  const cellMapTotals = Array.from(cellMap.values()).map(c => c.total_cost_gbp);
+  if (baselineIsRecommended) cellMapTotals.push(baselineTotal);
+  const priceSpread = cellMapTotals.length >= 2
+    ? Math.round(Math.max(...cellMapTotals) - Math.min(...cellMapTotals))
     : null;
 
   function handleCellClick(outbound_date: string, return_date: string) {
