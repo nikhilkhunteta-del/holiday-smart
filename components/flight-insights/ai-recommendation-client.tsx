@@ -130,8 +130,8 @@ const LEVER_ICONS: Record<string, string> = {
   // shape only, per design review — colour (isAmber below) is untouched,
   // none of these four are in that list, so all stay teal.
   quality_advantage:    'lightbulb',   // "Why this over the alternatives" — genuinely is a tip
-  penalty_notice:       'warning',     // caution/importance, not a casual tip
-  alternative_option:   'alt_route',   // "If you want to avoid the fine" — an alternative path
+  penalty_notice:       'warning',     // caution/importance, not a casual tip — now also covers
+                                       // the fine-avoiding alternative, merged into this card
   early_return:         'schedule',    // "The one trade-off that matters most" variants — a clock
   early_outbound:       'schedule',
   split_booking:        'schedule',

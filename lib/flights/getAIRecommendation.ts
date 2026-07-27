@@ -1343,13 +1343,15 @@ One sentence. Specific. No carrier saving numbers.`,
   // ── Override card set for significant / found_saving ───────────────────
   // The problem statement, headline, and subheadline already carry the
   // saving breakdown. Order: (1) why this beats the alternatives on
-  // quality, (2) penalty notice and (3) the fine-avoiding alternative —
-  // both only when the winner has absence days, (4) the single
-  // highest-priority trade-off, (5) the inset-day alternative (when it's
+  // quality, (2) the penalty notice — a single merged card covering both
+  // the fine itself and the fine-avoiding alternative (only when the
+  // winner has absence days; see its comment above for why these two used
+  // to be separate cards and no longer are), (3) the single
+  // highest-priority trade-off, (4) the inset-day alternative (when it's
   // cheaper than the winner and isn't the winner itself). With no absence
-  // days, cards 2 and 3 are skipped entirely — order becomes quality →
-  // trade-off (→ inset, when it applies). Replaces the old split_carrier /
-  // transport / selection_story narration cards entirely.
+  // days, card 2 is skipped entirely — order becomes quality → trade-off
+  // (→ inset, when it applies). Replaces the old split_carrier / transport
+  // / selection_story narration cards entirely.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
@@ -1405,8 +1407,20 @@ One sentence. Specific. No carrier saving numbers.`,
       });
     }
 
-    // Card 2 — Penalty notice (replaces the deleted sidebar absence notice;
-    // only fires when the winner actually requires absence).
+    // Card 2 — Penalty notice + fine-avoiding alternative, merged into one
+    // card (replaces the deleted sidebar absence notice; only fires when the
+    // winner actually requires absence).
+    //
+    // These used to be two separate cards that each picked a different cost
+    // basis to compare against — the fine-inclusive winner total in one,
+    // the fine-exclusive winner total in the other — which silently made
+    // the recommendation look better in both comparisons at once and never
+    // surfaced the fact that the two bases actually disagree on which
+    // option is cheaper. Whenever a fine-free alternative exists, state
+    // BOTH comparisons (vs the no-fine winner total, vs the fine-inclusive
+    // winner total) explicitly side by side, rather than picking one. This
+    // is the standard pattern for any future absence-day trade-off — do
+    // not go back to a single silently-chosen basis.
     if (absenceDays > 0) {
       const outboundDateFormatted = fmtDLong(recommended.outbound_date);
       const returnDateFormatted   = fmtDLong(recommended.return_date);
@@ -1426,89 +1440,58 @@ One sentence. Specific. No carrier saving numbers.`,
         ? `${outboundClause}.`
         : `${returnClause}.`;
 
-      if (fineWipesSaving) {
+      const dayWord = absenceDays === 1 ? 'day' : 'days';
+      const headline = `This trip misses ${absenceDays} school ${dayWord} — £${fineGbp} if your school fines you`;
+      const disclaimer = `We're not recommending unauthorised absence — you should know the numbers before you book.`;
+
+      // bestNoFineAlternative (assembleRecommendation.ts) is only offered
+      // here when it is genuinely fine-free (filtered on absence_days === 0
+      // whenever the winner itself has absence days) — safe to treat its
+      // presence as "a fine-free option exists in the pool."
+      if (context.alt_total_cost != null) {
+        const altTotalCost = context.alt_total_cost;
+        const altDeltaVsNoFineWinner = altTotalCost - winnerTotalRounded;
+        const altDeltaVsFineInclusiveWinner = altTotalCost - netCostWithFine;
+
+        const comparisonSentence = `The fine-free option costs £${altTotalCost} — ${context.alt_outbound_date_formatted} to ${context.alt_return_date_formatted}, no school days missed. That's £${Math.abs(altDeltaVsNoFineWinner)} ${altDeltaVsNoFineWinner >= 0 ? 'more' : 'less'} than the £${winnerTotalRounded} recommendation if no fine is issued, and £${Math.abs(altDeltaVsFineInclusiveWinner)} ${altDeltaVsFineInclusiveWinner >= 0 ? 'more' : 'less'} than the £${netCostWithFine} you'd pay if one is. Which comparison is right depends on your school.`;
+
         nonBaselineCards.push({
           lever: 'penalty_notice',
-          headline_hint: 'Penalty notice',
-          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
+          headline_hint: headline,
+          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
           facts: {
-            locked_headline: 'Penalty notice',
+            locked_headline: headline,
             sentence_1: absenceSentence1,
-            sentence_2: `If your school issues a penalty notice, that's £${fineGbp}.`,
-            sentence_3: `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`,
-            sentence_4: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers before you book.`,
+            sentence_2: comparisonSentence,
+            sentence_3: disclaimer,
           },
           verified_field: 'fine_gbp',
           verified_value: fineGbp,
           saving_gbp: null,
         });
       } else {
-        const savingAfterFine = savingForCards - fineGbp;
+        const sentence2 = fineWipesSaving
+          ? `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than the Saturday booking.`
+          : `Your net saving after the fine drops to £${savingForCards - fineGbp}.`;
+
         nonBaselineCards.push({
           lever: 'penalty_notice',
-          headline_hint: 'Penalty notice',
+          headline_hint: headline,
           voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
           facts: {
-            locked_headline: 'Penalty notice',
+            locked_headline: headline,
             sentence_1: absenceSentence1,
-            sentence_2: `If your school issues a penalty notice, that's £${fineGbp} — your net saving drops to £${savingAfterFine}.`,
-            sentence_3: `Schools apply this inconsistently — we're not recommending unauthorised absence, but you should know the numbers.`,
+            sentence_2: sentence2,
+            sentence_3: disclaimer,
           },
           verified_field: 'fine_gbp',
           verified_value: fineGbp,
-          saving_gbp: savingAfterFine,
+          saving_gbp: fineWipesSaving ? null : savingForCards - fineGbp,
         });
       }
     }
 
-    // Card 3 — Alternative option (avoids the fine). Only rendered when the
-    // winner has absence days and a fine-free alternative exists.
-    if (absenceDays > 0 && context.alt_total_cost != null) {
-      const altTotalCost = context.alt_total_cost;
-      const altDelta = context.alt_delta_vs_winner ?? 0;
-      const altHeadline = 'If you want to avoid the fine';
-      const altCarrierPhrase = context.alt_outbound_carrier && context.alt_return_carrier
-        ? (context.alt_outbound_carrier === context.alt_return_carrier
-            ? cn(context.alt_outbound_carrier)
-            : `${cn(context.alt_outbound_carrier)} outbound, ${cn(context.alt_return_carrier)} return`)
-        : (context.alt_outbound_carrier ? cn(context.alt_outbound_carrier) : 'This option');
-
-      const sentence1 = `${altCarrierPhrase} on ${context.alt_outbound_date_formatted} → ${context.alt_return_date_formatted} costs £${altTotalCost} all-in — £${Math.abs(altDelta)} ${altDelta >= 0 ? 'more' : 'less'} than this recommendation.`;
-
-      const sentence2 = context.alt_absence_days === 0
-        ? 'No school days missed — avoids the penalty notice entirely.'
-        : context.alt_arr_q === 'excellent' || context.alt_arr_q === 'good'
-        ? `Better arrival timing — ${context.alt_arr_q} arrival quality.`
-        : 'Different dates with comparable timing.';
-
-      const altRetHour = context.alt_ret_dep_time ? parseInt(context.alt_ret_dep_time.slice(0, 2)) : null;
-      const sentence3 = altRetHour != null && altRetHour < 6
-        ? `The return also departs very early from ${destinationName} at ${context.alt_ret_dep_time}.`
-        : altDelta > 100
-        ? `The price gap is significant — worth checking the date matrix to see if it fits your window.`
-        : null;
-
-      const facts: Record<string, string | number | boolean | null> = {
-        locked_headline: altHeadline,
-        sentence_1: sentence1,
-        sentence_2: sentence2,
-      };
-      if (sentence3) facts.sentence_3 = sentence3;
-
-      nonBaselineCards.push({
-        lever: 'alternative_option',
-        headline_hint: altHeadline,
-        voice: sentence3
-          ? `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences maximum. Use exact figures. Do not add context beyond what is listed.`
-          : `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not add a third sentence. Use exact figures. Do not add context beyond what is listed.`,
-        facts,
-        verified_field: 'total_cost_gbp',
-        verified_value: altTotalCost,
-        saving_gbp: null,
-      });
-    }
-
-    // Card 4 — The one trade-off that matters most
+    // Card 3 — The one trade-off that matters most
     {
       type TradeoffType = 'early_return' | 'early_outbound' | 'split_booking' | 'timing_summary';
       const tradeoffType: TradeoffType =
@@ -1591,7 +1574,7 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 5 — Inset day option (only when it exists, is cheaper than the
+    // Card 4 — Inset day option (only when it exists, is cheaper than the
     // winner, and isn't the winner itself — see showInsetCard above)
     if (showInsetCard && insetFromPool) {
       const insetRetDepTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';

@@ -252,26 +252,55 @@ also carries:
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
 1. **quality_advantage** — "Why this over the alternatives". Always shows.
-2. **penalty_notice** — only when `absence_days > 0`. Two variants depending on
-   `fine_wipes_saving` (four sentences if the fine wipes out the saving, three if not).
-3. **alternative_option** — "If you want to avoid the fine". Only when `absence_days > 0`
-   AND a fine-free (or cheaper) alternative exists — this card is fine-avoidance only now,
-   it no longer has a no-absence "Next best option" variant.
-4. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
+2. **penalty_notice** — only when `absence_days > 0`. Single merged card (lever
+   `penalty_notice`) — as of this update it absorbs what used to be a separate
+   `alternative_option` card ("If you want to avoid the fine"); see below for why they were
+   merged. Headline is now dynamic and states the stake directly: `"This trip misses {N}
+   school day(s) — £{fine_gbp} if your school fines you"` (previously the static, procedurally
+   neutral "Penalty notice"). Two variants:
+   - **Fine-free alternative exists** (`alt_total_cost != null`): three sentences — which days
+     are missed, then a dual-basis comparison sentence stating the fine-free alternative's cost
+     against BOTH the no-fine winner total AND the fine-inclusive winner total explicitly (see
+     below), then the plain disclaimer.
+   - **No fine-free alternative exists**: three sentences — which days are missed, net
+     cost/saving after the fine (branches on `fine_wipes_saving`), then the same disclaimer.
+   - Disclaimer sentence (both variants): `"We're not recommending unauthorised absence — you
+     should know the numbers before you book."` — **do not** prepend "Schools apply this
+     inconsistently" or similar back to this; a prior version had that clause immediately
+     before the disclaimer and it read as "you'll probably get away with it" directly
+     contradicting the disclaimer one sentence later. Cut entirely, not reworded.
+   - **Why merged, and why "dual-basis" is now the standing rule**: the old two-card version
+     picked a different cost basis in each card without saying so — the penalty notice compared
+     the fine-*inclusive* winner total against baseline, while the separate alternative-option
+     card compared the fine-*free* alternative against the fine-*exclusive* winner total. Both
+     comparisons happened to make the recommendation look better, and nothing on the page ever
+     stated that the two bases disagree on which option is actually cheaper (a real case: winner
+     £440 no-fine / £760 with-fine; alternative £583 flat — the alternative is £143 *more* than
+     the no-fine comparison but £177 *less* than the fine-inclusive one). Whenever a fine-free
+     alternative exists, state both comparisons side by side and let the reader pick the basis
+     that matches their own school's enforcement — never silently pick one. Apply this same
+     dual-basis pattern to any future absence-day trade-off copy, not just this card.
+   - Also removed (do not resurrect): the old alternative-option card's closing editorial line
+     `"The price gap is significant — worth checking the date matrix to see if it fits your
+     window"` — it editorialised against the product's own alternative and the "if it fits"
+     framing was a non-answer given the date was already known to fit and already priced into
+     the comparison table.
+3. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
    "The one trade-off that matters most". `early_return` absorbed the old "Early Departure"
    sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
-5. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
+4. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
    isn't the winner itself (via `combinationKey()` comparison).
 
-When `absence_days === 0`, cards 2 and 3 are skipped entirely — order is just quality → trade-off
+When `absence_days === 0`, card 2 is skipped entirely — order is just quality → trade-off
 (→ inset, when it applies). `baseline_cheapest` has its own separate, unrelated card set —
 untouched by any of the above.
 
 Removed entirely from the significant/found_saving set (do not resurrect without checking why
 they were cut): `split_carrier`, `transport_outbound`/`transport_return`, `selection_story`
 ("Why this routing"), `saving_explainer` ("How the saving works" — the problem
-statement/headline/subheadline already carry that), and the old `allin_trap` "why not the
-cheapest headline fare" card that used to occupy card 3's slot.
+statement/headline/subheadline already carry that), the old `allin_trap` "why not the
+cheapest headline fare" card that used to occupy card 3's slot, and (as of this update) the
+standalone `alternative_option` card — folded into `penalty_notice`, see above.
 
 ### Problem statement (significant/found_saving)
 Fixed four-sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
