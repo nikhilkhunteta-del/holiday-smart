@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
 
@@ -484,10 +484,6 @@ interface ComparisonTableProps {
 }
 
 export function ComparisonTable({ result }: ComparisonTableProps) {
-  // Visible by default — this table is the strongest evidence on the page;
-  // the toggle exists to let it be collapsed away, not to hide it initially.
-  const [open, setOpen] = useState(true);
-
   const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
   const isBaselineCheapest = savingCategory === 'baseline_cheapest';
 
@@ -559,30 +555,23 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
 
   return (
     <section className="w-full">
-      {/* Trigger — a small text link, not sized to compete with real H2s.
-          Now sits below the matrix, so "these prices" has an antecedent. */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="text-left"
-        style={{
-          fontFamily: 'Inter, sans-serif',
-          fontSize: 14,
-          fontWeight: 600,
-          color: '#004349',
-          background: 'none',
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-          textDecoration: 'underline',
-          textUnderlineOffset: 2,
-        }}
-      >
-        {open ? 'Hide how we chose these prices ↑' : 'How we chose these prices ↓'}
-      </button>
+      {/* Plain small heading, not a disclosure trigger — the table is
+          always visible now (it's the strongest evidence on the page),
+          so there's nothing left to disclose. */}
+      <h2 style={{
+        fontFamily: 'Inter, sans-serif',
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#004349',
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        margin: '0 0 16px',
+      }}>
+        How we chose these prices
+      </h2>
 
       {/* Table */}
-      {open && (
-        <div className="overflow-x-auto -mx-4 px-4 pb-6">
+      <div className="overflow-x-auto -mx-4 px-4 pb-6">
           <table className="w-full border-collapse text-sm" style={{ fontFamily: 'Inter, sans-serif', minWidth: columns.length * 160 + 140 }}>
             <thead>
               <tr>
@@ -672,7 +661,6 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
             </tbody>
           </table>
         </div>
-      )}
     </section>
   );
 }

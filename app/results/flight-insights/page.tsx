@@ -340,9 +340,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             {/* 5. "How we chose these prices" — moved below the matrix so
                 "these prices" has an actual antecedent (the cells just
                 shown above), instead of sitting above them with nothing to
-                refer back to yet. */}
+                refer back to yet. marginTop compensates for
+                ComplianceCalculator's own 24px bottom padding, so the gap
+                above this section reaches the standard 48px like the gap
+                below it, instead of a cramped 24px. */}
             {assembled && (
-              <div style={{ marginBottom: 48 }}>
+              <div style={{ marginTop: 24, marginBottom: 48 }}>
                 <ComparisonTable result={assembled} />
               </div>
             )}

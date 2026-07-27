@@ -290,11 +290,12 @@ penalty notice card's job now.
   JSX reordering inside `ComplianceCalculator` can place content above its own hardcoded H2;
   the below-matrix position was reached by swapping the two sibling sections in `page.tsx`, not
   by revisiting that nesting attempt). Moved below the matrix because "How we chose these
-  prices" has no antecedent when it renders before any prices are shown. The trigger is now a
-  small text link (`14px`, `Inter`, underlined) — not styled to match the "Find your cheapest
-  dates" H2 anymore, so it doesn't compete with real H2s — and **defaults to open**: this table
-  is the strongest evidence on the page, so it should be visible by default, with the toggle
-  there to collapse it away rather than to reveal it.
+  prices" has no antecedent when it renders before any prices are shown. **No longer has a
+  disclosure trigger at all** — an earlier pass made it default-open but kept a toggle button
+  ("Hide how we chose these prices ↑" / show), which still read as an expander; the toggle has
+  since been removed entirely and replaced with a plain, non-interactive small heading (`13px`,
+  `Inter`, uppercase, `#004349`) — the table always renders, since this is the strongest
+  evidence on the page and there's nothing left to disclose.
   Column order is fixed: baseline, winner, then the rest sorted by `total_cost_gbp` ascending.
   Labels come from `deriveLabel()` — `is_baseline` is checked first, above everything else
   including `isWinner`, so the baseline column always reads "Typical Saturday" even when it's
@@ -302,11 +303,17 @@ penalty notice card's job now.
   render as a merged, left-aligned "Same for all" band (tinted background, explicit tag) when
   uniform across columns — not centred grey text spanning every column, which read as an
   empty/error state.
-- `components/flight-insights/price-history-section.tsx` now sits behind its own collapsed-by-
-  default expander ("See how the price has moved ↓"), the inverse of the comparison table above
-  — it's chart-based supporting detail, not the page's strongest evidence. Clicking a different
-  matrix cell or closing the leg-options modal auto-expands it (in addition to switching to the
-  "These dates" tab and pulsing), so the update is never hidden behind a still-collapsed section.
+- `components/flight-insights/price-history-section.tsx` has its own matching small heading
+  ("Price history", same `13px`/`Inter`/uppercase/`#004349` treatment as "How we chose these
+  prices" above it) followed by the intro sentence, then sits behind its own collapsed-by-
+  default expander ("See how the price has moved ↓") — the inverse of the comparison table
+  above, since this is chart-based supporting detail, not the page's strongest evidence.
+  Clicking a different matrix cell or closing the leg-options modal auto-expands it (in addition
+  to switching to the "These dates" tab and pulsing), so the update is never hidden behind a
+  still-collapsed section. Vertical rhythm below the matrix is a consistent 48px between
+  sections — `page.tsx`'s wrapper around `<ComparisonTable>` carries `marginTop: 24` (on top of
+  `ComplianceCalculator`'s own 24px bottom padding) to reach 48px, since `ComparisonTable` and
+  `PriceHistorySection` both render with no self-padding of their own.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday
