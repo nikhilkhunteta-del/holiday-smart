@@ -131,13 +131,19 @@ const LEVER_ICONS: Record<string, string> = {
   // looked like a casual tip regardless of stakes. Differentiated by
   // shape only, per design review — colour (isAmber below) is untouched,
   // none of these four are in that list, so all stay teal.
-  quality_advantage:    'lightbulb',   // "Why this over the alternatives" — genuinely is a tip
+  quality_advantage:    'lightbulb',   // "Why this over the alternatives" — kept in question
+                                       // form deliberately, distinct register from the more
+                                       // declarative cards below; the icon signals that too.
   penalty_notice:       'warning',     // caution/importance, not a casual tip — now also covers
                                        // the fine-avoiding alternative, merged into this card
-  early_return:         'schedule',    // "The one trade-off that matters most" variants — a clock
-  early_outbound:       'schedule',
-  split_booking:        'schedule',
-  timing_summary:       'schedule',
+  early_return:         'schedule',    // trade-off cards — a clock, since all three are timing/
+  early_outbound:       'schedule',    // logistics facts. No 'timing_summary' entry any more —
+  split_booking:        'schedule',    // that lever no longer fires (see its comment in
+                                       // getAIRecommendation.ts — no card when nothing's noteworthy).
+  inset_day_option:     'event_available', // "The cheaper inset-day option" — distinct from
+                                       // 'schedule' (trade-off) and 'calendar_today' (the unrelated,
+                                       // currently-dead 'inset_day' lever) — a date that's
+                                       // specifically a good find, not just a logistics fact.
   // 'query_stats' (magnifying glass over a small bar chart) — deliberately
   // neutral. 'show_chart' was dropped because its upward-slanted line reads
   // as "price went up" regardless of what the data shows, contradicting the

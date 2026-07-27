@@ -1347,12 +1347,19 @@ One sentence. Specific. No carrier saving numbers.`,
   // quality, (2) the penalty notice — a single merged card covering both
   // the fine itself and the fine-avoiding alternative (only when the
   // winner has absence days; see its comment above for why these two used
-  // to be separate cards and no longer are), (3) the single
-  // highest-priority trade-off, (4) the inset-day alternative (when it's
-  // cheaper than the winner and isn't the winner itself). With no absence
-  // days, card 2 is skipped entirely — order becomes quality → trade-off
-  // (→ inset, when it applies). Replaces the old split_carrier / transport
-  // / selection_story narration cards entirely.
+  // to be separate cards and no longer are), (3) the trade-off — early
+  // return, early outbound, or split booking, whichever applies — with its
+  // heading now naming the specific trigger instead of a generic "the one
+  // trade-off that matters most" (see its comment above), (4) the cheaper
+  // inset-day alternative (when one exists, is strictly cheaper than the
+  // winner, and isn't the winner itself). Cards 2, 3, and 4 are each
+  // independently conditional and can all be absent — card 2 only when
+  // absence_days > 0, card 3 only when one of the three trigger conditions
+  // actually applies (no card at all otherwise — see its comment above for
+  // why a card is no longer forced), card 4 only when a cheaper inset-day
+  // option exists. With none of them firing, order is just quality alone.
+  // Replaces the old split_carrier / transport / selection_story narration
+  // cards entirely.
   if (!isBaselineCheapest) {
     const nonBaselineCards: CardSpec[] = [];
 
@@ -1492,19 +1499,31 @@ One sentence. Specific. No carrier saving numbers.`,
       }
     }
 
-    // Card 3 — The one trade-off that matters most
+    // Card 3 — The trade-off, when there genuinely is one. Headings now
+    // name the specific trigger (early_return/early_outbound/split_booking)
+    // instead of a generic "the one trade-off that matters most" — that
+    // let the heading answer "why does this card exist" on its own, so the
+    // body doesn't need to restate the trigger either.
+    //
+    // No card at all when none of the three apply — the old fallback
+    // ("timing_summary") rendered a card even when there was nothing
+    // noteworthy to flag, just restating ordinary arrival/return times.
+    // Confirmed safe to drop entirely: nonBaselineCards is already a
+    // variable-length array (card 2/penalty_notice and card 4/inset are
+    // both already conditional), and nothing downstream — lever_insights,
+    // the price_movement splice, or the client's timelineCards.map — assumes
+    // a fixed card count.
     {
-      type TradeoffType = 'early_return' | 'early_outbound' | 'split_booking' | 'timing_summary';
+      type TradeoffType = 'early_return' | 'early_outbound' | 'split_booking' | null;
       const tradeoffType: TradeoffType =
         recommended.return_departure_quality === 'very_early' ? 'early_return' :
         recommended.outbound_departure_quality === 'very_early' ? 'early_outbound' :
         recommended.outbound_carrier !== recommended.return_carrier ? 'split_booking' :
-        'timing_summary';
+        null;
 
       const outDepTime = recommended.outbound_departure_time?.toString().slice(0, 5) ?? '';
       const outArrTime = recommended.outbound_arrival_time?.toString().slice(0, 5) ?? '';
       const retDepTime = recommended.return_departure_time?.toString().slice(0, 5) ?? '';
-      const retArrTime = recommended.return_arrival_time?.toString().slice(0, 5) ?? '';
 
       if (tradeoffType === 'early_return') {
         const checkout = checkoutWindowFor(retDepTime);
@@ -1514,12 +1533,12 @@ One sentence. Specific. No carrier saving numbers.`,
           : `The ${simplifyRoute(recommended.return_transit_route)} home is already included in your cost.`;
         nonBaselineCards.push({
           lever: 'early_return',
-          headline_hint: 'The one trade-off that matters most',
+          headline_hint: 'Early return — plan around it',
           voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Use these exact times and costs. Do not mention other trade-offs.`,
           facts: {
-            locked_headline: 'The one trade-off that matters most',
+            locked_headline: 'Early return — plan around it',
             sentence_1: `The return departs ${destinationName} at ${retDepTime} — plan to leave the hotel around ${checkout.from}–${checkout.to}.`,
-            sentence_2: `You land at ${retArrTime}.`,
+            sentence_2: `You land at ${recommended.return_arrival_time?.toString().slice(0, 5) ?? ''}.`,
             sentence_3: transitHomeSentence,
             sentence_4: `If that's too early, the date matrix below shows alternatives.`,
           },
@@ -1530,10 +1549,10 @@ One sentence. Specific. No carrier saving numbers.`,
       } else if (tradeoffType === 'early_outbound') {
         nonBaselineCards.push({
           lever: 'early_outbound',
-          headline_hint: 'The one trade-off that matters most',
+          headline_hint: 'Early departure',
           voice: `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not mention other trade-offs.`,
           facts: {
-            locked_headline: 'The one trade-off that matters most',
+            locked_headline: 'Early departure',
             sentence_1: `The outbound departs ${recommended.origin_iata} at ${outDepTime} — you arrive ${destinationName} ${outArrTime}.`,
             sentence_2: `The early start is the trade-off that keeps the cost down and gets you there first thing.`,
           },
@@ -1544,10 +1563,10 @@ One sentence. Specific. No carrier saving numbers.`,
       } else if (tradeoffType === 'split_booking') {
         nonBaselineCards.push({
           lever: 'split_booking',
-          headline_hint: 'The one trade-off that matters most',
+          headline_hint: 'Two separate bookings',
           voice: `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not mention other trade-offs.`,
           facts: {
-            locked_headline: 'The one trade-off that matters most',
+            locked_headline: 'Two separate bookings',
             sentence_1: `This is two separate bookings — ${cn(recommended.outbound_carrier)} outbound and ${cn(recommended.return_carrier)} return. Book each directly.`,
             sentence_2: `If one flight changes, the other ticket is unaffected — check each carrier's change policy before booking.`,
           },
@@ -1555,28 +1574,16 @@ One sentence. Specific. No carrier saving numbers.`,
           verified_value: recommended.split_carrier,
           saving_gbp: null,
         });
-      } else {
-        const arrivalTimeOfDay =
-          recommended.arrival_quality === 'excellent' || recommended.arrival_quality === 'good'
-            ? 'before lunch' : 'in the afternoon';
-        nonBaselineCards.push({
-          lever: 'timing_summary',
-          headline_hint: 'The one trade-off that matters most',
-          voice: `Copy sentence_1 and sentence_2 from facts VERBATIM, in this order. Do not mention other trade-offs.`,
-          facts: {
-            locked_headline: 'The one trade-off that matters most',
-            sentence_1: `Arrives ${destinationName} ${outArrTime} — you're at the hotel ${arrivalTimeOfDay}.`,
-            sentence_2: `Returns ${retDepTime} from ${destinationName}, landing ${retArrTime}.`,
-          },
-          verified_field: 'arrival_quality',
-          verified_value: recommended.arrival_quality ?? '',
-          saving_gbp: null,
-        });
       }
+      // else: nothing noteworthy about the timing — no card.
     }
 
-    // Card 4 — Inset day option (only when it exists, is cheaper than the
-    // winner, and isn't the winner itself — see showInsetCard above)
+    // Card 4 — The cheaper inset-day option (only when it exists, is
+    // strictly cheaper than the winner — see showInsetCard's
+    // `insetFromPool.total_cost_gbp < recommended.total_cost_gbp` check
+    // above — and isn't the winner itself). "Cheaper" in the heading is
+    // factually safe here specifically, unlike quality_advantage: this
+    // card only ever fires when the strict-inequality check passed.
     if (showInsetCard && insetFromPool) {
       const insetRetDepTime = insetFromPool.return_departure_time?.slice(0, 5) ?? '';
       const insetDateFormatted = fmtDLong(insetFromPool.outbound_date);
@@ -1586,10 +1593,10 @@ One sentence. Specific. No carrier saving numbers.`,
 
       nonBaselineCards.push({
         lever: 'inset_day_option',
-        headline_hint: 'Inset day option',
+        headline_hint: 'The cheaper inset-day option',
         voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. All three required — close with sentence_3 exactly as given.`,
         facts: {
-          locked_headline: 'Inset day option',
+          locked_headline: 'The cheaper inset-day option',
           sentence_1: `Flying on ${insetDateFormatted} (the inset day) costs £${insetTotal} all-in — £${insetDelta} less than this recommendation.`,
           sentence_2: `The return departs ${destinationName} at ${insetRetDepTime}, which means a ${checkout.from}–${checkout.to} hotel checkout.`,
           sentence_3: `We're not recommending it, but it's there if you want it.`,

@@ -249,6 +249,29 @@ also carries:
   pre-computed `winner_quality_advantage` (`'departure_vs_baseline' | 'arrival_vs_alternative'
   | 'return_vs_alternative' | 'cost_driven'`) picking the single most meaningful contrast.
 
+### Card headings — heading register per card, and a note on icons
+Headings deliberately do **not** use one uniform grammatical template across all cards. Each
+card's register matches its icon (`LEVER_ICONS` in `ai-recommendation-client.tsx`) — pulling
+every heading toward the same declarative structure would undercut the icon-differentiation work
+from an earlier round (distinct icons signalling distinct *kinds* of information). Specifically:
+- **quality_advantage** stays in question form — `"Why this over the alternatives"` — its
+  lightbulb icon is deliberately the odd one out, and the interrogative heading reinforces that
+  "this card works differently" signal rather than blending in. **Do not** change this to a
+  declarative heading, and specifically **never** to anything implying this is the raw cheapest
+  option (e.g. "Cheapest once transport is counted") — the recommendation is chosen on
+  quality-adjusted value, not raw price; a genuinely cheaper combination can exist via a
+  different carrier (see the price-history fixes distinguishing "recommended" from "cheapest for
+  these dates" — reintroducing "cheapest" language here would reopen that exact confusion). If a
+  declarative alternative is ever wanted, it must describe value, not price — e.g. "Best value
+  once quality is weighed" — but the current form was reconfirmed as the better choice.
+- **penalty_notice**, the three trade-off levers, and **inset_day_option** are declarative and
+  each name their specific trigger in the heading itself (see below) — so the body never needs a
+  redundant clause just to say what's being flagged. Before adding a trigger clause to any card's
+  body, check whether the heading already states it; only add one where it doesn't.
+- **Cheapest/cheaper language is heading-by-heading, not a blanket rule** — check the actual
+  gating condition before writing a heading, the way `inset_day_option` below does. It is only
+  ever safe to say when that specific card's own gate guarantees it.
+
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
 1. **quality_advantage** — "Why this over the alternatives". Always shows.
@@ -285,15 +308,32 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
      window"` — it editorialised against the product's own alternative and the "if it fits"
      framing was a non-answer given the date was already known to fit and already priced into
      the comparison table.
-3. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
-   "The one trade-off that matters most". `early_return` absorbed the old "Early Departure"
-   sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
+3. **trade-off** (`early_return` / `early_outbound` / `split_booking`) — only when one of the
+   three trigger conditions actually applies; **no card at all otherwise.** Each lever has its own
+   heading naming the specific trigger — `"Early return — plan around it"` / `"Early departure"` /
+   `"Two separate bookings"` — replacing the old shared, generic `"The one trade-off that matters
+   most"` (dropped "the one" to stop claiming singularity, and made each heading trigger-specific
+   so the body doesn't need a redundant clause restating it). The old `timing_summary` fallback
+   lever — which rendered a card even when nothing about the timing was actually noteworthy, just
+   restating ordinary arrival/return times under the same vague heading — is deleted, not
+   reworded: a card that can't say why it exists shouldn't render. Confirmed safe: `nonBaselineCards`
+   was already a variable-length array (cards 2 and 4 are each independently conditional too), and
+   nothing downstream (`lever_insights`, the `price_movement` splice, the client's
+   `timelineCards.map`) assumes a fixed card count. `early_return` absorbed the old "Early
+   Departure" sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
 4. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
-   isn't the winner itself (via `combinationKey()` comparison).
+   isn't the winner itself (via `combinationKey()` comparison) — `showInsetCard`'s own gate is a
+   strict `<` on total cost, which is what makes "cheaper" heading language safe specifically for
+   this card. Heading is `"The cheaper inset-day option"` (previously the neutral "Inset day
+   option" — made declarative and cheaper-referencing since the gate guarantees it's true).
+   `LEVER_ICONS` maps this lever to `'event_available'` — previously fell through to the
+   `'lightbulb'` default (shared with quality_advantage, despite being an unrelated kind of
+   card); now distinct from both that and the trade-off cards' `'schedule'` icon.
 
-When `absence_days === 0`, card 2 is skipped entirely — order is just quality → trade-off
-(→ inset, when it applies). `baseline_cheapest` has its own separate, unrelated card set —
-untouched by any of the above.
+When `absence_days === 0`, card 2 is skipped entirely; when none of the three trade-off triggers
+apply, card 3 is skipped too — order is just whatever subset of quality → penalty → trade-off →
+inset actually has something to say, quality_advantage being the only one that always shows.
+`baseline_cheapest` has its own separate, unrelated card set — untouched by any of the above.
 
 Removed entirely from the significant/found_saving set (do not resurrect without checking why
 they were cut): `split_carrier`, `transport_outbound`/`transport_return`, `selection_story`
