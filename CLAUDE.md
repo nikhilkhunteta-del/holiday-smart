@@ -343,6 +343,21 @@ penalty notice card's job now.
   sections — `page.tsx`'s wrapper around `<ComparisonTable>` carries `marginTop: 24` (on top of
   `ComplianceCalculator`'s own 24px bottom padding) to reach 48px, since `ComparisonTable` and
   `PriceHistorySection` both render with no self-padding of their own.
+  **Closing line is deterministic, not AI-generated** — every price-history card (this section's
+  two tabs, and the top-section `price_movement` card in `ai-recommendation-client.tsx`) ends
+  with a line built by `buildPriceRangeLine()` (`lib/flights/priceMovement.ts`), stating the
+  current price's exact position within the observed range with identical structure and weight
+  every time: series low, series high, or neither. A prior version relied on an AI-narrated
+  and/or conditionally-rendered takeaway ("it's never been cheaper than it is right now") that
+  only ever appeared in the favourable case — a structurally biased instrument regardless of how
+  the sentence was worded. `computePriceMovement()` now also returns `range_low_gbp` /
+  `range_high_gbp` / `price_position`, and the shared narration prompt
+  (`PRICE_MOVEMENT_SYSTEM_PROMPT`) has hard rules forbidding the AI narration from (a) claiming
+  the price "held steady"/"stabilised"/"settled" off a handful of checks (an implicit forecast
+  the data can't support) and (b) making any "never been cheaper/lower" style claim itself, since
+  the deterministic line already owns that comparison. Beneath that, every price-history card
+  also carries one hardcoded, always-present standing line — `PRICE_MOVEMENT_STANDING_LINE`,
+  "We don't predict where prices go next." — never AI-generated, never conditional.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

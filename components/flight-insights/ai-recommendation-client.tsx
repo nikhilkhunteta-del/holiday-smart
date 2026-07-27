@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
+import { computePriceMovement, buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
@@ -506,6 +507,17 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
     ? priceHistoryPoints[priceHistoryPoints.length - 1].checked_on
     : null;
 
+  // Deterministic, unconditional closing line for the price-history card —
+  // same structure and weight whether the current price is the series low,
+  // the series high, or neither. Never AI-generated. See priceMovement.ts.
+  const priceMovementRangeLine = aiResult?.price_movement
+    ? buildPriceRangeLine(computePriceMovement({
+        checks_total:     aiResult.price_movement.checks_total,
+        checks_with_data: aiResult.price_movement.checks_with_data,
+        price_points:     aiResult.price_movement.price_points,
+      }))
+    : null;
+
   const roundTripUrl = rec ? buildGoogleFlightsRoundTripUrl({
     origin,
     destination: outDest,
@@ -678,11 +690,40 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     fontSize: 16,
                     color: '#3f484a',
                     lineHeight: 1.6,
-                    marginBottom: 12,
+                    marginBottom: card.lever === 'price_movement' ? 4 : 12,
                     maxWidth: '42ch',
                   }}>
                     {card.insight}
                   </p>
+                  {/* Unconditional closing line — same structure and weight
+                      whether the current price is the series low, the
+                      series high, or neither. Never AI-generated. */}
+                  {card.lever === 'price_movement' && priceMovementRangeLine && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: '#004349',
+                      lineHeight: 1.6,
+                      marginBottom: 4,
+                      maxWidth: '42ch',
+                    }}>
+                      {priceMovementRangeLine}
+                    </p>
+                  )}
+                  {/* Standing disclaimer — hardcoded, always present
+                      regardless of what the data shows, never conditional. */}
+                  {card.lever === 'price_movement' && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      color: '#6f797a',
+                      marginBottom: 12,
+                      maxWidth: '42ch',
+                    }}>
+                      {PRICE_MOVEMENT_STANDING_LINE}
+                    </p>
+                  )}
                   {/* "See the numbers ↓" — only when there's more than one
                       usable price point to chart (checks_with_data <= 1
                       means the card text alone already says everything). */}
