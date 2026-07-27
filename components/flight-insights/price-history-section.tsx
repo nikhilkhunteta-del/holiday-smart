@@ -182,7 +182,21 @@ export function PriceHistorySection({
     : `Price history for ${destinationName} is not available right now.`;
 
   return (
-    <section style={{ padding: 24 }} aria-label="Price history">
+    <section aria-label="Price history">
+      {/* Same small-heading treatment as "How we chose these prices" above
+          — both should read as intentional section headers, not one
+          styled heading next to one floating paragraph. */}
+      <h2 style={{
+        fontFamily: 'Inter, sans-serif',
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#004349',
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        margin: '0 0 8px',
+      }}>
+        Price history
+      </h2>
       <p style={{
         fontFamily: 'Inter, sans-serif',
         fontSize: 14,
