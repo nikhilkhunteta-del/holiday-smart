@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { combinationKey, type ScoredCombination } from './buildCandidates';
 import { selectCombination, type SelectionContext } from './selectCombination';
 import type { ScenarioResult } from './buildScenarioResults';
-import { narratePriceMovement } from './priceMovement';
+import { narratePriceMovement } from './priceMovementNarration';
 import { BASELINE_NAME } from './copyConstants';
 
 export interface AIRecommendationOutput {

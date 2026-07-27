@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
-import { computePriceMovement, narratePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
+import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
+import { narratePriceMovement } from '@/lib/flights/priceMovementNarration';
 
 // Destination-level median airfare history — powers the "How {destination}
 // prices have moved" card below the date matrix. Reads get_destination_median_history,

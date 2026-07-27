@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
-import { computePriceMovement, narratePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
+import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
+import { narratePriceMovement } from '@/lib/flights/priceMovementNarration';
 
 // Per-cell airfare history for one exact date pair — powers the per-cell
 // history chart below the date matrix, which defaults to the current

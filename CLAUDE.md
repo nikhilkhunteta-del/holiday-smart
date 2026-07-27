@@ -384,6 +384,24 @@ each — centralised so a future wording change only happens in one place:
   the deterministic line already owns that comparison. Beneath that, every price-history card
   also carries one hardcoded, always-present standing line — `PRICE_MOVEMENT_STANDING_LINE`,
   "We don't predict where prices go next." — never AI-generated, never conditional.
+  **`lib/flights/priceMovement.ts` vs `lib/flights/priceMovementNarration.ts` — client/server
+  split, do not merge back together.** `priceMovement.ts` holds only pure, dependency-free
+  computation (`computePriceMovement`, `buildPriceRangeLine`, the `PriceMovement*`/`PriceRange*`
+  types, `PRICE_MOVEMENT_STANDING_LINE`) and is safe to import from client components —
+  `price-history-section.tsx` and `ai-recommendation-client.tsx` both do, to render the
+  deterministic range line above without a round trip. `priceMovementNarration.ts` holds
+  `narratePriceMovement` and `PRICE_MOVEMENT_SYSTEM_PROMPT`, imports `@anthropic-ai/sdk`, and is
+  **server-only** — only ever import it from API routes (`cell-price-history`,
+  `destination-price-history`) or `getAIRecommendation.ts`, never from a `'use client'` file.
+  These were one file until a Vercel build broke with "Reading from node:child_process /
+  node:crypto / node:fs/promises / node:fs / node:path is not handled by plugins": the first time
+  a client component did a plain value-import from the combined file (to reuse
+  `computePriceMovement`/`buildPriceRangeLine` for the range-line work above), webpack pulled the
+  whole module — including its top-level `import Anthropic from '@anthropic-ai/sdk'` — into the
+  browser bundle, and the SDK's Node-only dependencies aren't polyfillable. `import type` from the
+  combined file was always safe (erased at compile time, which is why nothing broke for the
+  months this was one file); a plain value-import was the trigger. If either file grows again,
+  keep the SDK import strictly confined to `priceMovementNarration.ts`.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

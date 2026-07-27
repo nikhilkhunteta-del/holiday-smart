@@ -12,7 +12,9 @@ import type { PricePoint, PriceMovementDirection, PricePositionTier } from '@/li
 // data source pattern as the top-section price_movement card: cached
 // derived tables only (never a live fare_snapshots scan), airfare only,
 // neutral teal bars, no icon/colour implying direction, past-tense-only
-// narration reusing the exact same system prompt (see lib/flights/priceMovement.ts).
+// narration reusing the exact same system prompt (see
+// lib/flights/priceMovementNarration.ts — server-only, called by the API
+// routes this component fetches from, never imported here directly).
 //
 // Closing line is deterministic (buildPriceRangeLine in priceMovement.ts),
 // not AI-generated, and renders with identical structure and weight in
