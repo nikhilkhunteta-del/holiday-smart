@@ -1036,9 +1036,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                           </span>
                         </div>
                         <div className="flex gap-sm text-label-sm font-label-sm text-outline items-center">
-                          <span>{(rec as any).ret_dest_iata ?? rec.out_dest_iata}</span>
+                          <span>{rec.out_dest_iata}</span>
                           <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-                          <span>{rec.origin_iata}</span>
+                          <span>{(rec as any).ret_dest_iata ?? rec.origin_iata}</span>
                         </div>
                       </div>
                       <div className="text-right">

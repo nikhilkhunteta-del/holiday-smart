@@ -19,6 +19,16 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Schools don't resume on a weekend — if window_end + 1 lands on Saturday
+// or Sunday, roll forward to the following Monday.
+function nextWeekday(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -289,7 +299,7 @@ export async function POST(request: NextRequest) {
     const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
     const netCost  = winnerTotal + fineGbp;
     const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
-    const termResumeDate = windowEnd ? fmtDateLong(addDays(windowEnd, 1)) : '';
+    const termResumeDate = windowEnd ? fmtDateLong(nextWeekday(addDays(windowEnd, 1))) : '';
 
     // ── Best alternative that avoids the fine (or just the runner-up) ──────
     const winnerCombinationKey = combinationKey(recommendation);

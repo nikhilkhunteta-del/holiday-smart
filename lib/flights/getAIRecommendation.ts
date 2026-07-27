@@ -494,8 +494,8 @@ export async function getAIRecommendation(
   const isBaselineCheapest = context.savingCategory === 'baseline_cheapest';
 
   const combCount = context.combinationCount > 0
-    ? `${context.combinationCount}+`
-    : '100+';
+    ? `${context.combinationCount}`
+    : '100';
 
   // ── Fine/absence-aware warning fields (pre-computed in assembleRecommendation.ts) ─
   const absenceDays     = context.absence_days ?? 0;
@@ -1658,9 +1658,22 @@ One sentence. Specific. No carrier saving numbers.`,
     LHR: 'Heathrow', LGW: 'Gatwick', LTN: 'Luton', STN: 'Stansted', LCY: 'City airport',
   };
   const baselineOriginCity = BASELINE_CITY_NAMES[blOriginForPS] ?? blOriginForPS;
+  const baselineDateShort = baselineDepartureLabel.replace(/^\w+\s+/, '');
 
   const otherwiseProblemStatement = `Write the problem statement as EXACTLY this sentence, no changes:
-"When half-term begins, most ${context.borough ?? 'London'} parents open Google Flights and search for the first weekend — ${baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That's £${context.baseline_allin ?? 'unknown'} all-in once bags, transit, and transfers are counted. We checked ${combCount} combinations across five London airports and every viable date to see if you could do better. You can."`;
+"The obvious way to book ${context.borough ?? 'London'}'s half-term is the first Saturday — ${baselineDateShort || baselineDepartureLabel || 'the first Saturday'} from ${baselineOriginCity}. That comes to £${context.baseline_allin ?? 'unknown'} all-in once bags and transport are counted. We priced ${combCount} combinations across five London airports and every viable date pair against it."`;
+
+  // ── Subheadline for significant/found_saving — pre-resolved in TS ────────
+  // When the winner's outbound and return use different London airports
+  // (an open jaw), state both explicitly — this is a materially important
+  // fact for the family (rules out driving/parking, changes the return
+  // journey, and is the reason return transit costs diverge from baseline).
+  const subheadlineAirportsDiffer = recommended.origin_iata !== recommended.ret_dest_iata;
+  const otherwiseSubheadline = subheadlineAirportsDiffer
+    ? `Write the subheadline as EXACTLY this sentence, no changes:
+"Out from ${an(recommended.origin_iata)} with ${cn(recommended.outbound_carrier)} on ${fmtDLong(recommended.outbound_date)}, back into ${an(recommended.ret_dest_iata)} with ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — two separate bookings, fare, bags and transport included."`
+    : `Write the subheadline as EXACTLY this sentence, no changes:
+"Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${fmtDLong(recommended.outbound_date)}, returning ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — fare, bags, transit, and transfers included."`;
 
   const insightPrompt = `You are writing copy for a financial intelligence tool helping London families save money on school holiday flights. Your only job is to write headlines and insight sentences for pre-decided cards. You do not choose which cards exist. You do not calculate anything.
 
@@ -1756,8 +1769,8 @@ IF is_baseline_cheapest is true:
   "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''} — early start, and you gain the whole day."
   Do not repeat the cost. No comparison language.
 
-OTHERWISE (saving_category = 'significant' or 'found_saving'), write EXACTLY this sentence, no changes:
-  "Flying ${cn(recommended.outbound_carrier)} from ${an(recommended.origin_iata)} on ${fmtDLong(recommended.outbound_date)}, returning ${cn(recommended.return_carrier)} on ${fmtDLong(recommended.return_date)} — fare, bags, transit, and transfers included."
+OTHERWISE (saving_category = 'significant' or 'found_saving'):
+${otherwiseSubheadline}
 
 Do not repeat the cost. One sentence max.
 
@@ -1769,7 +1782,7 @@ Use these values from SELECTION CONTEXT:
 - baseline_allin = what it actually costs (fare + bags + transport)
 
 IF is_baseline_cheapest is true:
-"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount + '+' : '128+'} combinations to see if anything came out lower."
+"Google Flights shows £${context.baseline_fare ?? 'unknown'} for a return from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — to ${destinationName} on ${baselineDepartureLabel || 'the first Saturday'}. That's the fare. The real all-in cost is around £${context.baseline_allin ?? 'unknown'}. We checked ${context.combinationCount > 0 ? context.combinationCount : '128'} combinations to see if anything came out lower."
 
 OTHERWISE (saving_category = 'significant' or 'found_saving'):
 ${otherwiseProblemStatement}

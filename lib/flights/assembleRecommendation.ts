@@ -1223,8 +1223,13 @@ export async function assembleRecommendation(
   const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
   const termResumeDateIso = windowEnd
     ? (() => {
+        // Schools don't resume on a weekend — if window_end + 1 lands on
+        // Saturday or Sunday, roll forward to the following Monday.
         const d = new Date(windowEnd + 'T00:00:00');
         d.setDate(d.getDate() + 1);
+        while (d.getDay() === 0 || d.getDay() === 6) {
+          d.setDate(d.getDate() + 1);
+        }
         return d.toISOString().slice(0, 10);
       })()
     : '';
