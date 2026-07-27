@@ -13,6 +13,7 @@
 // which export is actually used. Only ever import this file from API
 // routes or other server-only code (never from a 'use client' component).
 import Anthropic from '@anthropic-ai/sdk';
+import { buildCadenceLabel } from './priceMovement';
 import type { PriceMovementRaw, PriceMovementComputed } from './priceMovement';
 
 // ── Shared narration call ───────────────────────────────────────────────────
@@ -31,8 +32,11 @@ You will be given pre-computed facts about how this price has moved over
 time, including the date and price of the first check and the latest one,
 plus a field called subject_label telling you exactly what phrase to use
 for the thing being tracked (e.g. "this exact flight" or "these exact
-dates"). Your only job is to turn those facts into ONE sentence (two only
-if truly needed for clarity). Never a paragraph.
+dates"), and a field called cadence_label giving you the exact phrase to
+use for how often it's been checked (e.g. "three checks since 25 May" or
+"weekly since 25 May" — see rule 6). Your only job is to turn those facts
+into ONE sentence (two only if truly needed for clarity). Never a
+paragraph.
 
 Hard rules — violating any of these is a failure:
 1. Refer to the thing being tracked using EXACTLY the phrase given in
@@ -54,14 +58,27 @@ Hard rules — violating any of these is a failure:
    — that's already shown elsewhere on the page. Only talk about the price
    and how it's moved.
 5. Do not invent a number, date, or comparison that wasn't given to you.
-6. Never frame the number of checks/observations as the interesting fact
-   (never write "across three checks", "in the 4 checks we've made", or
-   similar — this reads oddly once there are 10+ checks, and the count
-   isn't actually the meaningful part). Anchor instead on the date range
-   and the size of the price change, using first_checked_on,
-   first_total_gbp, latest_total_gbp, and total_change_gbp — e.g. "Since
-   we started tracking this route in late May, the price has fallen from
-   £268 to £157 — a drop of £111."
+6. Use cadence_label EXACTLY as given to describe how often this has been
+   checked — never independently decide whether to state the raw count or
+   not, and never recompute or restate a different count than the one in
+   cadence_label. It has already been through a threshold rule (below a
+   cutoff, it states the exact count in words, e.g. "three checks since 25
+   May"; at or above the cutoff, it switches to "weekly since 25 May" and
+   drops the count entirely) — that decision is made for you, correctly,
+   every time; do not second-guess it or add your own qualifier like "in
+   just X checks". Weave it into your sentence naturally rather than
+   bolting it on. Anchor the price movement itself on the date range and
+   size of the change, using first_checked_on, first_total_gbp,
+   latest_total_gbp, and total_change_gbp — always cite the precise date,
+   never a vague relative one ("since 25 May", never "since late May" or
+   "a couple of months ago") — e.g. "Since 25 May (three checks), the
+   price has fallen from £268 to £157 — a drop of £111." If subject_label
+   itself describes an aggregate across many dates (e.g. "the median fare
+   across this destination") rather than one tracked item, there is no
+   single "price" to point to — refer back to that aggregate instead,
+   never "the price": "Since 25 May (weekly checks), the median fare
+   across this destination has fallen from £268 to £157 — a drop of
+   £111."
 7. If checks_with_data is less than checks_total, still acknowledge the
    gap plainly, but do it by referencing the specific date range you do
    have data for (per rule 6) rather than a raw check count — don't imply
@@ -106,6 +123,10 @@ export async function narratePriceMovement(
 
   const client = new Anthropic({ apiKey });
 
+  // Deterministic — not left for the model to apply the count threshold
+  // itself. See buildCadenceLabel's own comment in priceMovement.ts.
+  const cadenceLabel = buildCadenceLabel(input.checks_with_data, input.first_checked_on);
+
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -115,6 +136,7 @@ export async function narratePriceMovement(
         role: 'user',
         content: JSON.stringify({
           subject_label:      subjectLabel,
+          cadence_label:      cadenceLabel,
           checks_total:       input.checks_total,
           checks_with_data:   input.checks_with_data,
           price_points:       input.price_points,

@@ -19,5 +19,7 @@ export const BASELINE_NAME_LABEL = 'Typical Saturday Booking';
 // The one place "all-in" is defined for the reader. Rendered once, directly
 // under the subheadline — every other mention of cost inclusions elsewhere
 // on the page should say the bare word "all-in" and rely on this, not
-// restate what it includes.
-export const ALL_IN_DEFINITION = 'All-in = fare + bags + seats + transport to and from both airports.';
+// restate what it includes. Second sentence closes a gap the headline fix
+// didn't cover: "all-in" on its own could be misread as including the
+// holiday itself, not just getting there.
+export const ALL_IN_DEFINITION = 'All-in = fare + bags + seats + transport to and from both airports. Flights and getting there. Accommodation isn\'t included.';

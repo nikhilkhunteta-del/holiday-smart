@@ -164,6 +164,20 @@ exists — untested here).
 
 ---
 
+### NEEDS RESEARCH — Fine escalation for repeat penalty notices (not implemented, do not add yet)
+
+The penalty notice card (`lever: 'penalty_notice'`, `getAIRecommendation.ts`) now shows the fine's
+arithmetic explicitly (£80 per parent per child per period, e.g. "2 adults × 2 children") — see
+"Card set for `significant`/`found_saving`" below. Deliberately **not** added: any language about
+fines escalating for repeat/second penalty notices. Some councils are known to charge more for a
+second offence within a rolling period, but this hasn't been confirmed against a real, current
+source for how councils actually handle repeat offences — do not add escalation copy until that's
+sourced and confirmed. `calculate_absence_fine.sql`'s formula (`80 * adults * children *
+periods`) has no escalation term today, so there is nothing to reflect even if this were added
+without research — the SQL would need to change too, not just the copy.
+
+---
+
 ## Current Build Phase
 **Phase 1 — Flight Insights results page.**
 A parent has selected their borough and school break. The page surfaces flight
@@ -314,13 +328,24 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
    `alternative_option` card ("If you want to avoid the fine"); see below for why they were
    merged. Headline is now dynamic and states the stake directly: `"This trip misses {N}
    school day(s) — £{fine_gbp} if your school fines you"` (previously the static, procedurally
-   neutral "Penalty notice"). Two variants:
-   - **Fine-free alternative exists** (`alt_total_cost != null`): three sentences — which days
-     are missed, then a dual-basis comparison sentence stating the fine-free alternative's cost
-     against BOTH the no-fine winner total AND the fine-inclusive winner total explicitly (see
-     below), then the plain disclaimer.
-   - **No fine-free alternative exists**: three sentences — which days are missed, net
+   neutral "Penalty notice"). Two variants, both now four sentences (was three — a fine-arithmetic
+   sentence was inserted as sentence_2 in both, per an explicit ask to show the fine's arithmetic
+   wherever the amount appears, not just cite the total):
+   - **Fine-free alternative exists** (`alt_total_cost != null`): which days are missed, then the
+     arithmetic sentence, then a dual-basis comparison sentence stating the fine-free
+     alternative's cost against BOTH the no-fine winner total AND the fine-inclusive winner total
+     explicitly (see below), then the plain disclaimer.
+   - **No fine-free alternative exists**: which days are missed, the arithmetic sentence, net
      cost/saving after the fine (branches on `fine_wipes_saving`), then the same disclaimer.
+   - **Fine arithmetic sentence** (`fineArithmetic`, both variants): `"That's £80 per parent per
+     child per period — {adults} adults × {children} children{, N periods (departure and
+     return) if both sides have absence}."` Matches `calculate_absence_fine.sql`'s formula
+     exactly (`80 * adults * children * periods`, one period per continuous stretch of missed
+     school on the departure side, the return side, or both — max 2). Deliberately does **not**
+     mention fines escalating for repeat/second penalty notices — see the "NEEDS RESEARCH" entry
+     near the top of this file; that needs a confirmed source on how councils actually handle
+     repeat offences before any copy is added, and the SQL formula has no escalation term to
+     reflect even if it were.
    - Disclaimer sentence (both variants): `"We're not recommending unauthorised absence — you
      should know the numbers before you book."` — **do not** prepend "Schools apply this
      inconsistently" or similar back to this; a prior version had that clause immediately
@@ -413,13 +438,16 @@ doesn't reintroduce the naming clash this was fixing. Internal code/variable nam
 Two page-wide strings previously duplicated (with drifting wording) across five-plus locations
 each — centralised so a future wording change only happens in one place:
 - **`ALL_IN_DEFINITION`** — `"All-in = fare + bags + seats + transport to and from both
-  airports."` Rendered exactly once, directly under the subheadline
-  (`ai-recommendation-client.tsx`). Every other mention of cost inclusions on the page — problem
-  statement, subheadline itself, "Why this over the alternatives" card, both price-history
-  subtitles, the modal subtitle, the matrix subtitle, the leg-options "Best option" line — says
-  the bare word **"all-in"** and relies on this definition rather than restating "bags, transit
-  and transfers" (or any close variant) each time. Do not re-add an inline explanation next to
-  "all-in" anywhere else; if the definition itself needs to change, change it only here.
+  airports. Flights and getting there. Accommodation isn't included."` Rendered exactly once,
+  directly under the subheadline (`ai-recommendation-client.tsx`). The second sentence was added
+  to close a gap the earlier headline fix didn't cover: "all-in" on its own, without this, could
+  be misread as including the holiday itself (accommodation), not just getting there. Every other
+  mention of cost inclusions on the page — problem statement, subheadline itself, "Why this over
+  the alternatives" card, both price-history subtitles, the modal subtitle, the matrix subtitle,
+  the leg-options "Best option" line — says the bare word **"all-in"** and relies on this
+  definition rather than restating "bags, transit and transfers" (or any close variant) each
+  time. Do not re-add an inline explanation next to "all-in" anywhere else; if the definition
+  itself needs to change, change it only here.
 - **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
   (`"Typical Saturday Booking"`, Title Case for compact UI contexts like the comparison table's
   column header, kept in sync with `BASELINE_NAME` by hand) — the comparison baseline (a direct
@@ -500,6 +528,37 @@ each — centralised so a future wording change only happens in one place:
   combined file was always safe (erased at compile time, which is why nothing broke for the
   months this was one file); a plain value-import was the trigger. If either file grows again,
   keep the SDK import strictly confined to `priceMovementNarration.ts`.
+  **Heading, "median" framing, and check-cadence are now view-specific and threshold-driven,
+  not generic/always-omitted.** The two tabs ("These dates" / "Whole matrix") used to share one
+  static heading ("How the price has moved") and the destination tab's subtitle called its series
+  "the typical cheapest fare" — both read as describing a single price, which is wrong for the
+  destination view specifically: that series is a **median** across every date pair, not one
+  flight's price. Fixed: `sectionHeading` is now `"How prices across these dates have moved"`
+  (cell view) vs `"How the middle price has moved"` (destination view); the destination subtitle
+  now says "The middle price across every date pair above (the median)"; the destination
+  narration's `subject_label` changed from `'the typical fare across this destination'` to
+  `'the median fare across this destination'`; and `PRICE_MOVEMENT_SYSTEM_PROMPT`'s rule 6 now
+  explicitly forbids the AI from saying "the price has fallen" when `subject_label` describes an
+  aggregate — it must say "the median fare... has fallen" instead. Rule 6's own illustrative
+  example was also fixed from a vague "in late May" to a precise "Since 25 May" — the rule already
+  said to anchor on `first_checked_on`, but the example itself modelled vague relative dating.
+  **Check-cadence is a real conditional, not a one-off edit or a blanket "never state the count"
+  rule.** `buildCadenceLabel()` (`priceMovement.ts`, pure/client-safe) takes `checks_with_data` and
+  `first_checked_on` and returns `"{count in words} checks since {date}"` below
+  `CADENCE_COUNT_THRESHOLD` (8), or `"weekly since {date}"` at or above it — computed
+  deterministically, not left for the model to apply a numeric threshold itself (the same
+  reasoning as `buildPriceRangeLine`: precise numeric rules belong in code, not in freeform
+  generation). Passed into `narratePriceMovement` as a new `cadence_label` fact the model must use
+  verbatim (rule 6), replacing the old absolute "never frame the number of checks" instruction.
+- The **leg-options modal footnote** (`leg-options-modal.tsx`) now reads `"Fares are live prices
+  observed {date}. Bag fees, airport transport and fine amounts are estimates from published
+  rates."` (previously "Fines are estimates based on current borough penalty notice rates. Bag
+  fees and transport costs are estimates.") — matches CONTEXT.md's observed-vs-estimated
+  labelling principle by naming which figures are which. The date is a new `observedDate` prop,
+  computed in `compliance-calculator.tsx` from the exact same `price_points` series that backs
+  the booking box's "Fares observed" stamp and the problem statement's "priced on" line — all
+  three now share one source, so they can't disagree with each other. Falls back to a no-date
+  variant of the sentence when there's no price history yet.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

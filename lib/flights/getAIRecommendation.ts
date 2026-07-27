@@ -1458,6 +1458,17 @@ One sentence. Specific. No carrier saving numbers.`,
       const headline = `This trip misses ${absenceDays} school ${dayWord} — £${fineGbp} if your school fines you`;
       const disclaimer = `We're not recommending unauthorised absence — you should know the numbers before you book.`;
 
+      // The fine's arithmetic, shown explicitly wherever fine_gbp appears —
+      // matches calculate_absence_fine.sql: £80 per parent per child per
+      // "period" (one continuous stretch of missed school on the departure
+      // side, the return side, or both — max 2). Deliberately NOT adding
+      // any escalation-for-repeat-notices language — that needs a
+      // confirmed source on how councils actually handle repeat offences,
+      // which hasn't been verified. Flagged as a follow-up, not implemented.
+      const finePeriods = (absenceOutDays > 0 ? 1 : 0) + (absenceRetDays > 0 ? 1 : 0);
+      const periodsClause = finePeriods > 1 ? ` × ${finePeriods} periods (departure and return)` : '';
+      const fineArithmetic = `That's £80 per parent per child per period — ${context.adults} adults × ${context.children} children${periodsClause}.`;
+
       // bestNoFineAlternative (assembleRecommendation.ts) is only offered
       // here when it is genuinely fine-free (filtered on absence_days === 0
       // whenever the winner itself has absence days) — safe to treat its
@@ -1472,31 +1483,33 @@ One sentence. Specific. No carrier saving numbers.`,
         nonBaselineCards.push({
           lever: 'penalty_notice',
           headline_hint: headline,
-          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
+          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
           facts: {
             locked_headline: headline,
             sentence_1: absenceSentence1,
-            sentence_2: comparisonSentence,
-            sentence_3: disclaimer,
+            sentence_2: fineArithmetic,
+            sentence_3: comparisonSentence,
+            sentence_4: disclaimer,
           },
           verified_field: 'fine_gbp',
           verified_value: fineGbp,
           saving_gbp: null,
         });
       } else {
-        const sentence2 = fineWipesSaving
+        const sentence3 = fineWipesSaving
           ? `With the fine, net cost is £${netCostWithFine} — £${netDeltaWithFine} more than ${BASELINE_NAME}.`
           : `Your net saving after the fine drops to £${savingForCards - fineGbp}.`;
 
         nonBaselineCards.push({
           lever: 'penalty_notice',
           headline_hint: headline,
-          voice: `Copy sentence_1, sentence_2, and sentence_3 from facts VERBATIM, in this order. Three sentences exactly.`,
+          voice: `Copy sentence_1, sentence_2, sentence_3, and sentence_4 from facts VERBATIM, in this order. Four sentences exactly.`,
           facts: {
             locked_headline: headline,
             sentence_1: absenceSentence1,
-            sentence_2: sentence2,
-            sentence_3: disclaimer,
+            sentence_2: fineArithmetic,
+            sentence_3: sentence3,
+            sentence_4: disclaimer,
           },
           verified_field: 'fine_gbp',
           verified_value: fineGbp,

@@ -250,6 +250,14 @@ export function ComplianceCalculator({
   const { aiResult, setSelectedMatrixCell, notifyModalClosed } = useFlightInsights();
   const aiRecommended = aiResult?.recommendedCombination ?? null;
 
+  // Same price_points series that backs the booking box's "Fares observed"
+  // stamp and the problem statement's "priced on" line — reused here for
+  // the modal footnote so all three can never disagree on the date.
+  const priceHistoryPointsForModal = aiResult?.price_movement?.price_points ?? [];
+  const modalObservedDate = priceHistoryPointsForModal.length
+    ? priceHistoryPointsForModal[priceHistoryPointsForModal.length - 1].checked_on
+    : null;
+
   const [modalOpen, setModalOpen]       = useState(false);
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
 
@@ -563,6 +571,7 @@ export function ComplianceCalculator({
         transportMode={transportMode}
         postcodeDistrict={postcodeDistrict}
         recommendation={modalRecommendation}
+        observedDate={modalObservedDate}
       />
     </section>
   );

@@ -40,6 +40,12 @@ interface LegOptionsModalProps {
     return_carrier: string; ret_dest_iata: string;
     outbound_date: string; return_date: string;
   } | null;
+  // Real observed date (most recent checked_on in the same price_points
+  // series that backs the booking box's "Fares observed" stamp and the
+  // problem statement's "priced on" line) — not a separately-tracked
+  // field, so it can't drift from those. null when no price history exists
+  // yet, in which case the footnote drops the date clause entirely.
+  observedDate?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,6 +127,7 @@ export function LegOptionsModal({
   transportMode,
   postcodeDistrict,
   recommendation,
+  observedDate,
 }: LegOptionsModalProps) {
   const [outboundData, setOutboundData] = useState<any>(null);
   const [returnData, setReturnData]     = useState<any>(null);
@@ -408,7 +415,9 @@ export function LegOptionsModal({
             margin: 0,
             lineHeight: 1.5,
           }}>
-            Fines are estimates based on current borough penalty notice rates. Bag fees and transport costs are estimates.
+            {observedDate
+              ? `Fares are live prices observed ${fmtDate(observedDate)}. Bag fees, airport transport and fine amounts are estimates from published rates.`
+              : 'Fares are live prices. Bag fees, airport transport and fine amounts are estimates from published rates.'}
           </p>
         </div>
       </DialogContent>

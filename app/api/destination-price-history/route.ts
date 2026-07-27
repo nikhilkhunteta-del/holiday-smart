@@ -45,8 +45,12 @@ export async function GET(req: NextRequest) {
   // This series is a median across every date pair on the matrix — not
   // tied to one flight or even one date pair. "this exact flight" (the
   // default) would be wrong here for the same reason it was wrong on the
-  // per-cell card, only more so.
-  const narration = await narratePriceMovement({ ...raw, ...computed }, 'the typical fare across this destination');
+  // per-cell card, only more so. Naming it "the median fare" (rather than
+  // "the typical fare") in the subject_label itself, matching the
+  // subtitle's explicit "(the median)" — see priceMovementNarration.ts's
+  // rule 6 for why the narration must say "the median fare... has
+  // fallen", never "the price has fallen", for this series specifically.
+  const narration = await narratePriceMovement({ ...raw, ...computed }, 'the median fare across this destination');
 
   return NextResponse.json({
     checks_total:     raw.checks_total,
