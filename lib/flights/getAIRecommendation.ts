@@ -1404,10 +1404,21 @@ One sentence. Specific. No carrier saving numbers.`,
       } else if (advantage === 'departure_vs_baseline') {
         const [arrH, arrM] = context.winner_arr_time.split(':').map(Number);
         const arrHourDecimal = (arrH ?? 0) + (arrM ?? 0) / 60;
-        const afternoonLabel = arrHourDecimal < 14.5 ? 'mid-afternoon' : 'late afternoon';
+        // Was a two-way "mid-afternoon"/"late afternoon" split with no
+        // morning/midday tier at all — an arrival as early as 10:30 was
+        // still labelled "mid-afternoon". Real tiers, matched to the hour.
+        const timeOfDayLabel =
+          arrHourDecimal < 12   ? 'before lunch' :
+          arrHourDecimal < 14.5 ? 'in the early afternoon' :
+          arrHourDecimal < 18   ? 'by mid-afternoon' :
+          'in the early evening';
+        // "The whole day ahead" is only true if there's a meaningful chunk
+        // of day left — false by early evening, when it should read as
+        // settling in for the night instead.
+        const dayAheadClause = arrHourDecimal < 18 ? 'with the whole day ahead' : 'in time to settle in before dinner';
         sentence1 = `The ${context.winner_out_dep_time} departure from ${originCity} is the best timing we found for this window — no pre-dawn airport run.`;
-        sentence2 = `The Saturday ${baselineOriginIata} option departs at ${context.baseline_out_dep_time ?? 'unknown'} — a ${humanize(context.baseline_out_dep_quality ?? '')} start that means a very early taxi with the family.`;
-        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} by ${afternoonLabel} with the whole day ahead — it won on departure timing, not on being the cheapest option.`;
+        sentence2 = `The Saturday ${an(baselineOriginIata)} option departs at ${context.baseline_out_dep_time ?? 'unknown'} — a ${humanize(context.baseline_out_dep_quality ?? '')} start that means a very early taxi with the family.`;
+        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} ${timeOfDayLabel}, ${dayAheadClause} — it won on departure timing, not on being the cheapest option.`;
       } else if (advantage === 'arrival_vs_alternative') {
         sentence1 = `This combination arrives ${destinationName} at ${context.winner_arr_time} — you're checked in and out for the afternoon.`;
         sentence2 = `The next cheapest option arrives at ${context.alt_arr_time ?? 'much later'} — you lose most of your first day.`;
@@ -1764,7 +1775,7 @@ SELECTION CONTEXT:
     : 'unknown'}
 - destination_name: ${destinationName}
 - is_baseline_cheapest: ${isBaselineCheapest}
-- baseline_total: £${context.benchmarkCost ?? 'unknown'}
+- baseline_total: £${context.benchmarkCost != null ? round(context.benchmarkCost) : 'unknown'}
 - baseline_carrier: British Airways round-trip
 - baseline_dates: ${context.trueCheapest_outbound ?? ''} to ${context.trueCheapest_return ?? ''}
 - cheapest_two_leg_total: £${context.trueCheapest_total_cost ?? 'unknown'}

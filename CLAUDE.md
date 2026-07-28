@@ -337,6 +337,16 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
    the scoring process rather than answering "why did the system pick THIS one." Do not let this
    drift back to generic process-description language; every branch must ground its sentences in
    this specific combination's actual times and airports.
+   Two accuracy bugs found while manually tracing rendered output for this restructure, both
+   pre-existing in the `departure_vs_baseline` branch (not introduced by it): (a) the baseline
+   airport was interpolated as a raw IATA code — `"The Saturday LHR option departs..."` — instead
+   of through `an()` like every other airport reference in this card; fixed to `an(baselineOriginIata)`.
+   (b) the arrival time-of-day label was a two-way `arrHourDecimal < 14.5 ? 'mid-afternoon' :
+   'late afternoon'` split with no morning/midday tier at all, so an arrival as early as 10:30
+   still rendered "mid-afternoon" — and the sentence always claimed "the whole day ahead" even
+   for evening arrivals. Fixed to four real tiers (before lunch / early afternoon / mid-afternoon
+   / early evening) with a matching closing clause (evening arrivals get "in time to settle in
+   before dinner", not a false "whole day ahead" claim).
 2. **penalty_notice** — only when `absence_days > 0`. Single merged card (lever
    `penalty_notice`) — as of this update it absorbs what used to be a separate
    `alternative_option` card ("If you want to avoid the fine"); see below for why they were
@@ -390,6 +400,17 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
      to whole pounds *before* combining them, in both files — not just rounding the final display
      figure, since that would still leave the raw float propagating through intermediate
      comparisons like `altDeltaVsFineInclusiveWinner`.
+   - **Follow-up sweep found one more unrounded source, `benchmarkCost`**: `computeBenchmark()`
+     (`buildCandidates.ts`) returns a raw `Math.min(...)` over `total_inc_fine` — never rounded —
+     and both `route.ts` and `assembleRecommendation.ts` passed it into `FamilyContext` as-is.
+     Every *use* of `context.benchmarkCost` already wrapped it in `round()` except one — the
+     `baseline_total` fact in the SELECTION CONTEXT block fed to the LLM — which would have shown
+     the same class of float artifact. Fixed at the source (`Math.round()` where `benchmarkCost`
+     is set in both files, alongside the `baseline_allin` fix immediately below it, since both
+     read the same underlying value) and at that one inconsistent display site, for defence in
+     depth. Swept the rest of the codebase for other unrounded `total_cost_gbp` arithmetic —
+     everything else was already either wrapped in a `gbp()` helper (which rounds internally in
+     every component that defines one) or built from already-rounded inputs.
    - Also removed (do not resurrect): the old alternative-option card's closing editorial line
      `"The price gap is significant — worth checking the date matrix to see if it fits your
      window"` — it editorialised against the product's own alternative and the "if it fits"

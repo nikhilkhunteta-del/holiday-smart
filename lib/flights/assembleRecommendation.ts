@@ -1321,7 +1321,7 @@ export async function assembleRecommendation(
     cabinBags,
     checkedBags,
     seatsTogether,
-    benchmarkCost: base.benchmark,
+    benchmarkCost: base.benchmark != null ? Math.round(base.benchmark) : null,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
     distinctDatePairs: new Set(base.combinations.map(c => `${c.outbound_date}|${c.return_date}`)).size,

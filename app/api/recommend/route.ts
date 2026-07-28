@@ -393,7 +393,7 @@ export async function POST(request: NextRequest) {
       cabinBags,
       checkedBags,
       seatsTogether,
-      benchmarkCost: assembled.baseline?.total_cost_gbp ?? null,
+      benchmarkCost: assembled.baseline?.total_cost_gbp != null ? Math.round(assembled.baseline.total_cost_gbp) : null,
       baseline_fare:  Math.round(assembled.baseline?.baseline_fare_gbp ?? 0),
       baseline_allin: Math.round(assembled.baseline?.total_cost_gbp ?? 0),
       baseline_airport_name: ({ LHR: 'Heathrow', LGW: 'Gatwick', STN: 'Stansted', LTN: 'Luton', LCY: 'City', SEN: 'Southend' } as Record<string, string>)[assembled.baseline?.baseline_airport ?? 'LHR'] ?? assembled.baseline?.baseline_airport ?? 'Heathrow',
