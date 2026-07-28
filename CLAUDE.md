@@ -87,6 +87,32 @@ confirmed correct against live data — not bundled into this fix.
 
 ---
 
+### RESOLVED — Matrix subtitle's price spread compared against never-rendered combinations
+
+**Location:** `components/flight-insights/compliance-calculator.tsx`, `priceSpread` (~line 285).
+
+The subtitle claimed a spread (e.g. "£1,417 separates the best and worst date combinations this
+half-term") computed as `Math.max(...) - Math.min(...)` over the raw `combinations` prop — every
+carrier/airport combination priced (126, say), not the ~16 values actually shown in the grid's
+cells. Because `cellMap` dedupes multiple combinations down to one per (outbound_date,
+return_date) key, most of that raw pool never surfaces as a visible cell price — the max in
+particular was very likely an obscure, never-rendered combination for a date pair whose cell
+displays a cheaper alternative instead. Confirmed against a live case: subtitle claimed £1,417,
+but the visible cells only ranged £440–£691 (a real spread of £251).
+
+**Fix:** `priceSpread` is now computed from `Array.from(cellMap.values())` — the exact same
+values each cell renders — plus `baselineTotal` when `baselineIsRecommended` (the one cell that's
+rendered from a hardcoded value outside `cellMap`, since the baseline's own date pair isn't
+guaranteed to appear in the raw `combinations` pool — see "Include baseline dates in the matrix
+axes" a few lines above `cellMap`'s own construction).
+
+**Related, NOT fixed (found while investigating, confirmed unused):** `page.tsx` independently
+computes its own `combinationRange` (`Math.max(total_inc_fine) - Math.min(total_inc_fine over
+non-absence combos)`) and passes it into `<ComplianceCalculator combinationRange={...}>` — but
+the prop is destructured and never referenced anywhere in the component. Dead code with its own
+inconsistent basis (max includes fined combinations, min excludes them) — flagging since it's the
+same class of bug, not fixing since it's provably never rendered and wasn't asked for.
+
 ### DEFERRED DECISION — Date matrix format (grid vs. sorted list) for city-type destinations
 
 An independent design review raised that the date matrix is ~80% empty for Barcelona (a
@@ -135,6 +161,20 @@ disclaimer copy near the top-section Book button, or investigate whether Google 
 `tfs` protobuf supports an airline-filter field that this reverse-engineered schema hasn't
 captured (the Google Flights UI itself does support airline filtering, so the field likely
 exists — untested here).
+
+---
+
+### NEEDS RESEARCH — Fine escalation for repeat penalty notices (not implemented, do not add yet)
+
+The penalty notice card (`lever: 'penalty_notice'`, `getAIRecommendation.ts`) now shows the fine's
+arithmetic explicitly (£80 per parent per child per period, e.g. "2 adults × 2 children") — see
+"Card set for `significant`/`found_saving`" below. Deliberately **not** added: any language about
+fines escalating for repeat/second penalty notices. Some councils are known to charge more for a
+second offence within a rolling period, but this hasn't been confirmed against a real, current
+source for how councils actually handle repeat offences — do not add escalation copy until that's
+sourced and confirmed. `calculate_absence_fine.sql`'s formula (`80 * adults * children *
+periods`) has no escalation term today, so there is nothing to reflect even if this were added
+without research — the SQL would need to change too, not just the copy.
 
 ---
 
@@ -248,6 +288,37 @@ also carries:
   departure/arrival times and quality tiers for winner, baseline, and the alternative, plus a
   pre-computed `winner_quality_advantage` (`'departure_vs_baseline' | 'arrival_vs_alternative'
   | 'return_vs_alternative' | 'cost_driven'`) picking the single most meaningful contrast.
+- **`distinctDatePairs`** — count of distinct `(outbound_date, return_date)` pairs among
+  `combinationCount`'s raw combinations, computed identically to the date matrix's own `cellMap`
+  (`new Set(combinations.map(c => \`${c.outbound_date}|${c.return_date}\`)).size`), computed once
+  in `page.tsx` and threaded through `aiFetchParams` → the `/api/recommend` POST body → here —
+  **not** recomputed independently anywhere downstream, specifically so it can never drift from
+  what the matrix actually shows. Used in the problem statement to reconcile "N combinations
+  priced" against the visibly smaller grid (see below) — multiple carrier/airport combinations
+  can share one date-pair cell, which is why this is always <= `combinationCount`, often by a lot.
+
+### Card headings — heading register per card, and a note on icons
+Headings deliberately do **not** use one uniform grammatical template across all cards. Each
+card's register matches its icon (`LEVER_ICONS` in `ai-recommendation-client.tsx`) — pulling
+every heading toward the same declarative structure would undercut the icon-differentiation work
+from an earlier round (distinct icons signalling distinct *kinds* of information). Specifically:
+- **quality_advantage** stays in question form — `"Why this over the alternatives"` — its
+  lightbulb icon is deliberately the odd one out, and the interrogative heading reinforces that
+  "this card works differently" signal rather than blending in. **Do not** change this to a
+  declarative heading, and specifically **never** to anything implying this is the raw cheapest
+  option (e.g. "Cheapest once transport is counted") — the recommendation is chosen on
+  quality-adjusted value, not raw price; a genuinely cheaper combination can exist via a
+  different carrier (see the price-history fixes distinguishing "recommended" from "cheapest for
+  these dates" — reintroducing "cheapest" language here would reopen that exact confusion). If a
+  declarative alternative is ever wanted, it must describe value, not price — e.g. "Best value
+  once quality is weighed" — but the current form was reconfirmed as the better choice.
+- **penalty_notice**, the three trade-off levers, and **inset_day_option** are declarative and
+  each name their specific trigger in the heading itself (see below) — so the body never needs a
+  redundant clause just to say what's being flagged. Before adding a trigger clause to any card's
+  body, check whether the heading already states it; only add one where it doesn't.
+- **Cheapest/cheaper language is heading-by-heading, not a blanket rule** — check the actual
+  gating condition before writing a heading, the way `inset_day_option` below does. It is only
+  ever safe to say when that specific card's own gate guarantees it.
 
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
@@ -257,13 +328,24 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
    `alternative_option` card ("If you want to avoid the fine"); see below for why they were
    merged. Headline is now dynamic and states the stake directly: `"This trip misses {N}
    school day(s) — £{fine_gbp} if your school fines you"` (previously the static, procedurally
-   neutral "Penalty notice"). Two variants:
-   - **Fine-free alternative exists** (`alt_total_cost != null`): three sentences — which days
-     are missed, then a dual-basis comparison sentence stating the fine-free alternative's cost
-     against BOTH the no-fine winner total AND the fine-inclusive winner total explicitly (see
-     below), then the plain disclaimer.
-   - **No fine-free alternative exists**: three sentences — which days are missed, net
+   neutral "Penalty notice"). Two variants, both now four sentences (was three — a fine-arithmetic
+   sentence was inserted as sentence_2 in both, per an explicit ask to show the fine's arithmetic
+   wherever the amount appears, not just cite the total):
+   - **Fine-free alternative exists** (`alt_total_cost != null`): which days are missed, then the
+     arithmetic sentence, then a dual-basis comparison sentence stating the fine-free
+     alternative's cost against BOTH the no-fine winner total AND the fine-inclusive winner total
+     explicitly (see below), then the plain disclaimer.
+   - **No fine-free alternative exists**: which days are missed, the arithmetic sentence, net
      cost/saving after the fine (branches on `fine_wipes_saving`), then the same disclaimer.
+   - **Fine arithmetic sentence** (`fineArithmetic`, both variants): `"That's £80 per parent per
+     child per period — {adults} adults × {children} children{, N periods (departure and
+     return) if both sides have absence}."` Matches `calculate_absence_fine.sql`'s formula
+     exactly (`80 * adults * children * periods`, one period per continuous stretch of missed
+     school on the departure side, the return side, or both — max 2). Deliberately does **not**
+     mention fines escalating for repeat/second penalty notices — see the "NEEDS RESEARCH" entry
+     near the top of this file; that needs a confirmed source on how councils actually handle
+     repeat offences before any copy is added, and the SQL formula has no escalation term to
+     reflect even if it were.
    - Disclaimer sentence (both variants): `"We're not recommending unauthorised absence — you
      should know the numbers before you book."` — **do not** prepend "Schools apply this
      inconsistently" or similar back to this; a prior version had that clause immediately
@@ -285,15 +367,32 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
      window"` — it editorialised against the product's own alternative and the "if it fits"
      framing was a non-answer given the date was already known to fit and already priced into
      the comparison table.
-3. **trade-off** (`early_return` / `early_outbound` / `split_booking` / `timing_summary`) —
-   "The one trade-off that matters most". `early_return` absorbed the old "Early Departure"
-   sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
+3. **trade-off** (`early_return` / `early_outbound` / `split_booking`) — only when one of the
+   three trigger conditions actually applies; **no card at all otherwise.** Each lever has its own
+   heading naming the specific trigger — `"Early return — plan around it"` / `"Early departure"` /
+   `"Two separate bookings"` — replacing the old shared, generic `"The one trade-off that matters
+   most"` (dropped "the one" to stop claiming singularity, and made each heading trigger-specific
+   so the body doesn't need a redundant clause restating it). The old `timing_summary` fallback
+   lever — which rendered a card even when nothing about the timing was actually noteworthy, just
+   restating ordinary arrival/return times under the same vague heading — is deleted, not
+   reworded: a card that can't say why it exists shouldn't render. Confirmed safe: `nonBaselineCards`
+   was already a variable-length array (cards 2 and 4 are each independently conditional too), and
+   nothing downstream (`lever_insights`, the `price_movement` splice, the client's
+   `timelineCards.map`) assumes a fixed card count. `early_return` absorbed the old "Early
+   Departure" sidebar notice's hotel-checkout-time and transit-home content as extra sentences.
 4. **inset_day_option** — only when a cheaper inset-day combination exists in the pool and
-   isn't the winner itself (via `combinationKey()` comparison).
+   isn't the winner itself (via `combinationKey()` comparison) — `showInsetCard`'s own gate is a
+   strict `<` on total cost, which is what makes "cheaper" heading language safe specifically for
+   this card. Heading is `"The cheaper inset-day option"` (previously the neutral "Inset day
+   option" — made declarative and cheaper-referencing since the gate guarantees it's true).
+   `LEVER_ICONS` maps this lever to `'event_available'` — previously fell through to the
+   `'lightbulb'` default (shared with quality_advantage, despite being an unrelated kind of
+   card); now distinct from both that and the trade-off cards' `'schedule'` icon.
 
-When `absence_days === 0`, card 2 is skipped entirely — order is just quality → trade-off
-(→ inset, when it applies). `baseline_cheapest` has its own separate, unrelated card set —
-untouched by any of the above.
+When `absence_days === 0`, card 2 is skipped entirely; when none of the three trade-off triggers
+apply, card 3 is skipped too — order is just whatever subset of quality → penalty → trade-off →
+inset actually has something to say, quality_advantage being the only one that always shows.
+`baseline_cheapest` has its own separate, unrelated card set — untouched by any of the above.
 
 Removed entirely from the significant/found_saving set (do not resurrect without checking why
 they were cut): `split_carrier`, `transport_outbound`/`transport_return`, `selection_story`
@@ -311,17 +410,44 @@ since-replaced "When half-term begins, most {borough} parents..." wording that i
 unmeasured behavioural claim and described searching for flights at a point when it's already
 too late to book well; replaced for both reasons, not just tone.)
 
+The methodology sentence now also states (a) a real observed date — `combinationsPricedOn`, the
+most recent `checked_on` in `context.price_points` (the same series behind the booking box's
+"Fares observed" stamp and the price-history chart) — and (b) the `distinctDatePairs` count, so
+"we priced N combinations" reconciles against the matrix's visibly smaller cell count rather than
+reading as a mismatch (e.g. "We priced 126 combinations on 25 Oct across five London airports and
+every viable date — collapsed to the best option per date, 16 distinct date pairs shown below").
+`get_smart_recommendation` has no pool-wide "priced as of" timestamp of its own (its return is
+just `{combinations, baseline}` — no run id or `completed_at`) — reusing the itinerary-level
+check date as the best real proxy available is a deliberate choice, not an oversight; if a
+provably-exact pool-wide timestamp is ever wanted, that needs a small RPC change to return
+`snapshot_runs.completed_at`, not yet done. Same treatment applied to the parallel
+`is_baseline_cheapest` problem statement branch for consistency.
+
+### Date matrix naming
+User-facing copy uses **"the date matrix"** (or bare "the matrix" in space-constrained spots
+like the price-history tab label "Whole matrix") consistently wherever the widget is referred to
+by name in prose — e.g. `leg-options.tsx`'s "Click any date in the matrix above," the trade-off
+card's "the date matrix below shows alternatives," and the price-history destination subtitle
+(fixed from "the grid above," the one outlier found). The matrix's own section heading, "Find
+your cheapest dates," is left as its own benefit-oriented H2 rather than forced to literally
+contain the word "matrix" — it's a call-to-action, not a competing name for the same noun, so it
+doesn't reintroduce the naming clash this was fixing. Internal code/variable names (`cellMap`,
+`ComplianceCalculator`, etc.) are unaffected — this is a user-facing-copy-only convention.
+
 ### Shared copy constants (`lib/flights/copyConstants.ts`)
 Two page-wide strings previously duplicated (with drifting wording) across five-plus locations
 each — centralised so a future wording change only happens in one place:
 - **`ALL_IN_DEFINITION`** — `"All-in = fare + bags + seats + transport to and from both
-  airports."` Rendered exactly once, directly under the subheadline
-  (`ai-recommendation-client.tsx`). Every other mention of cost inclusions on the page — problem
-  statement, subheadline itself, "Why this over the alternatives" card, both price-history
-  subtitles, the modal subtitle, the matrix subtitle, the leg-options "Best option" line — says
-  the bare word **"all-in"** and relies on this definition rather than restating "bags, transit
-  and transfers" (or any close variant) each time. Do not re-add an inline explanation next to
-  "all-in" anywhere else; if the definition itself needs to change, change it only here.
+  airports. Flights and getting there. Accommodation isn't included."` Rendered exactly once,
+  directly under the subheadline (`ai-recommendation-client.tsx`). The second sentence was added
+  to close a gap the earlier headline fix didn't cover: "all-in" on its own, without this, could
+  be misread as including the holiday itself (accommodation), not just getting there. Every other
+  mention of cost inclusions on the page — problem statement, subheadline itself, "Why this over
+  the alternatives" card, both price-history subtitles, the modal subtitle, the matrix subtitle,
+  the leg-options "Best option" line — says the bare word **"all-in"** and relies on this
+  definition rather than restating "bags, transit and transfers" (or any close variant) each
+  time. Do not re-add an inline explanation next to "all-in" anywhere else; if the definition
+  itself needs to change, change it only here.
 - **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
   (`"Typical Saturday Booking"`, Title Case for compact UI contexts like the comparison table's
   column header, kept in sync with `BASELINE_NAME` by hand) — the comparison baseline (a direct
@@ -402,6 +528,37 @@ each — centralised so a future wording change only happens in one place:
   combined file was always safe (erased at compile time, which is why nothing broke for the
   months this was one file); a plain value-import was the trigger. If either file grows again,
   keep the SDK import strictly confined to `priceMovementNarration.ts`.
+  **Heading, "median" framing, and check-cadence are now view-specific and threshold-driven,
+  not generic/always-omitted.** The two tabs ("These dates" / "Whole matrix") used to share one
+  static heading ("How the price has moved") and the destination tab's subtitle called its series
+  "the typical cheapest fare" — both read as describing a single price, which is wrong for the
+  destination view specifically: that series is a **median** across every date pair, not one
+  flight's price. Fixed: `sectionHeading` is now `"How prices across these dates have moved"`
+  (cell view) vs `"How the middle price has moved"` (destination view); the destination subtitle
+  now says "The middle price across every date pair above (the median)"; the destination
+  narration's `subject_label` changed from `'the typical fare across this destination'` to
+  `'the median fare across this destination'`; and `PRICE_MOVEMENT_SYSTEM_PROMPT`'s rule 6 now
+  explicitly forbids the AI from saying "the price has fallen" when `subject_label` describes an
+  aggregate — it must say "the median fare... has fallen" instead. Rule 6's own illustrative
+  example was also fixed from a vague "in late May" to a precise "Since 25 May" — the rule already
+  said to anchor on `first_checked_on`, but the example itself modelled vague relative dating.
+  **Check-cadence is a real conditional, not a one-off edit or a blanket "never state the count"
+  rule.** `buildCadenceLabel()` (`priceMovement.ts`, pure/client-safe) takes `checks_with_data` and
+  `first_checked_on` and returns `"{count in words} checks since {date}"` below
+  `CADENCE_COUNT_THRESHOLD` (8), or `"weekly since {date}"` at or above it — computed
+  deterministically, not left for the model to apply a numeric threshold itself (the same
+  reasoning as `buildPriceRangeLine`: precise numeric rules belong in code, not in freeform
+  generation). Passed into `narratePriceMovement` as a new `cadence_label` fact the model must use
+  verbatim (rule 6), replacing the old absolute "never frame the number of checks" instruction.
+- The **leg-options modal footnote** (`leg-options-modal.tsx`) now reads `"Fares are live prices
+  observed {date}. Bag fees, airport transport and fine amounts are estimates from published
+  rates."` (previously "Fines are estimates based on current borough penalty notice rates. Bag
+  fees and transport costs are estimates.") — matches CONTEXT.md's observed-vs-estimated
+  labelling principle by naming which figures are which. The date is a new `observedDate` prop,
+  computed in `compliance-calculator.tsx` from the exact same `price_points` series that backs
+  the booking box's "Fares observed" stamp and the problem statement's "priced on" line — all
+  three now share one source, so they can't disagree with each other. Falls back to a no-date
+  variant of the sentence when there's no price history yet.
 - `components/flight-insights/compliance-calculator.tsx` (`ComplianceCalculator`, the date
   matrix) no longer has its own card chrome (white bg/rounded/shadow) — renders full-width
   directly on the page background. The dedicated grey "Baseline" cell and the "Typical Saturday

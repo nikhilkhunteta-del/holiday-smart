@@ -140,9 +140,9 @@ export function buildScenarioResults(
     const uberXlDelta     = Math.abs(offsetAmount);
 
     const reconciledBody = uberXlTriggered
-      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — plus £${uberXlDelta} more from the Uber-XL surcharge. Net cost: £${netDelta} more, total £${scenarioTotal}.`
+      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — plus £${uberXlDelta} more because you'll now need a bigger taxi (Uber XL) to fit all the luggage. Net cost: £${netDelta} more, total £${scenarioTotal}.`
       : offsetIsSaving
-      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — but changes the Uber-XL threshold, saving £${uberXlDelta} on transit. Net cost: £${netDelta} more, total £${scenarioTotal}.`
+      ? `Adding one checked bag costs £${expectedBagCost} in bag fees — but a standard taxi now fits everyone instead of the bigger Uber XL, saving £${uberXlDelta} on transit. Net cost: £${netDelta} more, total £${scenarioTotal}.`
       : `Adding one checked bag costs £${netDelta} more, total £${scenarioTotal}.`;
 
     results.push({

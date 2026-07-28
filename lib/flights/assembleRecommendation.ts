@@ -1320,6 +1320,7 @@ export async function assembleRecommendation(
     benchmarkCost: base.benchmark,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
+    distinctDatePairs: new Set(base.combinations.map(c => `${c.outbound_date}|${c.return_date}`)).size,
     absence_days:        absenceDays,
     absence_out_days:    absenceOutDays,
     absence_ret_days:    absenceRetDays,

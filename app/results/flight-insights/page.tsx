@@ -208,6 +208,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     : 0;
 
   const combinationCount = assembled?.combinations?.length ?? 0;
+  // Same (outbound_date, return_date) key as compliance-calculator.tsx's own
+  // cellMap — must match the matrix's actual visible cell count exactly, so
+  // copy quoting this number can't drift from what's rendered below it.
+  const distinctDatePairs = assembled?.combinations
+    ? new Set(assembled.combinations.map((c: any) => `${c.outbound_date}|${c.return_date}`)).size
+    : 0;
 
   const scenarios = buildScenarioResults(
     recommendation,
@@ -246,6 +252,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     currentPageUrl,
     savingCategory,
     combinationCount,
+    distinctDatePairs,
     baselineIsRecommended: assembled?.baselineIsRecommended ?? false,
   };
 

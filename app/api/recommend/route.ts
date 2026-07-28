@@ -457,6 +457,7 @@ export async function POST(request: NextRequest) {
       scenarios,
       savingCategory: body.savingCategory ?? 'found_saving',
       combinationCount: body.combinationCount ?? 0,
+      distinctDatePairs: body.distinctDatePairs ?? 0,
     }, selectionContext, assembled.scoredPool);
 
     return NextResponse.json({

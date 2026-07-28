@@ -185,9 +185,17 @@ export function PriceHistorySection({
   const showingCell = view === 'cell' && !!effectiveCell;
   const data = showingCell ? cellData : destinationData;
   const loading = showingCell ? cellLoading : destinationLoading;
+  // "These dates" tracks one date pair (cheapest fare found, possibly a
+  // different carrier/airport each check); "Whole matrix" tracks a median
+  // across every date pair — genuinely different things, so each gets its
+  // own heading rather than a shared "How the price has moved" that reads
+  // as a single price for both.
+  const sectionHeading = showingCell
+    ? 'How prices across these dates have moved'
+    : 'How the middle price has moved';
   const subtitle = showingCell
     ? 'Airfare only, not all-in. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
-    : 'Airfare only, not all-in. The typical cheapest fare across every date on the grid above — not just one flight.';
+    : 'Airfare only, not all-in. The middle price across every date pair above (the median) — not just one flight.';
   const fallbackText = showingCell
     ? 'Price history for this itinerary is not available right now.'
     : `Price history for ${destinationName} is not available right now.`;
@@ -260,7 +268,7 @@ export function PriceHistorySection({
             fontWeight: 500,
             color: '#004349',
           }}>
-            How the price has moved
+            {sectionHeading}
           </h3>
 
           {effectiveCell && (

@@ -154,3 +154,30 @@ export function buildPriceRangeLine(facts: PriceRangeFacts): string | null {
 // Flat, standing disclaimer — hardcoded, never AI-generated, always
 // rendered beneath a price-history card regardless of what the data shows.
 export const PRICE_MOVEMENT_STANDING_LINE = "We don't predict where prices go next.";
+
+const SMALL_NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+
+// Threshold below which a raw check count is still the honest, useful
+// thing to say (below this, "weekly since [date]" would overstate how
+// much history actually exists); at or above it, stating the exact count
+// reads oddly (rule 6 in priceMovementNarration.ts) and "weekly since
+// [date]" carries the same information without it. Roughly matches the
+// "10+ checks" point where count-framing already read oddly (see that
+// rule's own comment) — 8 is the rounder, slightly more conservative cut.
+const CADENCE_COUNT_THRESHOLD = 8;
+
+// Deterministic (non-AI) description of how often this price has been
+// checked — computed here, not left for the LLM to apply a numeric
+// threshold itself, since that's exactly the kind of precise rule an LLM
+// can flub. Passed into narratePriceMovement as a fact to copy, not a
+// number for it to reason about.
+export function buildCadenceLabel(checksWithData: number, firstCheckedOn: string | null): string | null {
+  if (!firstCheckedOn || checksWithData <= 0) return null;
+  const since = formatRangeLineDate(firstCheckedOn);
+  if (checksWithData >= CADENCE_COUNT_THRESHOLD) {
+    return `weekly since ${since}`;
+  }
+  const countWord = SMALL_NUMBER_WORDS[checksWithData] ?? String(checksWithData);
+  const checkWord = checksWithData === 1 ? 'check' : 'checks';
+  return `${countWord} ${checkWord} since ${since}`;
+}
