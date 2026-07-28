@@ -1373,36 +1373,53 @@ One sentence. Specific. No carrier saving numbers.`,
     const winnerTotalRounded = round(recommended.total_cost_gbp);
     const savingForCards     = blAllinForCards - winnerTotalRounded;
 
-    // Card 1 — Why this over the alternatives
+    // Card 1 — Why this over the alternatives. Must answer "why did the
+    // system pick THIS one" concretely (actual times/airports, never a
+    // description of the scoring process in the abstract) AND state
+    // explicitly which of three things won it: cheapest for these dates,
+    // the inset-day option, or — when neither — the specific quality axis
+    // (departure vs baseline, arrival vs the next-best alternative, or
+    // return vs the next-best alternative). Checked in that priority
+    // order: a combination that's both cheapest and quality-distinct
+    // leads with "cheapest" as the simpler, more important fact.
     {
       const advantage = context.winner_quality_advantage;
       const originCity = an(recommended.origin_iata);
       const baselineOriginIata = context.baseline_origin_iata ?? 'LHR';
       const humanize = (q: string) => q.replace(/_/g, ' ');
+      const winnerRetArrTime = recommended.return_arrival_time?.toString().slice(0, 5) ?? '';
 
       let sentence1: string;
       let sentence2: string;
       let sentence3: string;
 
-      if (advantage === 'departure_vs_baseline') {
+      if (winnerIsCheapest) {
+        sentence1 = `This is the cheapest option we found for these dates — ${context.winner_out_dep_time} from ${originCity}, arriving ${destinationName} at ${context.winner_arr_time}.`;
+        sentence2 = `The return departs ${destinationName} at ${context.winner_ret_dep_time}, landing home at ${winnerRetArrTime}.`;
+        sentence3 = `No other combination beat it on total all-in cost.`;
+      } else if (recommended.is_inset_day) {
+        sentence1 = `This uses ${context.schoolName ?? 'your school'}'s inset day — flying ${context.winner_out_dep_time} from ${originCity} with zero school absence.`;
+        sentence2 = `You arrive ${destinationName} at ${context.winner_arr_time}, and the return lands home at ${winnerRetArrTime}${insetAddsNight ? ' — an extra night versus the best non-inset option' : ''}.`;
+        sentence3 = `It isn't the cheapest combination available, but it wins on avoiding the fine risk entirely.`;
+      } else if (advantage === 'departure_vs_baseline') {
         const [arrH, arrM] = context.winner_arr_time.split(':').map(Number);
         const arrHourDecimal = (arrH ?? 0) + (arrM ?? 0) / 60;
         const afternoonLabel = arrHourDecimal < 14.5 ? 'mid-afternoon' : 'late afternoon';
         sentence1 = `The ${context.winner_out_dep_time} departure from ${originCity} is the best timing we found for this window — no pre-dawn airport run.`;
         sentence2 = `The Saturday ${baselineOriginIata} option departs at ${context.baseline_out_dep_time ?? 'unknown'} — a ${humanize(context.baseline_out_dep_quality ?? '')} start that means a very early taxi with the family.`;
-        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} by ${afternoonLabel} with the whole day ahead.`;
+        sentence3 = `At ${context.winner_arr_time} you're in ${destinationName} by ${afternoonLabel} with the whole day ahead — it won on departure timing, not on being the cheapest option.`;
       } else if (advantage === 'arrival_vs_alternative') {
         sentence1 = `This combination arrives ${destinationName} at ${context.winner_arr_time} — you're checked in and out for the afternoon.`;
         sentence2 = `The next cheapest option arrives at ${context.alt_arr_time ?? 'much later'} — you lose most of your first day.`;
-        sentence3 = `The ${context.winner_out_dep_time} departure is the trade-off, but the arrival makes it worth it.`;
+        sentence3 = `The ${context.winner_out_dep_time} departure is the trade-off, but it won on arrival quality, not on being the cheapest option.`;
       } else if (advantage === 'return_vs_alternative') {
         sentence1 = `The return departs ${destinationName} at ${context.winner_ret_dep_time} — your last day stays intact.`;
         sentence2 = `Cheaper alternatives return at ${context.alt_ret_dep_time ?? 'much earlier'} — a very early start that cuts your final day short.`;
-        sentence3 = `This combination keeps the cost down without sacrificing the return.`;
+        sentence3 = `It won on keeping the return civilised, not on being the cheapest option.`;
       } else {
-        sentence1 = `We scored ${combCount} combinations on both cost and timing — departure hour, arrival quality, and transit changes.`;
-        sentence2 = `Quality was similar across the top options for this window.`;
-        sentence3 = `This combination came out best on total all-in cost.`;
+        sentence1 = `The ${context.winner_out_dep_time} departure from ${originCity} arrives ${destinationName} at ${context.winner_arr_time} — no leg on this combination scored poorly on timing.`;
+        sentence2 = `The return departs ${destinationName} at ${context.winner_ret_dep_time}, landing home at ${winnerRetArrTime}.`;
+        sentence3 = `It won on the balance of cost and quality together — not the single cheapest option, and not the inset-day option, but nothing else scored better overall.`;
       }
 
       nonBaselineCards.push({
@@ -1478,7 +1495,7 @@ One sentence. Specific. No carrier saving numbers.`,
         const altDeltaVsNoFineWinner = altTotalCost - winnerTotalRounded;
         const altDeltaVsFineInclusiveWinner = altTotalCost - netCostWithFine;
 
-        const comparisonSentence = `The fine-free option costs £${altTotalCost} — ${context.alt_outbound_date_formatted} to ${context.alt_return_date_formatted}, no school days missed. That's £${Math.abs(altDeltaVsNoFineWinner)} ${altDeltaVsNoFineWinner >= 0 ? 'more' : 'less'} than the £${winnerTotalRounded} recommendation if no fine is issued, and £${Math.abs(altDeltaVsFineInclusiveWinner)} ${altDeltaVsFineInclusiveWinner >= 0 ? 'more' : 'less'} than the £${netCostWithFine} you'd pay if one is. Which comparison is right depends on your school.`;
+        const comparisonSentence = `The fine-free option costs £${altTotalCost} — ${context.alt_outbound_date_formatted} to ${context.alt_return_date_formatted}, no school days missed. That's £${Math.abs(altDeltaVsNoFineWinner)} ${altDeltaVsNoFineWinner >= 0 ? 'more' : 'less'} than the £${winnerTotalRounded} recommendation if no fine is issued, and £${Math.abs(altDeltaVsFineInclusiveWinner)} ${altDeltaVsFineInclusiveWinner >= 0 ? 'more' : 'less'} than the £${netCostWithFine} total if a fine is issued. Which comparison is right depends on your school.`;
 
         nonBaselineCards.push({
           lever: 'penalty_notice',

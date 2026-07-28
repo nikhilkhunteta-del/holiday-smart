@@ -289,15 +289,20 @@ export async function POST(request: NextRequest) {
     })();
 
     // ── Fine/absence-aware saving fields ────────────────────────────────────
-    const baselineAllin = assembled.baseline?.total_cost_gbp ?? 0;
-    const winnerTotal    = recommendation.total_cost_gbp;
-    const fineGbp        = recommendation.fine_gbp ?? 0;
+    // Rounded to whole pounds at the point of computation — total_cost_gbp
+    // arrives from the RPC as a float (fee components sum with IEEE 754
+    // rounding error), so any arithmetic on the raw value propagates that
+    // error downstream (e.g. netCost showing as £760.0599999999999). Round
+    // each input before combining them, not just the final display figure.
+    const baselineAllin = Math.round(assembled.baseline?.total_cost_gbp ?? 0);
+    const winnerTotal    = Math.round(recommendation.total_cost_gbp);
+    const fineGbp        = Math.round(recommendation.fine_gbp ?? 0);
     const absenceDays    = recommendation.absence_days ?? 0;
     const absenceOutDays = recommendation.absence_out_days ?? 0;
     const absenceRetDays = recommendation.absence_ret_days ?? 0;
     const savingVsBaseline = baselineAllin - winnerTotal;
     const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
-    const netCost  = winnerTotal + fineGbp;
+    const netCost  = Math.round(winnerTotal + fineGbp);
     const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
     const termResumeDate = windowEnd ? fmtDateLong(nextWeekday(addDays(windowEnd, 1))) : '';
 

@@ -322,7 +322,21 @@ from an earlier round (distinct icons signalling distinct *kinds* of information
 
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
-1. **quality_advantage** — "Why this over the alternatives". Always shows.
+1. **quality_advantage** — "Why this over the alternatives". Always shows. Must be concrete
+   (actual times/airports on this specific combination, never a description of the scoring
+   process in the abstract) AND state explicitly which of three things won it — checked in this
+   priority order: (a) `winnerIsCheapest` — literally the cheapest option for these dates, (b)
+   `recommended.is_inset_day` — the inset-day option (zero absence, not necessarily cheapest),
+   (c) neither — falls through to the existing quality-axis sub-branches
+   (`departure_vs_baseline` / `arrival_vs_alternative` / `return_vs_alternative`, each now closes
+   with an explicit "won on X, not on being the cheapest option" clause) or, if none of those
+   apply either, a concrete neutral-fallback sentence referencing the actual departure/arrival/
+   return times and stating it won "on the balance of cost and quality together." A prior version
+   of this card lost this specificity — the neutral-fallback case in particular degraded into
+   `"We scored {N} combinations on both cost and timing... Quality was similar..."`, describing
+   the scoring process rather than answering "why did the system pick THIS one." Do not let this
+   drift back to generic process-description language; every branch must ground its sentences in
+   this specific combination's actual times and airports.
 2. **penalty_notice** — only when `absence_days > 0`. Single merged card (lever
    `penalty_notice`) — as of this update it absorbs what used to be a separate
    `alternative_option` card ("If you want to avoid the fine"); see below for why they were
@@ -362,6 +376,20 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
      alternative exists, state both comparisons side by side and let the reader pick the basis
      that matches their own school's enforcement — never silently pick one. Apply this same
      dual-basis pattern to any future absence-day trade-off copy, not just this card.
+   - **"...total if a fine is issued"**, not "...you'd pay if one is" — the dual-basis comparison
+     sentence's closing clause was reworded for clarity; "if one is" left "one" without a clear
+     enough antecedent right at the sentence's end.
+   - **Whole-pound rounding bug (fixed at the source, not just this template)**: this card was
+     showing raw floating-point output (`£177.05999999999995`, `£760.06`) because `total_cost_gbp`
+     arrives from the RPC as a float — fee components sum with IEEE 754 rounding error — and
+     `netCost = winnerTotal + fineGbp` (both `app/api/recommend/route.ts` and the parallel,
+     dead-but-kept-in-sync computation in `assembleRecommendation.ts`) was never rounded, so every
+     downstream figure derived from it (`net_cost_with_fine`, `net_delta_with_fine`, and this
+     card's `altDeltaVsFineInclusiveWinner = altTotalCost − netCostWithFine`) inherited the
+     fractional error. Fixed by rounding each input (`baselineAllin`, `winnerTotal`, `fineGbp`)
+     to whole pounds *before* combining them, in both files — not just rounding the final display
+     figure, since that would still leave the raw float propagating through intermediate
+     comparisons like `altDeltaVsFineInclusiveWinner`.
    - Also removed (do not resurrect): the old alternative-option card's closing editorial line
      `"The price gap is significant — worth checking the date matrix to see if it fits your
      window"` — it editorialised against the product's own alternative and the "if it fits"
@@ -521,6 +549,18 @@ each — centralised so a future wording change only happens in one place:
   the deterministic line already owns that comparison. Beneath that, every price-history card
   also carries one hardcoded, always-present standing line — `PRICE_MOVEMENT_STANDING_LINE`,
   "We don't predict where prices go next." — never AI-generated, never conditional.
+  **Top-section `price_movement` card layout (`ai-recommendation-client.tsx`) — narration and
+  range line render as one paragraph, caveats moved below the chart.** Previously four stacked
+  `<p>` tags in this order: airfare-only caveat, AI narration, deterministic range line, standing
+  line, then the chart toggle — read as stating the same £X→£Y figures twice (the AI narration's
+  trend framing and the range line's position framing both cite the same numbers) and buried the
+  actual finding under two caveats before the reader reached it. Now: narration + range line
+  render in a single `<p>` (the range line as a bolded inline `<span>`, not a separate paragraph),
+  immediately followed by the "See the numbers ↓" toggle/chart, with the airfare-only caveat and
+  the standing line both moved to after the chart. The two facts aren't merged into literally one
+  AI-written sentence (the narration is still free text, the range line still deterministic) —
+  just rendered as one visual block so they read as one continuous statement instead of two
+  disconnected restatements.
   **`lib/flights/priceMovement.ts` vs `lib/flights/priceMovementNarration.ts` — client/server
   split, do not merge back together.** `priceMovement.ts` holds only pure, dependency-free
   computation (`computePriceMovement`, `buildPriceRangeLine`, the `PriceMovement*`/`PriceRange*`
