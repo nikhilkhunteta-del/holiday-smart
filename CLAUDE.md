@@ -410,18 +410,29 @@ since-replaced "When half-term begins, most {borough} parents..." wording that i
 unmeasured behavioural claim and described searching for flights at a point when it's already
 too late to book well; replaced for both reasons, not just tone.)
 
-The methodology sentence now also states (a) a real observed date — `combinationsPricedOn`, the
-most recent `checked_on` in `context.price_points` (the same series behind the booking box's
-"Fares observed" stamp and the price-history chart) — and (b) the `distinctDatePairs` count, so
-"we priced N combinations" reconciles against the matrix's visibly smaller cell count rather than
-reading as a mismatch (e.g. "We priced 126 combinations on 25 Oct across five London airports and
-every viable date — collapsed to the best option per date, 16 distinct date pairs shown below").
-`get_smart_recommendation` has no pool-wide "priced as of" timestamp of its own (its return is
-just `{combinations, baseline}` — no run id or `completed_at`) — reusing the itinerary-level
-check date as the best real proxy available is a deliberate choice, not an oversight; if a
-provably-exact pool-wide timestamp is ever wanted, that needs a small RPC change to return
-`snapshot_runs.completed_at`, not yet done. Same treatment applied to the parallel
-`is_baseline_cheapest` problem statement branch for consistency.
+**Tried and reverted: an observed-date timestamp and a "distinct date pairs" reconciliation
+clause were both added to this sentence, then both pulled back out.** The full sentence became
+"We priced 126 combinations *on 25 Oct* across five London airports and every viable date —
+collapsed to the best option per date, *16 distinct date pairs shown below*." Two problems: the
+timestamp, inserted mid-sentence, read as a search constraint ("priced ON this date") rather than
+metadata about when the check happened; and the reconciliation clause turned the sentence's
+ending into a flat logistics statement instead of a conclusion. This is the opening hook of the
+whole page, not a methods section — it needs to land on "to see if you could do better. You
+can.", not trail off into "N distinct date pairs shown below." Current fixed sentence: "The
+obvious way to book {borough}'s half-term is the first Saturday — {date} from {airport}. That
+comes to £{baseline_allin} all-in. We priced {N} combinations across five London airports and
+every viable date pair to see if you could do better. You can." Same reversal applied to the
+parallel `is_baseline_cheapest` problem statement branch (which already had its own working
+conclusion, "to see if anything came out lower" — no "You can" needed there, since for that
+branch the finding is that nothing beat the obvious option).
+
+The observed-date timestamp still exists — just not here. It lives on the booking box's "Fares
+observed {date}" stamp and the leg-options modal footnote (both `ai-recommendation-client.tsx` /
+`leg-options-modal.tsx`, sourced from the same `price_points` series). The `distinctDatePairs`
+count (`FamilyContext`, computed identically to the date matrix's own `cellMap` — see its own
+field comment) is still threaded through page.tsx → the API route → here, unused for now but
+available if a future reconciliation need re-emerges elsewhere (e.g. the matrix's own subtitle) —
+don't resurrect it in this sentence specifically without revisiting why it was pulled.
 
 ### Date matrix naming
 User-facing copy uses **"the date matrix"** (or bare "the matrix" in space-constrained spots
