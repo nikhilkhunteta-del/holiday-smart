@@ -1210,16 +1210,20 @@ export async function assembleRecommendation(
   // ── Fine/absence-aware saving fields ────────────────────────────────────
   // Computed here (not in getAIRecommendation) so the warning logic is
   // testable independent of the LLM call.
+  // Rounded to whole pounds at the point of computation — see the same
+  // fix in app/api/recommend/route.ts (the live path) for why: raw
+  // total_cost_gbp is a float, and arithmetic on it propagates IEEE 754
+  // rounding error downstream (e.g. netCost showing as £760.0599999999999).
   const winner         = base.recommendation;
-  const baselineAllin  = base.baseline.total_cost_gbp;
-  const winnerTotal    = winner.total_cost_gbp;
-  const fineGbp        = winner.fine_gbp ?? 0;
+  const baselineAllin  = Math.round(base.baseline.total_cost_gbp);
+  const winnerTotal    = Math.round(winner.total_cost_gbp);
+  const fineGbp        = Math.round(winner.fine_gbp ?? 0);
   const absenceDays    = winner.absence_days ?? 0;
   const absenceOutDays = winner.absence_out_days ?? 0;
   const absenceRetDays = winner.absence_ret_days ?? 0;
   const savingVsBaseline = baselineAllin - winnerTotal;
   const fineWipesSaving  = absenceDays > 0 && fineGbp > savingVsBaseline;
-  const netCost  = winnerTotal + fineGbp;
+  const netCost  = Math.round(winnerTotal + fineGbp);
   const netDelta = netCost - baselineAllin; // positive = net worse off vs baseline
   const termResumeDateIso = windowEnd
     ? (() => {
@@ -1317,7 +1321,7 @@ export async function assembleRecommendation(
     cabinBags,
     checkedBags,
     seatsTogether,
-    benchmarkCost: base.benchmark,
+    benchmarkCost: base.benchmark != null ? Math.round(base.benchmark) : null,
     savingCategory: base.savingCategory,
     combinationCount: base.combinations.length,
     distinctDatePairs: new Set(base.combinations.map(c => `${c.outbound_date}|${c.return_date}`)).size,
@@ -1366,7 +1370,7 @@ export async function assembleRecommendation(
     baseline_eff_cost:        base.baseline.eff_cost,
     baseline_out_dep_quality: base.baseline.outbound_dep_quality,
     baseline_fare:            base.baseline.baseline_fare_gbp,
-    baseline_allin:           base.baseline.total_cost_gbp,
+    baseline_allin:           Math.round(base.baseline.total_cost_gbp),
     baseline_ret_dep_time:    base.baseline.return_departure_time_derived,
     baseline_airport_name:    (() => {
       const AIRPORT_NAMES: Record<string, string> = {

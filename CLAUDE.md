@@ -322,7 +322,31 @@ from an earlier round (distinct icons signalling distinct *kinds* of information
 
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
 Fixed order, built in `if (!isBaselineCheapest) { ... }`:
-1. **quality_advantage** — "Why this over the alternatives". Always shows.
+1. **quality_advantage** — "Why this over the alternatives". Always shows. Must be concrete
+   (actual times/airports on this specific combination, never a description of the scoring
+   process in the abstract) AND state explicitly which of three things won it — checked in this
+   priority order: (a) `winnerIsCheapest` — literally the cheapest option for these dates, (b)
+   `recommended.is_inset_day` — the inset-day option (zero absence, not necessarily cheapest),
+   (c) neither — falls through to the existing quality-axis sub-branches
+   (`departure_vs_baseline` / `arrival_vs_alternative` / `return_vs_alternative`, each now closes
+   with an explicit "won on X, not on being the cheapest option" clause) or, if none of those
+   apply either, a concrete neutral-fallback sentence referencing the actual departure/arrival/
+   return times and stating it won "on the balance of cost and quality together." A prior version
+   of this card lost this specificity — the neutral-fallback case in particular degraded into
+   `"We scored {N} combinations on both cost and timing... Quality was similar..."`, describing
+   the scoring process rather than answering "why did the system pick THIS one." Do not let this
+   drift back to generic process-description language; every branch must ground its sentences in
+   this specific combination's actual times and airports.
+   Two accuracy bugs found while manually tracing rendered output for this restructure, both
+   pre-existing in the `departure_vs_baseline` branch (not introduced by it): (a) the baseline
+   airport was interpolated as a raw IATA code — `"The Saturday LHR option departs..."` — instead
+   of through `an()` like every other airport reference in this card; fixed to `an(baselineOriginIata)`.
+   (b) the arrival time-of-day label was a two-way `arrHourDecimal < 14.5 ? 'mid-afternoon' :
+   'late afternoon'` split with no morning/midday tier at all, so an arrival as early as 10:30
+   still rendered "mid-afternoon" — and the sentence always claimed "the whole day ahead" even
+   for evening arrivals. Fixed to four real tiers (before lunch / early afternoon / mid-afternoon
+   / early evening) with a matching closing clause (evening arrivals get "in time to settle in
+   before dinner", not a false "whole day ahead" claim).
 2. **penalty_notice** — only when `absence_days > 0`. Single merged card (lever
    `penalty_notice`) — as of this update it absorbs what used to be a separate
    `alternative_option` card ("If you want to avoid the fine"); see below for why they were
@@ -362,6 +386,31 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
      alternative exists, state both comparisons side by side and let the reader pick the basis
      that matches their own school's enforcement — never silently pick one. Apply this same
      dual-basis pattern to any future absence-day trade-off copy, not just this card.
+   - **"...total if a fine is issued"**, not "...you'd pay if one is" — the dual-basis comparison
+     sentence's closing clause was reworded for clarity; "if one is" left "one" without a clear
+     enough antecedent right at the sentence's end.
+   - **Whole-pound rounding bug (fixed at the source, not just this template)**: this card was
+     showing raw floating-point output (`£177.05999999999995`, `£760.06`) because `total_cost_gbp`
+     arrives from the RPC as a float — fee components sum with IEEE 754 rounding error — and
+     `netCost = winnerTotal + fineGbp` (both `app/api/recommend/route.ts` and the parallel,
+     dead-but-kept-in-sync computation in `assembleRecommendation.ts`) was never rounded, so every
+     downstream figure derived from it (`net_cost_with_fine`, `net_delta_with_fine`, and this
+     card's `altDeltaVsFineInclusiveWinner = altTotalCost − netCostWithFine`) inherited the
+     fractional error. Fixed by rounding each input (`baselineAllin`, `winnerTotal`, `fineGbp`)
+     to whole pounds *before* combining them, in both files — not just rounding the final display
+     figure, since that would still leave the raw float propagating through intermediate
+     comparisons like `altDeltaVsFineInclusiveWinner`.
+   - **Follow-up sweep found one more unrounded source, `benchmarkCost`**: `computeBenchmark()`
+     (`buildCandidates.ts`) returns a raw `Math.min(...)` over `total_inc_fine` — never rounded —
+     and both `route.ts` and `assembleRecommendation.ts` passed it into `FamilyContext` as-is.
+     Every *use* of `context.benchmarkCost` already wrapped it in `round()` except one — the
+     `baseline_total` fact in the SELECTION CONTEXT block fed to the LLM — which would have shown
+     the same class of float artifact. Fixed at the source (`Math.round()` where `benchmarkCost`
+     is set in both files, alongside the `baseline_allin` fix immediately below it, since both
+     read the same underlying value) and at that one inconsistent display site, for defence in
+     depth. Swept the rest of the codebase for other unrounded `total_cost_gbp` arithmetic —
+     everything else was already either wrapped in a `gbp()` helper (which rounds internally in
+     every component that defines one) or built from already-rounded inputs.
    - Also removed (do not resurrect): the old alternative-option card's closing editorial line
      `"The price gap is significant — worth checking the date matrix to see if it fits your
      window"` — it editorialised against the product's own alternative and the "if it fits"
@@ -410,18 +459,29 @@ since-replaced "When half-term begins, most {borough} parents..." wording that i
 unmeasured behavioural claim and described searching for flights at a point when it's already
 too late to book well; replaced for both reasons, not just tone.)
 
-The methodology sentence now also states (a) a real observed date — `combinationsPricedOn`, the
-most recent `checked_on` in `context.price_points` (the same series behind the booking box's
-"Fares observed" stamp and the price-history chart) — and (b) the `distinctDatePairs` count, so
-"we priced N combinations" reconciles against the matrix's visibly smaller cell count rather than
-reading as a mismatch (e.g. "We priced 126 combinations on 25 Oct across five London airports and
-every viable date — collapsed to the best option per date, 16 distinct date pairs shown below").
-`get_smart_recommendation` has no pool-wide "priced as of" timestamp of its own (its return is
-just `{combinations, baseline}` — no run id or `completed_at`) — reusing the itinerary-level
-check date as the best real proxy available is a deliberate choice, not an oversight; if a
-provably-exact pool-wide timestamp is ever wanted, that needs a small RPC change to return
-`snapshot_runs.completed_at`, not yet done. Same treatment applied to the parallel
-`is_baseline_cheapest` problem statement branch for consistency.
+**Tried and reverted: an observed-date timestamp and a "distinct date pairs" reconciliation
+clause were both added to this sentence, then both pulled back out.** The full sentence became
+"We priced 126 combinations *on 25 Oct* across five London airports and every viable date —
+collapsed to the best option per date, *16 distinct date pairs shown below*." Two problems: the
+timestamp, inserted mid-sentence, read as a search constraint ("priced ON this date") rather than
+metadata about when the check happened; and the reconciliation clause turned the sentence's
+ending into a flat logistics statement instead of a conclusion. This is the opening hook of the
+whole page, not a methods section — it needs to land on "to see if you could do better. You
+can.", not trail off into "N distinct date pairs shown below." Current fixed sentence: "The
+obvious way to book {borough}'s half-term is the first Saturday — {date} from {airport}. That
+comes to £{baseline_allin} all-in. We priced {N} combinations across five London airports and
+every viable date pair to see if you could do better. You can." Same reversal applied to the
+parallel `is_baseline_cheapest` problem statement branch (which already had its own working
+conclusion, "to see if anything came out lower" — no "You can" needed there, since for that
+branch the finding is that nothing beat the obvious option).
+
+The observed-date timestamp still exists — just not here. It lives on the booking box's "Fares
+observed {date}" stamp and the leg-options modal footnote (both `ai-recommendation-client.tsx` /
+`leg-options-modal.tsx`, sourced from the same `price_points` series). The `distinctDatePairs`
+count (`FamilyContext`, computed identically to the date matrix's own `cellMap` — see its own
+field comment) is still threaded through page.tsx → the API route → here, unused for now but
+available if a future reconciliation need re-emerges elsewhere (e.g. the matrix's own subtitle) —
+don't resurrect it in this sentence specifically without revisiting why it was pulled.
 
 ### Date matrix naming
 User-facing copy uses **"the date matrix"** (or bare "the matrix" in space-constrained spots
@@ -510,6 +570,18 @@ each — centralised so a future wording change only happens in one place:
   the deterministic line already owns that comparison. Beneath that, every price-history card
   also carries one hardcoded, always-present standing line — `PRICE_MOVEMENT_STANDING_LINE`,
   "We don't predict where prices go next." — never AI-generated, never conditional.
+  **Top-section `price_movement` card layout (`ai-recommendation-client.tsx`) — narration and
+  range line render as one paragraph, caveats moved below the chart.** Previously four stacked
+  `<p>` tags in this order: airfare-only caveat, AI narration, deterministic range line, standing
+  line, then the chart toggle — read as stating the same £X→£Y figures twice (the AI narration's
+  trend framing and the range line's position framing both cite the same numbers) and buried the
+  actual finding under two caveats before the reader reached it. Now: narration + range line
+  render in a single `<p>` (the range line as a bolded inline `<span>`, not a separate paragraph),
+  immediately followed by the "See the numbers ↓" toggle/chart, with the airfare-only caveat and
+  the standing line both moved to after the chart. The two facts aren't merged into literally one
+  AI-written sentence (the narration is still free text, the range line still deterministic) —
+  just rendered as one visual block so they read as one continuous statement instead of two
+  disconnected restatements.
   **`lib/flights/priceMovement.ts` vs `lib/flights/priceMovementNarration.ts` — client/server
   split, do not merge back together.** `priceMovement.ts` holds only pure, dependency-free
   computation (`computePriceMovement`, `buildPriceRangeLine`, the `PriceMovement*`/`PriceRange*`

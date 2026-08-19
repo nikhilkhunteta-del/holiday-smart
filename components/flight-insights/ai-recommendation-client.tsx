@@ -686,62 +686,38 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                   }}>
                     {card.headline}
                   </h3>
-                  {/* Unconditional clarifying subtitle — the chart/card track
-                      airfare only (summed party_total_gbp per leg), not the
-                      all-in total shown elsewhere on the page. Must render
-                      before the AI-narrated paragraph below, since that
-                      paragraph is where price figures first appear. */}
-                  {card.lever === 'price_movement' && (
-                    <p style={{
-                      fontFamily: 'Inter, sans-serif',
-                      fontSize: 13,
-                      color: '#6f797a',
-                      lineHeight: 1.5,
-                      marginBottom: 8,
-                      maxWidth: '42ch',
-                    }}>
-                      Airfare only — the rest is folded into {(rec as any)?.total_cost_gbp != null
-                        ? `the £${Math.round((rec as any).total_cost_gbp).toLocaleString('en-GB')} all-in total`
-                        : 'the all-in total'}.
-                    </p>
-                  )}
-                  <p style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: 16,
-                    color: '#3f484a',
-                    lineHeight: 1.6,
-                    marginBottom: card.lever === 'price_movement' ? 4 : 12,
-                    maxWidth: '42ch',
-                  }}>
-                    {card.insight}
-                  </p>
-                  {/* Unconditional closing line — same structure and weight
-                      whether the current price is the series low, the
-                      series high, or neither. Never AI-generated. */}
-                  {card.lever === 'price_movement' && priceMovementRangeLine && (
+                  {/* Narration (trend) and the deterministic range line
+                      (position within the range) render as ONE paragraph —
+                      previously two stacked <p> tags, which read as
+                      stating the same £X→£Y figures twice even though one
+                      is the trend and the other is the range position. */}
+                  {card.lever === 'price_movement' ? (
                     <p style={{
                       fontFamily: 'Inter, sans-serif',
                       fontSize: 16,
-                      fontWeight: 600,
-                      color: '#004349',
+                      color: '#3f484a',
                       lineHeight: 1.6,
-                      marginBottom: 4,
-                      maxWidth: '42ch',
-                    }}>
-                      {priceMovementRangeLine}
-                    </p>
-                  )}
-                  {/* Standing disclaimer — hardcoded, always present
-                      regardless of what the data shows, never conditional. */}
-                  {card.lever === 'price_movement' && (
-                    <p style={{
-                      fontFamily: 'Inter, sans-serif',
-                      fontSize: 13,
-                      color: '#6f797a',
                       marginBottom: 12,
                       maxWidth: '42ch',
                     }}>
-                      {PRICE_MOVEMENT_STANDING_LINE}
+                      {card.insight}
+                      {card.insight && priceMovementRangeLine ? ' ' : ''}
+                      {priceMovementRangeLine && (
+                        <span style={{ fontWeight: 600, color: '#004349' }}>
+                          {priceMovementRangeLine}
+                        </span>
+                      )}
+                    </p>
+                  ) : (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 16,
+                      color: '#3f484a',
+                      lineHeight: 1.6,
+                      marginBottom: 12,
+                      maxWidth: '42ch',
+                    }}>
+                      {card.insight}
                     </p>
                   )}
                   {/* "See the numbers ↓" — only when there's more than one
@@ -770,6 +746,39 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                         <PriceMovementChart points={aiResult!.price_movement!.price_points} />
                       )}
                     </div>
+                  )}
+                  {/* Clarifying subtitle — the chart/card track airfare only
+                      (summed party_total_gbp per leg), not the all-in total
+                      shown elsewhere on the page. Moved below the chart
+                      (was above the narration) so the narration/range-line
+                      hook isn't preceded by a caveat. */}
+                  {card.lever === 'price_movement' && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      color: '#6f797a',
+                      lineHeight: 1.5,
+                      marginTop: 12,
+                      marginBottom: 4,
+                      maxWidth: '42ch',
+                    }}>
+                      Airfare only — the rest is folded into {(rec as any)?.total_cost_gbp != null
+                        ? `the £${Math.round((rec as any).total_cost_gbp).toLocaleString('en-GB')} all-in total`
+                        : 'the all-in total'}.
+                    </p>
+                  )}
+                  {/* Standing disclaimer — hardcoded, always present
+                      regardless of what the data shows, never conditional.
+                      Also moved below the chart alongside the caveat above. */}
+                  {card.lever === 'price_movement' && (
+                    <p style={{
+                      fontFamily: 'Inter, sans-serif',
+                      fontSize: 13,
+                      color: '#6f797a',
+                      maxWidth: '42ch',
+                    }}>
+                      {PRICE_MOVEMENT_STANDING_LINE}
+                    </p>
                   )}
                   {/* Badge for inset day */}
                   {card.lever === 'inset_day' && (
