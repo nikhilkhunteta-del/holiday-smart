@@ -49,7 +49,7 @@ jobs:
       - name: Confirm psql is available
         run: psql --version
 
-      - name: Bootstrap pre-existing tables (destinations, snapshot_runs)
+      - name: Bootstrap pre-existing schema objects
         run: |
           # `destinations` and `snapshot_runs` predate this repo's
           # supabase/tables/ convention entirely — they were created
@@ -66,13 +66,28 @@ jobs:
           # created, which would be a false failure unrelated to whether
           # the PR's actual SQL is correct.
           #
-          # Deliberately minimal: just the columns the ALTER/FK statements
-          # in supabase/tables/ actually touch, not a full schema replica.
+          # destination_type (ENUM) is the same story, discovered the hard
+          # way: get_open_jaw.sql declares a local variable of this type
+          # (`v_dest_type destination_type;`), and unlike ordinary SQL
+          # inside a plpgsql body — which isn't checked against real
+          # objects until execution — a DECLARE block's own type IS
+          # resolved at CREATE FUNCTION time. No CREATE TYPE for it exists
+          # anywhere in this repo either (per data-model.md's documented
+          # definition, reproduced here), so without this the RPC step
+          # fails on get_open_jaw.sql specifically, again for a reason
+          # unrelated to whether the PR's SQL is correct.
+          #
+          # Deliberately minimal: just the columns/types the ALTER/FK/
+          # DECLARE statements in supabase/tables/ and supabase/rpc/
+          # actually touch, not a full schema replica. Every job run gets
+          # a brand-new empty container, so none of this needs IF NOT
+          # EXISTS guards for idempotency across runs.
           cat > /tmp/bootstrap.sql <<'SQL'
-          CREATE TABLE IF NOT EXISTS destinations (
+          CREATE TYPE destination_type AS ENUM ('city', 'circuit', 'resort');
+          CREATE TABLE destinations (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid()
           );
-          CREATE TABLE IF NOT EXISTS snapshot_runs (
+          CREATE TABLE snapshot_runs (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             run_type text
           );
