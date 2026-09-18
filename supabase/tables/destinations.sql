@@ -1,0 +1,23 @@
+-- destinations.iana_timezone — destination-local IANA timezone identifier
+-- (e.g. 'Europe/Madrid' for Barcelona), used to bucket daylight hours and
+-- detect DST-change dates per destination for the weather feature. Lives on
+-- `destinations`, not `airports`/`destination_airports` — a circuit's two
+-- airports (e.g. Andalusian Corridor: SVQ + AGP) still share one
+-- destination-local time zone for this purpose.
+--
+-- NOTE: this is the first migration file `destinations` has ever had in
+-- version control — the live table predates this repo's supabase/tables/
+-- convention and was created directly against Supabase, so there is no
+-- CREATE TABLE for it here to extend. This file deliberately does NOT
+-- attempt to reconstruct the full table (data-model.md's design doc is
+-- already known to have drifted from live schema at least once —
+-- destination_legs vs destination_airports) — it only adds this one
+-- column, idempotently, matching the ALTER-only scope requested.
+--
+-- Added nullable here, not NOT NULL: this file is re-executed by
+-- .github/workflows/deploy-supabase.yml on every push to main that touches
+-- supabase/tables/**, so it must stay safe to run before any backfill has
+-- happened. NOT NULL is enforced separately, once existing rows are
+-- backfilled — see supabase/backfill/backfill_destination_timezones.sql.
+ALTER TABLE destinations
+  ADD COLUMN IF NOT EXISTS iana_timezone text;
