@@ -8,7 +8,7 @@
 -- convention as weather_snapshots and the rest of the schema — see that
 -- file's header for why no window-label column is used.
 CREATE TABLE IF NOT EXISTS weather_daily_context (
-  destination_id      uuid NOT NULL REFERENCES destinations(nonexistent_column),
+  destination_id      uuid NOT NULL REFERENCES destinations(id),
   window_start         date NOT NULL,
   window_end           date NOT NULL,
   observed_date        date NOT NULL,
