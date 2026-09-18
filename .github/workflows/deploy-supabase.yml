@@ -7,6 +7,7 @@ on:
     paths:
       - 'supabase/rpc/**.sql'
       - 'supabase/tables/**.sql'
+  workflow_dispatch:
 
 jobs:
   deploy-rpc:
@@ -20,10 +21,17 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
 
       - name: Link Supabase project
         run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Sanity-check db query subcommand (no-op, temporary)
+        run: |
+          echo "select 1;" > /tmp/sanity_check.sql
+          supabase db query --linked --file /tmp/sanity_check.sql
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -36,7 +44,7 @@ jobs:
             for file in supabase/tables/*.sql; do
               [ -e "$file" ] || continue
               echo "Deploying: $file"
-              supabase db execute --file "$file"
+              supabase db query --linked --file "$file"
             done
           fi
         env:
@@ -53,7 +61,7 @@ jobs:
               continue
             fi
             echo "Deploying: $name"
-            supabase db execute --file "$file"
+            supabase db query --linked --file "$file"
           done
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
