@@ -43,6 +43,20 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Verify deploy (ground-truth check) [TEMP deliberately-broken test]
+        run: |
+          cat > /tmp/verify_deploy.sql <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'this_table_does_not_exist') THEN
+              RAISE EXCEPTION 'DELIBERATE TEST FAILURE - this should make the step fail';
+            END IF;
+          END $$;
+          SQL
+          supabase db query --linked --file /tmp/verify_deploy.sql
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
       - name: Deploy RPC functions
         run: |
           # Deploy all function files (CREATE OR REPLACE — idempotent, safe to re-run)
