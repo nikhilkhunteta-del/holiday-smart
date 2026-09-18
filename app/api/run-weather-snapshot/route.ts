@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runWeatherSnapshotJob, OCTOBER_2026_HALFTERM_WEATHER } from '@/lib/weather/weatherSnapshotJob';
+import { runWeatherSnapshotJob, OCT_NOV_RANGE } from '@/lib/weather/weatherSnapshotJob';
 
 export async function POST(request: NextRequest) {
   const apiKey = request.headers.get('x-api-key');
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await runWeatherSnapshotJob({
-      targetWindows: [OCTOBER_2026_HALFTERM_WEATHER],
+      dateRange: OCT_NOV_RANGE,
     });
 
     return NextResponse.json({
