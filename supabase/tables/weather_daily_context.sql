@@ -7,6 +7,9 @@
 -- Keyed on the raw (destination_id, window_start, window_end) triple, same
 -- convention as weather_snapshots and the rest of the schema — see that
 -- file's header for why no window-label column is used.
+--
+-- (Comment-only line added to give this PR a real, path-matching diff so
+-- validate-supabase.yml's pull_request trigger actually fires on it.)
 CREATE TABLE IF NOT EXISTS weather_daily_context (
   destination_id      uuid NOT NULL REFERENCES destinations(id),
   window_start         date NOT NULL,
