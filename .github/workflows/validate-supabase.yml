@@ -1,0 +1,170 @@
+name: Validate Supabase RPC Functions and Tables
+
+# Runs the exact same SQL files as deploy-supabase.yml, in the same order,
+# against a disposable Postgres container inside this job — never against
+# the real Supabase project. No SUPABASE_ACCESS_TOKEN, no SUPABASE_PROJECT_ID,
+# no real credentials anywhere in this file.
+#
+# Why this exists: deploy-supabase.yml only triggers on push to main, so it
+# can never report a status against a PR's head commit — making it
+# structurally impossible to use as a required branch-protection check (the
+# check can't complete until after the merge it's supposed to gate). This
+# workflow exists specifically to be that required check instead.
+#
+# deploy-supabase.yml itself is intentionally left untouched by this file —
+# it must never trigger on pull_request under any circumstances.
+on:
+  pull_request:
+    paths:
+      - 'supabase/rpc/**.sql'
+      - 'supabase/tables/**.sql'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate SQL against a disposable Postgres container
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGDATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm psql is available
+        run: psql --version
+
+      - name: Bootstrap pre-existing tables (destinations, snapshot_runs)
+        run: |
+          # `destinations` and `snapshot_runs` predate this repo's
+          # supabase/tables/ convention entirely — they were created
+          # directly in the Supabase dashboard, never via a CREATE TABLE
+          # checked into this repo (confirmed while adding
+          # destinations.sql/snapshot_runs.sql: both files are ALTER-only
+          # for exactly this reason). Production already has these tables,
+          # so deploy-supabase.yml's ALTER statements just work there. This
+          # disposable container starts genuinely empty, so without this
+          # step every ALTER TABLE destinations/snapshot_runs below — and
+          # every weather_*/cell_price_history/destination_median_history
+          # CREATE TABLE that FK-references destinations(id) or
+          # snapshot_runs(id) — would fail on a table that was never
+          # created, which would be a false failure unrelated to whether
+          # the PR's actual SQL is correct.
+          #
+          # Deliberately minimal: just the columns the ALTER/FK statements
+          # in supabase/tables/ actually touch, not a full schema replica.
+          cat > /tmp/bootstrap.sql <<'SQL'
+          CREATE TABLE IF NOT EXISTS destinations (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+          );
+          CREATE TABLE IF NOT EXISTS snapshot_runs (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            run_type text
+          );
+          SQL
+          psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/bootstrap.sql
+
+      - name: Apply table DDL
+        run: |
+          # Same set, same order as deploy-supabase.yml's "Deploy tables" step.
+          # -v ON_ERROR_STOP=1 is required — psql otherwise continues past a
+          # failing statement and exits 0 regardless, which would defeat the
+          # entire point of this check.
+          if [ -d supabase/tables ]; then
+            for file in supabase/tables/*.sql; do
+              [ -e "$file" ] || continue
+              echo "Applying: $file"
+              psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+            done
+          fi
+
+      - name: Ground-truth check (same invariants as deploy-supabase.yml)
+        run: |
+          # Mirrors deploy-supabase.yml's "Verify deploy" step, run here
+          # against the disposable container instead of production — catches
+          # a broken migration on the PR itself instead of after merge.
+          # ONE deliberate difference from that step: the iana_timezone
+          # check here only confirms the COLUMN EXISTS, not that it's
+          # NOT NULL — NOT NULL is only enforced by
+          # supabase/backfill/backfill_destination_timezones.sql, which
+          # (correctly) never runs in this job, same as it never runs in
+          # deploy-supabase.yml's own automated path. Checking NOT NULL here
+          # would fail on every PR regardless of correctness, since a fresh
+          # disposable DB never gets backfilled. Update both copies together
+          # if the invariants change.
+          cat > /tmp/verify_deploy.sql <<'SQL'
+          DO $$
+          DECLARE
+            missing text[] := ARRAY[]::text[];
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cell_price_history') THEN
+              missing := missing || 'table cell_price_history';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'destination_median_history') THEN
+              missing := missing || 'table destination_median_history';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_snapshots') THEN
+              missing := missing || 'table weather_snapshots';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_daily_context') THEN
+              missing := missing || 'table weather_daily_context';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_window_stats') THEN
+              missing := missing || 'table weather_window_stats';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_strip_cells') THEN
+              missing := missing || 'table weather_strip_cells';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'destinations'
+                AND column_name = 'iana_timezone'
+            ) THEN
+              missing := missing || 'destinations.iana_timezone (column missing)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint con
+              JOIN pg_class rel ON rel.oid = con.conrelid
+              JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+              WHERE nsp.nspname = 'public' AND rel.relname = 'snapshot_runs' AND con.conname = 'valid_run_type'
+                AND pg_get_constraintdef(con.oid) LIKE '%weather_annual%'
+            ) THEN
+              missing := missing || 'snapshot_runs.valid_run_type (missing weather_annual)';
+            END IF;
+            IF array_length(missing, 1) > 0 THEN
+              RAISE EXCEPTION 'VALIDATION FAILED - missing: %', array_to_string(missing, '; ');
+            END IF;
+            RAISE NOTICE 'Validation passed - all expected tables/columns/constraints present.';
+          END $$;
+          SQL
+          psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/verify_deploy.sql
+
+      - name: Apply RPC functions
+        run: |
+          # Same set, same order, same exclusion as deploy-supabase.yml's
+          # "Deploy RPC functions" step.
+          for file in supabase/rpc/*.sql; do
+            name=$(basename "$file")
+            if [ "$name" = "seed_airline_baggage_fees.sql" ]; then
+              echo "Skipping seed file: $name"
+              continue
+            fi
+            echo "Applying: $name"
+            psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
