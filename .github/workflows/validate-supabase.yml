@@ -77,11 +77,22 @@ jobs:
           # fails on get_open_jaw.sql specifically, again for a reason
           # unrelated to whether the PR's SQL is correct.
           #
+          # snapshot_runs.completed_at / success_calls: also discovered the
+          # hard way. get_valid_history_run_ids.sql is the one function in
+          # this whole codebase declared LANGUAGE sql rather than plpgsql —
+          # and unlike plpgsql (an opaque string until first execution), a
+          # LANGUAGE sql function's body IS fully validated against real
+          # columns at CREATE FUNCTION time. Every other RPC file is
+          # plpgsql and creates fine regardless of what its body
+          # references (confirmed: they succeed even against tables/
+          # columns this stub never defines), so this is the only
+          # instance of this failure mode found.
+          #
           # Deliberately minimal: just the columns/types the ALTER/FK/
-          # DECLARE statements in supabase/tables/ and supabase/rpc/
-          # actually touch, not a full schema replica. Every job run gets
-          # a brand-new empty container, so none of this needs IF NOT
-          # EXISTS guards for idempotency across runs.
+          # DECLARE/LANGUAGE-sql statements in supabase/tables/ and
+          # supabase/rpc/ actually touch, not a full schema replica. Every
+          # job run gets a brand-new empty container, so none of this
+          # needs IF NOT EXISTS guards for idempotency across runs.
           cat > /tmp/bootstrap.sql <<'SQL'
           CREATE TYPE destination_type AS ENUM ('city', 'circuit', 'resort');
           CREATE TABLE destinations (
@@ -89,7 +100,9 @@ jobs:
           );
           CREATE TABLE snapshot_runs (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-            run_type text
+            run_type text,
+            completed_at timestamptz,
+            success_calls integer
           );
           SQL
           psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/bootstrap.sql
