@@ -43,6 +43,65 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Verify deploy (ground-truth check)
+        run: |
+          # Confirms the SQL above actually took effect — a 0 exit code from
+          # `supabase db query` only means the command ran, not that every
+          # statement inside a file had the intended effect. Fails the whole
+          # run loudly (RAISE EXCEPTION -> nonzero exit -> failed step) if any
+          # expected table/column/constraint is missing. Verified against a
+          # deliberately-broken version of this same check before this was
+          # trusted: https://github.com/nikhilkhunteta-del/holiday-smart/actions/runs/35333410463
+          cat > /tmp/verify_deploy.sql <<'SQL'
+          DO $$
+          DECLARE
+            missing text[] := ARRAY[]::text[];
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cell_price_history') THEN
+              missing := missing || 'table cell_price_history';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'destination_median_history') THEN
+              missing := missing || 'table destination_median_history';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_snapshots') THEN
+              missing := missing || 'table weather_snapshots';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_daily_context') THEN
+              missing := missing || 'table weather_daily_context';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_window_stats') THEN
+              missing := missing || 'table weather_window_stats';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'weather_strip_cells') THEN
+              missing := missing || 'table weather_strip_cells';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'destinations'
+                AND column_name = 'iana_timezone' AND is_nullable = 'NO'
+            ) THEN
+              missing := missing || 'destinations.iana_timezone (missing or nullable)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint con
+              JOIN pg_class rel ON rel.oid = con.conrelid
+              JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+              WHERE nsp.nspname = 'public' AND rel.relname = 'snapshot_runs' AND con.conname = 'valid_run_type'
+                AND pg_get_constraintdef(con.oid) LIKE '%weather_annual%'
+            ) THEN
+              missing := missing || 'snapshot_runs.valid_run_type (missing weather_annual)';
+            END IF;
+            IF array_length(missing, 1) > 0 THEN
+              RAISE EXCEPTION 'POST-DEPLOY VERIFICATION FAILED - missing: %', array_to_string(missing, '; ');
+            END IF;
+            RAISE NOTICE 'Post-deploy verification passed - all expected tables/columns/constraints present.';
+          END $$;
+          SQL
+          supabase db query --linked --file /tmp/verify_deploy.sql
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
       - name: Deploy RPC functions
         run: |
           # Deploy all function files (CREATE OR REPLACE — idempotent, safe to re-run)
