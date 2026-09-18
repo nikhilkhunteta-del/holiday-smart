@@ -2,15 +2,34 @@
  * Annual weather-history snapshot job.
  *
  * Architecture (mirrors lib/flights/snapshotJob.ts's shape deliberately):
- *   For each target window × destination × historical year:
+ *   For each destination × historical year:
  *     - One Historical Weather API call (archive-api.open-meteo.com):
  *       hourly precipitation/temperature/apparent_temperature/cloud_cover/
  *       wind_speed_10m/weather_code, plus a daily sunrise/sunset block —
- *       for that year's window ±1 day, in the destination's local timezone.
+ *       for that year's wide calendar date range, in the destination's
+ *       local timezone.
  *     - One Marine Weather API call (marine-api.open-meteo.com):
  *       hourly sea_surface_temperature, same range/timezone.
  *   Every hour returned becomes one weather_snapshots row; every day
  *   becomes one weather_daily_context row.
+ *
+ * BOROUGH-BLIND BY DESIGN (corrected from an earlier version that keyed
+ * the raw tables on window_start/window_end): weather is
+ * destination-specific, not borough-specific — only the WINDOW (which
+ * calendar days count as "the holiday") varies by school/borough, via
+ * inset days. This job fetches one wide calendar date range per
+ * destination per year (config default: 15 Oct – 5 Nov), independent of
+ * any specific school/borough's actual term window, then stores every
+ * hour of that range unconditionally. This is the same principle already
+ * established for fare_snapshots: raw/expensive data stays borough-blind;
+ * only the derived layer (weather_window_stats/weather_strip_cells, a
+ * separate task) varies by window, by reading the slice of this table
+ * that falls inside whatever window a given school/borough actually has.
+ * Confirmed while making this change: this file never queried
+ * school_term_dates/borough_term_dates, and never took a school/URN
+ * parameter, even in its previous window-scoped form — the window
+ * concept lived only in the config shape (WeatherTargetWindow) and the
+ * two now-removed table columns, not in any actual per-school lookup.
  *
  * This job only populates the raw Layer 2 tables (weather_snapshots,
  * weather_daily_context). It deliberately does NOT write to the derived
@@ -32,11 +51,11 @@
  * weather_snapshots and weather_daily_context have real uniqueness
  * constraints for this reason (see supabase/tables/), so this job upserts
  * on those constraints rather than plain-inserting — re-running the same
- * window/year refreshes the row instead of failing or duplicating.
+ * destination/year refreshes the row instead of failing or duplicating.
  *
  * Usage (programmatic):
  *   import { runWeatherSnapshotJob } from './weatherSnapshotJob';
- *   await runWeatherSnapshotJob({ targetWindows: [OCTOBER_2026_HALFTERM_WEATHER] });
+ *   await runWeatherSnapshotJob({ dateRange: OCT_NOV_RANGE });
  *
  * Usage (direct, pilot):
  *   npx ts-node --project tsconfig.json lib/weather/weatherSnapshotJob.ts
@@ -70,25 +89,29 @@ const SEA_TEMP_REPRESENTATIVE_HOUR = 12;
 
 // ── Public interfaces ─────────────────────────────────────────────────────────
 
-export interface WeatherTargetWindow {
-  /** Stored in snapshot_runs.target_windows, e.g. '2026-10-halfterm' — same
-   *  short-label convention as the flights job's TargetWindow.label. */
+export interface WeatherDateRange {
+  /** Stored in snapshot_runs.target_windows, e.g. 'oct15-nov5' — a label for
+   *  the wide calendar range being fetched. Deliberately NOT called a
+   *  "window": this is a fixed calendar range fetched the same way for
+   *  every destination, not a specific school/borough's term dates. */
   label: string;
-  /** School-holiday window start, YYYY-MM-DD. Matches window_start on every
-   *  weather table (and school_term_dates/every RPC's own window concept) —
-   *  NOT the flights job's own wider flight-search date range. */
-  windowStart: string;
-  /** School-holiday window end, YYYY-MM-DD. */
-  windowEnd: string;
+  /** Wide calendar range start, YYYY-MM-DD, for a reference year — only the
+   *  month/day matter, since shiftYear() maps this onto every historical
+   *  year fetched. Must comfortably cover every borough's actual window
+   *  (inset days included) for the derived layer to have real data to
+   *  read regardless of which specific school/borough it's computing for. */
+  rangeStart: string;
+  /** Wide calendar range end, YYYY-MM-DD. */
+  rangeEnd: string;
 }
 
 export interface WeatherJobConfig {
-  targetWindows: WeatherTargetWindow[];
+  dateRange: WeatherDateRange;
   /** Override pilot destination slugs. Defaults to PILOT_SLUGS. */
   destinationSlugs?: string[];
-  /** How many historical years to fetch per window, counting back from the
-   *  window's own year (exclusive — only past years, since the archive API
-   *  has no data for a future booking window). Defaults to
+  /** How many historical years to fetch, counting back from dateRange's own
+   *  reference year (exclusive — only past years, since the archive API has
+   *  no data for a future booking window). Defaults to
    *  WEATHER_THRESHOLDS.stripYearSpan (20), the same figure the year-by-year
    *  strip feature is defined around. */
   yearSpan?: number;
@@ -158,13 +181,13 @@ function getSupabase(): SupabaseClient {
 
 async function startRun(
   supabase: SupabaseClient,
-  windows: WeatherTargetWindow[],
+  dateRange: WeatherDateRange,
 ): Promise<string> {
   const { data, error } = await supabase
     .from('snapshot_runs')
     .insert({
       run_type: 'weather_annual',
-      target_windows: windows.map(w => w.label),
+      target_windows: [dateRange.label],
     })
     .select('id')
     .single();
@@ -196,6 +219,12 @@ async function finishRun(
 }
 
 // ── Reference data ────────────────────────────────────────────────────────────
+//
+// Deliberately just `destinations` — no school_urn parameter anywhere in
+// this file, no school_term_dates/borough_term_dates query anywhere in
+// this file. Confirmed by reading this function: it only ever needs a
+// destination's own coordinates/timezone, never a specific school's term
+// window.
 
 async function loadDestinationWeatherInfo(
   supabase: SupabaseClient,
@@ -318,8 +347,6 @@ function computeIsDaylight(
 async function upsertWeatherSnapshots(
   supabase: SupabaseClient,
   destinationId: string,
-  windowStart: string,
-  windowEnd: string,
   observedYear: number,
   archive: ArchiveResponse,
 ): Promise<{ ok: number; fail: number }> {
@@ -345,8 +372,6 @@ async function upsertWeatherSnapshots(
 
     return {
       destination_id: destinationId,
-      window_start: windowStart,
-      window_end: windowEnd,
       observed_year: observedYear,
       observed_date: t.slice(0, 10),
       observed_hour: Number(t.slice(11, 13)),
@@ -365,7 +390,7 @@ async function upsertWeatherSnapshots(
 
   const { error } = await supabase
     .from('weather_snapshots')
-    .upsert(records, { onConflict: 'destination_id,window_start,window_end,observed_date,observed_hour' });
+    .upsert(records, { onConflict: 'destination_id,observed_date,observed_hour' });
 
   if (error) {
     console.error(`[weather-snapshot] weather_snapshots upsert failed: ${error.message}`);
@@ -379,8 +404,6 @@ async function upsertWeatherSnapshots(
 async function upsertDailyContext(
   supabase: SupabaseClient,
   destinationId: string,
-  windowStart: string,
-  windowEnd: string,
   archive: ArchiveResponse,
   marine: MarineResponse | null,
 ): Promise<{ ok: number; fail: number }> {
@@ -395,8 +418,6 @@ async function upsertDailyContext(
 
     return {
       destination_id: destinationId,
-      window_start: windowStart,
-      window_end: windowEnd,
       observed_date: date,
       sunrise_local: sunrise[i]?.slice(11), // 'HH:MM' portion of the local ISO timestamp
       sunset_local: sunset[i]?.slice(11),
@@ -408,7 +429,7 @@ async function upsertDailyContext(
 
   const { error } = await supabase
     .from('weather_daily_context')
-    .upsert(records, { onConflict: 'destination_id,window_start,window_end,observed_date' });
+    .upsert(records, { onConflict: 'destination_id,observed_date' });
 
   if (error) {
     console.error(`[weather-snapshot] weather_daily_context upsert failed: ${error.message}`);
@@ -446,11 +467,12 @@ function sleep(ms: number): Promise<void> {
 export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<WeatherSnapshotJobResult> {
   const destinationSlugs = config.destinationSlugs ?? [...PILOT_SLUGS];
   const yearSpan = config.yearSpan ?? WEATHER_THRESHOLDS.stripYearSpan;
+  const { dateRange } = config;
 
   console.log('[weather-snapshot] job started', new Date().toISOString());
   console.log(
     `[weather-snapshot] yearSpan=${yearSpan}  ` +
-    `windows=${config.targetWindows.map(w => w.label).join(', ')}`,
+    `range=${dateRange.label} (${dateRange.rangeStart}..${dateRange.rangeEnd})`,
   );
 
   const supabase = getSupabase();
@@ -459,7 +481,7 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
   // 1. Register run
   let runId: string;
   try {
-    runId = await startRun(supabase, config.targetWindows);
+    runId = await startRun(supabase, dateRange);
     console.log(`[weather-snapshot] run_id=${runId}`);
   } catch (err) {
     console.error('[weather-snapshot] Fatal — cannot register run:', err);
@@ -481,58 +503,53 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
     throw err;
   }
 
-  // 3. Main loop: window × destination × historical year
+  // 3. Main loop: destination × historical year — no window/school dimension
+  //    at all, by design (see file header).
   try {
-    for (const window of config.targetWindows) {
-      const windowYear = Number(window.windowStart.slice(0, 4));
-      const years = Array.from({ length: yearSpan }, (_, i) => windowYear - yearSpan + i);
+    const rangeYear = Number(dateRange.rangeStart.slice(0, 4));
+    const years = Array.from({ length: yearSpan }, (_, i) => rangeYear - yearSpan + i);
 
-      console.log(
-        `[weather-snapshot] window ${window.label}: ${years.length} years ` +
-        `(${years[0]}–${years[years.length - 1]})`,
-      );
+    console.log(
+      `[weather-snapshot] ${dateRange.label}: ${years.length} years ` +
+      `(${years[0]}–${years[years.length - 1]})`,
+    );
 
-      for (const dest of destinations) {
-        for (const year of years) {
-          const yearStart = addDays(shiftYear(window.windowStart, year), -1);
-          const yearEnd = addDays(shiftYear(window.windowEnd, year), 1);
-          const label = `${dest.slug} ${year} (${yearStart}..${yearEnd})`;
+    for (const dest of destinations) {
+      for (const year of years) {
+        const yearStart = shiftYear(dateRange.rangeStart, year);
+        const yearEnd = shiftYear(dateRange.rangeEnd, year);
+        const label = `${dest.slug} ${year} (${yearStart}..${yearEnd})`;
 
-          counters.total++;
-          await sleep(API_DELAY_MS);
-          const archive = await withRetry(
-            () => fetchHistoricalWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
-            `archive ${label}`,
-          );
+        counters.total++;
+        await sleep(API_DELAY_MS);
+        const archive = await withRetry(
+          () => fetchHistoricalWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
+          `archive ${label}`,
+        );
 
-          if (!archive) {
-            counters.failed++;
-            continue;
-          }
-
-          counters.total++;
-          await sleep(API_DELAY_MS);
-          const marine = await withRetry(
-            () => fetchMarineWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
-            `marine ${label}`,
-          );
-          if (!marine) counters.failed++; else counters.success++;
-
-          const snapResult = await upsertWeatherSnapshots(
-            supabase, dest.destinationId, window.windowStart, window.windowEnd, year, archive,
-          );
-          const ctxResult = await upsertDailyContext(
-            supabase, dest.destinationId, window.windowStart, window.windowEnd, archive, marine,
-          );
-
-          console.log(
-            `[weather-snapshot] ${label}: ` +
-            `${snapResult.ok} hourly rows, ${ctxResult.ok} daily rows` +
-            (snapResult.fail || ctxResult.fail ? ` (${snapResult.fail + ctxResult.fail} row failures)` : ''),
-          );
-
-          if (snapResult.fail > 0 || ctxResult.fail > 0) counters.failed++; else counters.success++;
+        if (!archive) {
+          counters.failed++;
+          continue;
         }
+
+        counters.total++;
+        await sleep(API_DELAY_MS);
+        const marine = await withRetry(
+          () => fetchMarineWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
+          `marine ${label}`,
+        );
+        if (!marine) counters.failed++; else counters.success++;
+
+        const snapResult = await upsertWeatherSnapshots(supabase, dest.destinationId, year, archive);
+        const ctxResult = await upsertDailyContext(supabase, dest.destinationId, archive, marine);
+
+        console.log(
+          `[weather-snapshot] ${label}: ` +
+          `${snapResult.ok} hourly rows, ${ctxResult.ok} daily rows` +
+          (snapResult.fail || ctxResult.fail ? ` (${snapResult.fail + ctxResult.fail} row failures)` : ''),
+        );
+
+        if (snapResult.fail > 0 || ctxResult.fail > 0) counters.failed++; else counters.success++;
       }
     }
   } catch (err) {
@@ -550,42 +567,29 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
   return { runId, ...counters };
 }
 
-// ── Direct execution — October 2026 half-term pilot ───────────────────────────
+// ── Direct execution — wide Oct/Nov calendar range pilot ──────────────────────
 
 /**
- * ⚠ STILL UNRESOLVED — NOT the real half-term window, flagged explicitly
- * rather than quietly left as-is a second time. windowStart/windowEnd below
- * are still the flights job's own OCTOBER_2026_HALFTERM bounds (its ±3-day
- * flexible flight-search range), not a real school_term_dates/
- * borough_term_dates row.
- *
- * I tried to fix this properly: added a temporary read-only query step to
- * deploy-supabase.yml to pull real rows from school_term_dates/
- * borough_term_dates for Oct–Nov 2026 via workflow_dispatch (the same
- * technique already used successfully to verify the CLI fix earlier this
- * session). That action was blocked by this environment's own permission
- * classifier as "Credential Exploration" before the query ever ran —
- * apparently because that pipeline's credentials extracting real
- * application data rows is treated differently from using it to confirm
- * schema/mechanics (which the earlier CI-fix verification did and was
- * allowed). I did not attempt to work around that block.
- *
- * This needs one of: (a) you run the query yourself (see the reverted
- * commit's diff for the exact SQL, or ask me and I'll hand you the query
- * text) and give me the real window_start/window_end, or (b) you grant
- * permission for that class of action, or (c) point me at a specific
- * school URN/borough to use. Until then, treat every date derived from
- * this constant as describing the WRONG week.
+ * 15 Oct – 5 Nov: a wide calendar range comfortably covering every London
+ * borough's actual October half-term window (including inset-day
+ * extensions on either side) — not a specific school/borough's term
+ * dates. This resolves the previous version's "STILL UNRESOLVED" blocker
+ * (finding one real school's window_start/window_end) by making the
+ * question moot: the raw fetch no longer needs any specific window at
+ * all, borough-blind by design (see file header). The derived layer
+ * (weather_window_stats/weather_strip_cells, a separate task) is what
+ * will read the slice of this range that falls inside whatever window a
+ * given school/borough actually has.
  */
-export const OCTOBER_2026_HALFTERM_WEATHER: WeatherTargetWindow = {
-  label:       '2026-10-halfterm',
-  windowStart: '2026-10-22',
-  windowEnd:   '2026-11-02',
+export const OCT_NOV_RANGE: WeatherDateRange = {
+  label:      'oct15-nov5',
+  rangeStart: '2026-10-15',
+  rangeEnd:   '2026-11-05',
 };
 
 if (require.main === module) {
   runWeatherSnapshotJob({
-    targetWindows: [OCTOBER_2026_HALFTERM_WEATHER],
+    dateRange: OCT_NOV_RANGE,
   }).catch(err => {
     console.error('[weather-snapshot] fatal:', err);
     process.exit(1);
