@@ -11,6 +11,8 @@
 -- borough-blind the same way fare_snapshots does. window_start/
 -- window_end still belong on weather_window_stats/weather_strip_cells,
 -- the derived per-window layer — untouched by this migration.
+-- (Comment-only line added to give this PR a real, path-matching diff so
+-- validate-supabase.yml's pull_request trigger actually fires on it.)
 CREATE TABLE IF NOT EXISTS weather_daily_context (
   destination_id       uuid NOT NULL REFERENCES destinations(id),
   observed_date        date NOT NULL,
