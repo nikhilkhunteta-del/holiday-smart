@@ -13,11 +13,20 @@ name: Validate Supabase RPC Functions and Tables
 #
 # deploy-supabase.yml itself is intentionally left untouched by this file —
 # it must never trigger on pull_request under any circumstances.
+#
+# No `paths:` filter on the trigger below — deliberately. A required
+# status check that only triggers on matching paths never gets reported at
+# all on a PR that doesn't touch them, and GitHub has no "not applicable"
+# state for a required check that was simply never created — it shows as
+# permanently pending and blocks merge forever (confirmed: PR #185, a
+# maxDuration-only change to a route file, sat with this check entirely
+# absent from its check-run list). So this workflow now runs on every PR
+# unconditionally, and the "Check for relevant changes" step below decides
+# whether to actually do anything — every other step is gated on its
+# output, so the job still completes (with skipped steps, not failed ones)
+# and reports a normal status either way.
 on:
   pull_request:
-    paths:
-      - 'supabase/rpc/**.sql'
-      - 'supabase/tables/**.sql'
   workflow_dispatch:
 
 jobs:
@@ -46,10 +55,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for relevant changes
+        id: changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Runs on every PR now (no path filter on the trigger — see the
+          # comment above `on:`), so this step is what decides whether
+          # there's actually anything to validate. workflow_dispatch has no
+          # PR/diff to check against, so it always does the real thing —
+          # matches its existing use as an explicit "run this for real"
+          # manual trigger.
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Not a pull_request event ($EVENT_NAME) — running full validation."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path')
+          echo "Changed files in this PR:"
+          echo "$files"
+
+          if echo "$files" | grep -qE '^supabase/(tables|rpc)/.*\.sql$'; then
+            echo "Touches supabase/tables/ or supabase/rpc/ — running full validation."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No supabase/tables/ or supabase/rpc/ files touched — nothing to validate."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Confirm psql is available
+        if: steps.changes.outputs.relevant == 'true'
         run: psql --version
 
       - name: Bootstrap pre-existing schema objects
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           # `destinations` and `snapshot_runs` predate this repo's
           # supabase/tables/ convention entirely — they were created
@@ -108,6 +150,7 @@ jobs:
           psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/bootstrap.sql
 
       - name: Apply table DDL
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           # Same set, same order as deploy-supabase.yml's "Deploy tables" step.
           # -v ON_ERROR_STOP=1 is required — psql otherwise continues past a
@@ -122,6 +165,7 @@ jobs:
           fi
 
       - name: Ground-truth check (same invariants as deploy-supabase.yml)
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           # Mirrors deploy-supabase.yml's "Verify deploy" step, run here
           # against the disposable container instead of production — catches
@@ -184,6 +228,7 @@ jobs:
           psql "$PGDATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/verify_deploy.sql
 
       - name: Apply RPC functions
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           # Same set, same order, same exclusion as deploy-supabase.yml's
           # "Deploy RPC functions" step.
