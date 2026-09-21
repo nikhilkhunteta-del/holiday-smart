@@ -11,12 +11,7 @@ import { runWeatherSnapshotJob, OCT_NOV_RANGE } from '@/lib/weather/weatherSnaps
 // that supports it.
 export const maxDuration = 300;
 
-export async function POST(request: NextRequest) {
-  const apiKey = request.headers.get('x-api-key');
-  if (!apiKey || apiKey !== process.env.SNAPSHOT_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+async function runJob(): Promise<NextResponse> {
   try {
     const result = await runWeatherSnapshotJob({
       dateRange: OCT_NOV_RANGE,
@@ -33,4 +28,28 @@ export async function POST(request: NextRequest) {
     console.error('[run-weather-snapshot] job failed:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+export async function POST(request: NextRequest) {
+  const apiKey = request.headers.get('x-api-key');
+  if (!apiKey || apiKey !== process.env.SNAPSHOT_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  return runJob();
+}
+
+// GET variant, auth'd via a ?key= query param instead of the x-api-key
+// header. Exists so the job can be triggered by pasting a URL into a
+// browser address bar: Postman's cloud proxy caps requests at 30s (well
+// under this route's 300s maxDuration, so it can't wait for a real run to
+// finish), and a local HTML file's fetch() gets blocked by CORS since it
+// isn't served from this app's origin. A browser GET has neither problem.
+export async function GET(request: NextRequest) {
+  const apiKey = request.nextUrl.searchParams.get('key');
+  if (!apiKey || apiKey !== process.env.SNAPSHOT_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  return runJob();
 }
