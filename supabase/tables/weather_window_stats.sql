@@ -41,3 +41,22 @@ CREATE TABLE IF NOT EXISTS weather_window_stats (
 
   PRIMARY KEY (destination_id, window_start, window_end)
 );
+
+-- Nine columns relaxed to nullable so the strip/headline derivation
+-- (lib/weather/backfillWindowDerivation.ts) can be the FIRST write for a
+-- destination x window: it upserts a row computing only the washout/headline
+-- fields, and these columns stay NULL until the separate derivation tasks
+-- that own them (feels-like ranges, sea temp, daylight hours, rain-share,
+-- severe-rain warnings) fill them in. NULL means "not computed yet" — never a
+-- placeholder value. UI readers must tolerate NULL in these columns.
+-- DROP NOT NULL is idempotent, so this stays safe to re-run.
+ALTER TABLE weather_window_stats
+  ALTER COLUMN pct_daylight_rain_after_2pm DROP NOT NULL,
+  ALTER COLUMN hourly_rain_share           DROP NOT NULL,
+  ALTER COLUMN daytime_feelslike_low_c     DROP NOT NULL,
+  ALTER COLUMN daytime_feelslike_high_c    DROP NOT NULL,
+  ALTER COLUMN evening_feelslike_low_c     DROP NOT NULL,
+  ALTER COLUMN evening_feelslike_high_c    DROP NOT NULL,
+  ALTER COLUMN sea_temp_c                  DROP NOT NULL,
+  ALTER COLUMN daylight_hours_minutes      DROP NOT NULL,
+  ALTER COLUMN severe_rain_warning_years   DROP NOT NULL;
