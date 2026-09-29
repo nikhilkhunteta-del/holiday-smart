@@ -25,33 +25,81 @@
  * rather than inventing placeholder values for columns nobody asked it to
  * compute.
  *
+ * ── Transport: raw PostgREST calls, deliberately NOT @supabase/supabase-js ──
+ * This process never holds the Supabase service-role key. Per this
+ * environment's "API credential" mechanism (code.claude.com/docs/en/
+ * cloud-environments#add-api-credentials), a key added to the cloud
+ * environment is attached by Anthropic's agent proxy to matching outbound
+ * requests AFTER they leave this VM — it never reaches process.env, so
+ * supabase-js's createClient(url, key), which requires the literal key
+ * string to build its own request headers, cannot be used here. Instead,
+ * pgFetch() below sends plain, unauthenticated-looking requests to the
+ * PostgREST REST endpoint; the environment's API credential(s) for this
+ * host are expected to inject BOTH headers PostgREST needs:
+ *   - `apikey`                    (bare value, no prefix)
+ *   - `Authorization: Bearer ...` (this is what sets the effective Postgres
+ *                                   role — without it, requests run as
+ *                                   `anon`, not `service_role`, regardless
+ *                                   of `apikey`)
+ * If either is missing from the environment's credential config, every
+ * call below fails with 401 — see pgFetch()'s error message.
+ *
  * Usage:
  *   npx ts-node --project tsconfig.json lib/weather/backfillWindowDerivation.ts
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 
 // ── Config for this run ──────────────────────────────────────────────────────
 
+// Not a secret — a Supabase project ref only identifies which project to
+// call, it grants no access on its own. The service-role key that DOES
+// grant access is never read by this script (see file header).
+const SUPABASE_URL = 'https://mlqkicbifcwjvfagtdbc.supabase.co';
+const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
+
 const DESTINATION_SLUG = 'barcelona';
 const WINDOW_START = '2026-10-19';
 const WINDOW_END = '2026-10-30';
 
+/** Representative hour used to test "does this year have data at all" —
+ *  same defensive-single-sample reasoning as SEA_TEMP_REPRESENTATIVE_HOUR
+ *  in weatherSnapshotJob.ts, not a full-year scan (which would be a much
+ *  larger, paginated fetch for no extra certainty). */
+const YEAR_PROBE_HOUR = 12;
+
 type CellState = 'dry' | 'some_rain' | 'washout';
 
-// ── Supabase client (same env-var contract as weatherSnapshotJob.ts) ────────
+// ── Raw PostgREST helper ─────────────────────────────────────────────────────
 
-function getSupabase(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required.',
-    );
+/** Builds a query string from possibly-repeated key/value pairs (PostgREST
+ *  needs e.g. two `observed_date` filters — gte AND lte — in one request,
+ *  which a plain object can't represent). */
+function qs(pairs: Array<[string, string]>): string {
+  return new URLSearchParams(pairs).toString();
+}
+
+async function pgFetch(path: string, init: RequestInit = {}): Promise<unknown> {
+  const res = await fetch(`${SUPABASE_REST}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+  });
+
+  const bodyText = await res.text();
+  if (!res.ok) {
+    const hint =
+      res.status === 401
+        ? '\nThis usually means the environment\'s API credential for this host is missing the ' +
+          '`apikey` and/or `Authorization: Bearer` header (see file header) — this script never ' +
+          'sets them itself.'
+        : '';
+    throw new Error(`PostgREST ${init.method ?? 'GET'} ${path} -> ${res.status}: ${bodyText}${hint}`);
   }
-  return createClient(url, key);
+  return bodyText ? JSON.parse(bodyText) : null;
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -86,8 +134,6 @@ function median(values: number[]): number {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const supabase = getSupabase();
-
   const dayCount = dayCountInclusive(WINDOW_START, WINDOW_END);
   const offsetMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(WINDOW_START, d)));
 
@@ -97,32 +143,38 @@ async function main() {
 
   // ── 1. Destination lookup ────────────────────────────────────────────────
 
-  const { data: destRow, error: destErr } = await supabase
-    .from('destinations')
-    .select('id')
-    .eq('slug', DESTINATION_SLUG)
-    .single();
+  const destRows = (await pgFetch(
+    `/destinations?${qs([['select', 'id'], ['slug', `eq.${DESTINATION_SLUG}`]])}`,
+  )) as Array<{ id: string }>;
 
-  if (destErr || !destRow) {
-    throw new Error(`destinations lookup failed for '${DESTINATION_SLUG}': ${destErr?.message ?? 'not found'}`);
+  if (destRows.length === 0) {
+    throw new Error(`destinations lookup failed: no row for slug '${DESTINATION_SLUG}'`);
   }
-  const destinationId = destRow.id as string;
+  const destinationId = destRows[0].id;
 
   // ── 2. Which years actually have data ────────────────────────────────────
+  // Probe one representative hour per day (rather than fetching every hourly
+  // row) — the raw weather_snapshots fetch job already stores a narrow
+  // per-year calendar range (Oct15-Nov5-ish, not the whole year), so this
+  // stays small without needing a date filter. Filtered client-side to the
+  // window-start day/month, since `like` isn't usable against a native
+  // `date` column (Postgres has no ~~ operator for `date`, only `text`).
+  const probeRows = (await pgFetch(
+    `/weather_snapshots?${qs([
+      ['select', 'observed_year,observed_date'],
+      ['destination_id', `eq.${destinationId}`],
+      ['observed_hour', `eq.${YEAR_PROBE_HOUR}`],
+    ])}`,
+  )) as Array<{ observed_year: number; observed_date: string }>;
 
-  const { data: yearRows, error: yearErr } = await supabase
-    .from('weather_snapshots')
-    .select('observed_year')
-    .eq('destination_id', destinationId);
-
-  if (yearErr) throw new Error(`weather_snapshots year scan failed: ${yearErr.message}`);
-
-  const allYears = Array.from(new Set((yearRows ?? []).map(r => r.observed_year as number))).sort(
-    (a, b) => a - b,
-  );
+  const allYears = Array.from(
+    new Set(
+      probeRows.filter(r => monthDay(r.observed_date) === offsetMonthDays[0]).map(r => r.observed_year),
+    ),
+  ).sort((a, b) => a - b);
 
   if (allYears.length === 0) {
-    throw new Error(`No weather_snapshots rows at all for '${DESTINATION_SLUG}' — nothing to derive.`);
+    throw new Error(`No weather_snapshots rows found for '${DESTINATION_SLUG}' at this window — nothing to derive.`);
   }
 
   // Most recent stripYearSpan years (or fewer, with a loud warning — never
@@ -156,23 +208,22 @@ async function main() {
     const yearWindowStart = withYear(offsetMonthDays[0], year);
     const yearWindowEnd = withYear(offsetMonthDays[dayCount - 1], year);
 
-    const { data: rows, error } = await supabase
-      .from('weather_snapshots')
-      .select('observed_date, precipitation_mm')
-      .eq('destination_id', destinationId)
-      .eq('is_daylight', true)
-      .gte('observed_date', yearWindowStart)
-      .lte('observed_date', yearWindowEnd);
-
-    if (error) throw new Error(`weather_snapshots fetch failed for year ${year}: ${error.message}`);
+    const rows = (await pgFetch(
+      `/weather_snapshots?${qs([
+        ['select', 'observed_date,precipitation_mm'],
+        ['destination_id', `eq.${destinationId}`],
+        ['is_daylight', 'eq.true'],
+        ['observed_date', `gte.${yearWindowStart}`],
+        ['observed_date', `lte.${yearWindowEnd}`],
+      ])}`,
+    )) as Array<{ observed_date: string; precipitation_mm: number | string }>;
 
     // Group daylight precip rows by date.
     const byDate = new Map<string, number[]>();
-    for (const r of rows ?? []) {
-      const date = r.observed_date as string;
+    for (const r of rows) {
       const mm = Number(r.precipitation_mm);
-      if (!byDate.has(date)) byDate.set(date, []);
-      byDate.get(date)!.push(mm);
+      if (!byDate.has(r.observed_date)) byDate.set(r.observed_date, []);
+      byDate.get(r.observed_date)!.push(mm);
     }
 
     const cellStates: CellState[] = [];
@@ -218,13 +269,16 @@ async function main() {
 
   // ── 4. Insert weather_strip_cells (upsert on PK) ─────────────────────────
 
-  const { error: insertErr } = await supabase
-    .from('weather_strip_cells')
-    .upsert(strippedCellRows, {
-      onConflict: 'destination_id,window_start,window_end,strip_year,day_offset',
-    });
-
-  if (insertErr) throw new Error(`weather_strip_cells upsert failed: ${insertErr.message}`);
+  await pgFetch(
+    `/weather_strip_cells?${qs([
+      ['on_conflict', 'destination_id,window_start,window_end,strip_year,day_offset'],
+    ])}`,
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(strippedCellRows),
+    },
+  );
   console.log(`[backfill] weather_strip_cells: upserted ${strippedCellRows.length} row(s)`);
 
   // ── 5. Per-year washout day counts (reused for both strip + headline) ───
@@ -288,17 +342,16 @@ async function main() {
   // ── 8. weather_window_stats: UPDATE only, never a blind INSERT ──────────
   // (see file header — several NOT NULL columns are out of scope here)
 
-  const { data: existing, error: existingErr } = await supabase
-    .from('weather_window_stats')
-    .select('*')
-    .eq('destination_id', destinationId)
-    .eq('window_start', WINDOW_START)
-    .eq('window_end', WINDOW_END)
-    .maybeSingle();
+  const existingRows = (await pgFetch(
+    `/weather_window_stats?${qs([
+      ['select', '*'],
+      ['destination_id', `eq.${destinationId}`],
+      ['window_start', `eq.${WINDOW_START}`],
+      ['window_end', `eq.${WINDOW_END}`],
+    ])}`,
+  )) as Array<Record<string, unknown>>;
 
-  if (existingErr) throw new Error(`weather_window_stats lookup failed: ${existingErr.message}`);
-
-  if (!existing) {
+  if (existingRows.length === 0) {
     console.error(
       '[backfill] STOPPED before writing weather_window_stats: no existing row for ' +
       `(${DESTINATION_SLUG}, ${WINDOW_START}, ${WINDOW_END}). This script only updates the ` +
@@ -314,19 +367,21 @@ async function main() {
     return;
   }
 
-  const { data: updated, error: updateErr } = await supabase
-    .from('weather_window_stats')
-    .update(windowStatsPatch)
-    .eq('destination_id', destinationId)
-    .eq('window_start', WINDOW_START)
-    .eq('window_end', WINDOW_END)
-    .select('*')
-    .single();
-
-  if (updateErr) throw new Error(`weather_window_stats update failed: ${updateErr.message}`);
+  const updatedRows = (await pgFetch(
+    `/weather_window_stats?${qs([
+      ['destination_id', `eq.${destinationId}`],
+      ['window_start', `eq.${WINDOW_START}`],
+      ['window_end', `eq.${WINDOW_END}`],
+    ])}`,
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(windowStatsPatch),
+    },
+  )) as Array<Record<string, unknown>>;
 
   console.log('\n[backfill] weather_window_stats row:');
-  console.log(JSON.stringify(updated, null, 2));
+  console.log(JSON.stringify(updatedRows[0], null, 2));
 
   printStripPrintout(stripYears, cellStateByYear);
 }
