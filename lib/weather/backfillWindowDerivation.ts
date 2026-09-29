@@ -16,14 +16,14 @@
  * Thresholds come only from WEATHER_THRESHOLDS (lib/weather/thresholds.ts)
  * — nothing here hardcodes a rain/washout number.
  *
- * weather_window_stats has several NOT NULL columns this task does not
+ * weather_window_stats has several columns this task does not
  * compute (feels-like ranges, sea_temp_c, daylight_hours_minutes,
  * hourly_rain_share, pct_daylight_rain_after_2pm, severe_rain_warning_years
- * — a different derivation task's job). So this script only ever UPDATEs
- * an existing weather_window_stats row's strip/headline columns; if no row
- * exists yet for this destination/window it stops and reports that,
- * rather than inventing placeholder values for columns nobody asked it to
- * compute.
+ * — a different derivation task's job). So this script UPSERTs a
+ * weather_window_stats row (on the PK) containing only the strip/headline
+ * columns; the others are omitted and stay NULL, never placeholder values.
+ * That relies on those columns being nullable — see the DROP NOT NULL
+ * migration at the bottom of supabase/tables/weather_window_stats.sql.
  *
  * ── Transport: raw PostgREST calls, deliberately NOT @supabase/supabase-js ──
  * This process never holds the Supabase service-role key. Per this
@@ -339,44 +339,25 @@ async function main() {
     computed_at: new Date().toISOString(),
   };
 
-  // ── 8. weather_window_stats: UPDATE only, never a blind INSERT ──────────
-  // (see file header — several NOT NULL columns are out of scope here)
-
-  const existingRows = (await pgFetch(
-    `/weather_window_stats?${qs([
-      ['select', '*'],
-      ['destination_id', `eq.${destinationId}`],
-      ['window_start', `eq.${WINDOW_START}`],
-      ['window_end', `eq.${WINDOW_END}`],
-    ])}`,
-  )) as Array<Record<string, unknown>>;
-
-  if (existingRows.length === 0) {
-    console.error(
-      '[backfill] STOPPED before writing weather_window_stats: no existing row for ' +
-      `(${DESTINATION_SLUG}, ${WINDOW_START}, ${WINDOW_END}). This script only updates the ` +
-      'strip/headline columns of an existing row — inserting a fresh row would require values ' +
-      'for pct_daylight_rain_after_2pm, hourly_rain_share, daytime/evening feels-like ranges, ' +
-      'sea_temp_c, daylight_hours_minutes and severe_rain_warning_years, none of which this task ' +
-      'computes. weather_strip_cells was written successfully above; resolve the missing row ' +
-      '(either seed it via whatever job computes those other fields, or confirm placeholder values) ' +
-      'before re-running this step.',
-    );
-    printStripPrintout(stripYears, cellStateByYear);
-    process.exitCode = 1;
-    return;
-  }
+  // ── 8. weather_window_stats: upsert on PK ───────────────────────────────
+  // Sends only the columns this task computes. The other NOT-NULL-originally
+  // columns (feels-like ranges, sea_temp_c, etc.) are omitted, so they stay
+  // NULL on insert and are left untouched on conflict — requires the DROP NOT
+  // NULL migration at the bottom of supabase/tables/weather_window_stats.sql.
 
   const updatedRows = (await pgFetch(
     `/weather_window_stats?${qs([
-      ['destination_id', `eq.${destinationId}`],
-      ['window_start', `eq.${WINDOW_START}`],
-      ['window_end', `eq.${WINDOW_END}`],
+      ['on_conflict', 'destination_id,window_start,window_end'],
     ])}`,
     {
-      method: 'PATCH',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify(windowStatsPatch),
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({
+        destination_id: destinationId,
+        window_start: WINDOW_START,
+        window_end: WINDOW_END,
+        ...windowStatsPatch,
+      }),
     },
   )) as Array<Record<string, unknown>>;
 
