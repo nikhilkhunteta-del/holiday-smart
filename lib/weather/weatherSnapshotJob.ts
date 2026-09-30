@@ -6,10 +6,19 @@
  *     - One Historical Weather API call (archive-api.open-meteo.com):
  *       hourly precipitation/temperature/apparent_temperature/cloud_cover/
  *       wind_speed_10m/weather_code, plus a daily sunrise/sunset block —
- *       for that year's wide calendar date range, in the destination's
- *       local timezone.
+ *       for that year's wide calendar date range. Fetched with timezone=UTC
+ *       (padded a day each side) and localised HERE via the destination's
+ *       IANA zone — see the TIMEZONE note below.
  *     - One Marine Weather API call (marine-api.open-meteo.com):
- *       hourly sea_surface_temperature, same range/timezone.
+ *       hourly sea_surface_temperature, same range, also timezone=UTC.
+ *
+ * TIMEZONE: never request timezone=<iana> from Open-Meteo's archive API. It
+ * labels the whole response with a single utc_offset (the zone's CURRENT
+ * offset, not the one in force on each historical date), so every hour after
+ * a DST change is mislabelled — observed: Europe/Madrid returned GMT+2 for
+ * January dates. We request UTC (unambiguous instants) and compute local
+ * dates/hours/sunrise/sunset/is_daylight ourselves with Intl + the IANA zone
+ * (localTime.ts / localizeArchive.ts). No DST rules are hand-coded.
  *   Every hour returned becomes one weather_snapshots row; every day
  *   becomes one weather_daily_context row.
  *
@@ -64,6 +73,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
+import { localizeArchive, LocalizedArchive } from './localizeArchive';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -282,7 +292,6 @@ async function fetchHistoricalWeather(
   longitude: number,
   startDate: string,
   endDate: string,
-  timezone: string,
 ): Promise<ArchiveResponse> {
   const url =
     `https://archive-api.open-meteo.com/v1/archive` +
@@ -290,7 +299,7 @@ async function fetchHistoricalWeather(
     `&start_date=${startDate}&end_date=${endDate}` +
     `&hourly=${ARCHIVE_HOURLY_VARS}` +
     `&daily=${ARCHIVE_DAILY_VARS}` +
-    `&timezone=${encodeURIComponent(timezone)}`;
+    `&timezone=UTC`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -304,14 +313,13 @@ async function fetchMarineWeather(
   longitude: number,
   startDate: string,
   endDate: string,
-  timezone: string,
 ): Promise<MarineResponse> {
   const url =
     `https://marine-api.open-meteo.com/v1/marine` +
     `?latitude=${latitude}&longitude=${longitude}` +
     `&start_date=${startDate}&end_date=${endDate}` +
     `&hourly=${MARINE_HOURLY_VARS}` +
-    `&timezone=${encodeURIComponent(timezone)}`;
+    `&timezone=UTC`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -320,71 +328,19 @@ async function fetchMarineWeather(
   return res.json() as Promise<MarineResponse>;
 }
 
-// ── is_daylight computation ───────────────────────────────────────────────────
-
-/**
- * Both hourly.time and daily.sunrise/sunset arrive as local wall-clock ISO
- * strings (no UTC offset) because the request passes timezone=<iana> — so
- * this is safe as plain lexicographic string comparison, no date-math needed.
- */
-function computeIsDaylight(
-  hourTimeLocal: string,
-  dailyTimes: string[],
-  dailySunrise: string[],
-  dailySunset: string[],
-): boolean {
-  const dateKey = hourTimeLocal.slice(0, 10); // 'YYYY-MM-DD' prefix
-  const dayIdx = dailyTimes.indexOf(dateKey);
-  if (dayIdx === -1) return false;
-  const sunrise = dailySunrise[dayIdx];
-  const sunset = dailySunset[dayIdx];
-  if (!sunrise || !sunset) return false;
-  return hourTimeLocal >= sunrise && hourTimeLocal < sunset;
-}
-
 // ── weather_snapshots insert (upsert on the table's own unique key) ─────────
 
 async function upsertWeatherSnapshots(
   supabase: SupabaseClient,
   destinationId: string,
   observedYear: number,
-  archive: ArchiveResponse,
+  localized: LocalizedArchive,
 ): Promise<{ ok: number; fail: number }> {
-  const { time, precipitation, temperature_2m, apparent_temperature, cloud_cover, wind_speed_10m, weather_code } =
-    archive.hourly;
-
-  const records = time.map((t, i) => {
-    // raw_json is a synthesized per-hour object, not the whole payload —
-    // Open-Meteo's actual response is columnar (one array per variable,
-    // parallel to a shared `time` array), so there is no natural per-hour
-    // object in the wire format. Zipping one here means every row can
-    // answer "what did the API return for this hour" on its own, without
-    // needing to cross-reference a shared payload stored elsewhere.
-    const rawHour = {
-      time: t,
-      precipitation: precipitation[i],
-      temperature_2m: temperature_2m[i],
-      apparent_temperature: apparent_temperature[i],
-      cloud_cover: cloud_cover[i],
-      wind_speed_10m: wind_speed_10m[i],
-      weather_code: weather_code[i],
-    };
-
-    return {
-      destination_id: destinationId,
-      observed_year: observedYear,
-      observed_date: t.slice(0, 10),
-      observed_hour: Number(t.slice(11, 13)),
-      precipitation_mm: precipitation[i] ?? 0,
-      temperature_c: temperature_2m[i],
-      apparent_temperature_c: apparent_temperature[i],
-      cloud_cover_pct: cloud_cover[i],
-      wind_speed_kmh: wind_speed_10m[i],
-      weather_code: weather_code[i],
-      is_daylight: computeIsDaylight(t, archive.daily.time, archive.daily.sunrise, archive.daily.sunset),
-      raw_json: rawHour,
-    };
-  });
+  const records = localized.hourly.map(r => ({
+    destination_id: destinationId,
+    observed_year: observedYear,
+    ...r,
+  }));
 
   if (records.length === 0) return { ok: 0, fail: 0 };
 
@@ -404,26 +360,9 @@ async function upsertWeatherSnapshots(
 async function upsertDailyContext(
   supabase: SupabaseClient,
   destinationId: string,
-  archive: ArchiveResponse,
-  marine: MarineResponse | null,
+  localized: LocalizedArchive,
 ): Promise<{ ok: number; fail: number }> {
-  const { time: dailyTime, sunrise, sunset } = archive.daily;
-
-  const records = dailyTime.map((date, i) => {
-    let seaTempC: number | null = null;
-    if (marine) {
-      const idx = marine.hourly.time.indexOf(`${date}T${String(SEA_TEMP_REPRESENTATIVE_HOUR).padStart(2, '0')}:00`);
-      if (idx !== -1) seaTempC = marine.hourly.sea_surface_temperature[idx] ?? null;
-    }
-
-    return {
-      destination_id: destinationId,
-      observed_date: date,
-      sunrise_local: sunrise[i]?.slice(11), // 'HH:MM' portion of the local ISO timestamp
-      sunset_local: sunset[i]?.slice(11),
-      sea_surface_temp_c: seaTempC,
-    };
-  });
+  const records = localized.daily.map(r => ({ destination_id: destinationId, ...r }));
 
   if (records.length === 0) return { ok: 0, fail: 0 };
 
@@ -519,11 +458,14 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
         const yearStart = shiftYear(dateRange.rangeStart, year);
         const yearEnd = shiftYear(dateRange.rangeEnd, year);
         const label = `${dest.slug} ${year} (${yearStart}..${yearEnd})`;
+        // Padded UTC fetch range so every LOCAL day in [yearStart, yearEnd] is complete.
+        const fetchStart = addDays(yearStart, -1);
+        const fetchEnd = addDays(yearEnd, 1);
 
         counters.total++;
         await sleep(API_DELAY_MS);
         const archive = await withRetry(
-          () => fetchHistoricalWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
+          () => fetchHistoricalWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd),
           `archive ${label}`,
         );
 
@@ -535,13 +477,19 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
         counters.total++;
         await sleep(API_DELAY_MS);
         const marine = await withRetry(
-          () => fetchMarineWeather(dest.latitude, dest.longitude, yearStart, yearEnd, dest.ianaTimezone),
+          () => fetchMarineWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd),
           `marine ${label}`,
         );
         if (!marine) counters.failed++; else counters.success++;
 
-        const snapResult = await upsertWeatherSnapshots(supabase, dest.destinationId, year, archive);
-        const ctxResult = await upsertDailyContext(supabase, dest.destinationId, archive, marine);
+        const localized = localizeArchive(
+          archive, marine, dest.ianaTimezone, yearStart, yearEnd, SEA_TEMP_REPRESENTATIVE_HOUR,
+        );
+        if (localized.repeatedHoursDropped > 0) {
+          console.log(`[weather-snapshot] ${label}: dropped ${localized.repeatedHoursDropped} repeated local hour(s) at DST fall-back (kept the first occurrence)`);
+        }
+        const snapResult = await upsertWeatherSnapshots(supabase, dest.destinationId, year, localized);
+        const ctxResult = await upsertDailyContext(supabase, dest.destinationId, localized);
 
         console.log(
           `[weather-snapshot] ${label}: ` +
