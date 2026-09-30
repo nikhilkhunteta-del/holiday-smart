@@ -74,6 +74,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 import { localizeArchive, LocalizedArchive } from './localizeArchive';
+import { createProxyRestClient } from './proxyRestClient';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -177,15 +178,16 @@ interface MarineResponse {
 // ── Supabase client ───────────────────────────────────────────────────────────
 
 function getSupabase(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? SANDBOX_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required.',
-    );
-  }
+  // No key in env = the cloud sandbox, where the agent proxy injects credentials onto
+  // outbound requests instead — use the raw PostgREST client (see proxyRestClient.ts).
+  if (!key) return createProxyRestClient(url);
   return createClient(url, key);
 }
+
+/** Project URL only (not a secret — a project ref grants no access on its own). */
+const SANDBOX_SUPABASE_URL = 'https://mlqkicbifcwjvfagtdbc.supabase.co';
 
 // ── snapshot_runs bookkeeping (same shape as the flights job) ────────────────
 
