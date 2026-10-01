@@ -70,3 +70,10 @@ ALTER TABLE weather_window_stats
 ALTER TABLE weather_window_stats
   ADD COLUMN IF NOT EXISTS sea_temp_years_used smallint,
   ADD COLUMN IF NOT EXISTS sea_temp_years     text;
+
+-- The effective severe-rain threshold in mm that severe_rain_warning_years was
+-- counted against: the HIGHER of the destination's p95-of-wet-days value and the
+-- fixed floor (WEATHER_THRESHOLDS.severeRainMinMm). Seasonal, not annual — the
+-- percentile pool is only the ingested ~15 Oct-5 Nov days. NULL = not computed yet.
+ALTER TABLE weather_window_stats
+  ADD COLUMN IF NOT EXISTS severe_rain_threshold_mm numeric(5,2);
