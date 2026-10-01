@@ -12,7 +12,9 @@
  *   daytime_feelslike_low/high_c   P10/P90 apparent temp, sunrise..18:00, headline years (10)
  *   evening_feelslike_low/high_c   P10/P90 apparent temp, 18:00..min(sunset+2h, 22:00), headline years
  *   sea_temp_c                   mean sea_surface_temp_c over the window, headline years
- *                                (only years that HAVE a value — see log output for the count)
+ *                                (only years that HAVE a value)
+ *   sea_temp_years_used / sea_temp_years   how many, and which, headline years that mean rests on
+ *                                ("2023-2025"); both NULL when there is no sea data
  *   daylight_hours_minutes       "Xh Ym", middle day of the window
  *   sunset_shift_note            only written when a ~1h day-to-day sunset jump is
  *                                found inside the window; otherwise left untouched (NULL)
@@ -69,6 +71,19 @@ const withYear = (md: string, y: number) => `${y}-${md}`;
 const hhmmToMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** [2019, 2022, 2023, 2024] -> "2019, 2022-2024" (consecutive runs collapsed). */
+function formatYears(years: number[]): string {
+  const s = [...years].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < s.length; ) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+    parts.push(j > i ? `${s[i]}-${s[j]}` : `${s[i]}`);
+    i = j + 1;
+  }
+  return parts.join(', ');
+}
 
 /** Linear-interpolation percentile (same as Postgres PERCENTILE_CONT), p in [0,1]. */
 function percentile(values: number[], p: number): number {
@@ -269,6 +284,9 @@ async function main() {
     evening_feelslike_low_c: p(eveTemps, 0.1),
     evening_feelslike_high_c: p(eveTemps, 0.9),
     sea_temp_c: seaTemp,
+    // Explicit NULLs when there is no sea data, so stale values can never survive a re-run.
+    sea_temp_years_used: seaYears.size === 0 ? null : seaYears.size,
+    sea_temp_years: seaYears.size === 0 ? null : formatYears([...seaYears]),
     daylight_hours_minutes: daylightHoursMinutes,
   };
   // Always sent (string or explicit null) so a note from an earlier run can never go stale.
