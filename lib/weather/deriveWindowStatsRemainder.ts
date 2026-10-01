@@ -189,9 +189,10 @@ async function main() {
       if (d.sea_surface_temp_c !== null) { seaVals.push(Number(d.sea_surface_temp_c)); seaYears.add(y); }
     }
   }
-  if (seaVals.length === 0) throw new Error('no sea_surface_temp_c values in the headline years');
-  const seaTemp = round1(seaVals.reduce((a, b) => a + b, 0) / seaVals.length);
-  console.log(`[4b] sea temp: ${seaVals.length} day-values across ${seaYears.size} of ${headlineYears.length} headline years (${[...seaYears].join(', ')})`);
+  // No values at all (e.g. andalusian-corridor, an inland destination with no sea data) is expected,
+  // not an error: sea_temp_c is written as an explicit NULL, never a placeholder.
+  const seaTemp = seaVals.length === 0 ? null : round1(seaVals.reduce((a, b) => a + b, 0) / seaVals.length);
+  console.log(`[4b] sea temp: ${seaVals.length} day-values across ${seaYears.size} of ${headlineYears.length} headline years (${[...seaYears].join(', ')}) -> ${seaTemp ?? 'NULL (no data)'}`);
 
   // ── 6. Daylight length, middle day of the window ─────────────────────────
   // Window has an even day count, so "middle" = offset floor((n-1)/2). Averaged over the
