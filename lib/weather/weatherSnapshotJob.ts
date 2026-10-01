@@ -70,10 +70,13 @@
  *   npx ts-node --project tsconfig.json lib/weather/weatherSnapshotJob.ts
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 import { localizeArchive, LocalizedArchive } from './localizeArchive';
+import { createProxyRestClient } from './proxyRestClient';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -125,6 +128,14 @@ export interface WeatherJobConfig {
    *  WEATHER_THRESHOLDS.stripYearSpan (20), the same figure the year-by-year
    *  strip feature is defined around. */
   yearSpan?: number;
+  /** If set, every Open-Meteo response is cached as JSON here and re-used on later runs
+   *  (resumable; also lets a failed/limited run be completed without re-spending API quota). */
+  cacheDir?: string;
+  /** Fetch (and cache) only — no snapshot_runs row, no table writes. Used to stage a full
+   *  re-fetch and verify it is complete BEFORE anything is deleted from the database. */
+  fetchOnly?: boolean;
+  /** Attempts per Open-Meteo call (default 3). Backoff doubles per attempt, capped at 60s. */
+  maxAttempts?: number;
 }
 
 export interface WeatherSnapshotJobResult {
@@ -177,15 +188,18 @@ interface MarineResponse {
 // ── Supabase client ───────────────────────────────────────────────────────────
 
 function getSupabase(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? SANDBOX_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required.',
-    );
-  }
+  // No key in env = the cloud sandbox, where the agent proxy injects credentials onto
+  // outbound requests instead — use the raw PostgREST client (see proxyRestClient.ts).
+  if (!key) return createProxyRestClient(url);
   return createClient(url, key);
 }
+
+/** Project URL only (not a secret — a project ref grants no access on its own). */
+const SANDBOX_SUPABASE_URL = 'https://mlqkicbifcwjvfagtdbc.supabase.co';
+
+const FETCH_ONLY_RUN_ID = 'fetch-only';
 
 // ── snapshot_runs bookkeeping (same shape as the flights job) ────────────────
 
@@ -214,6 +228,7 @@ async function finishRun(
   counters: Counters,
   notes?: string,
 ): Promise<void> {
+  if (runId === FETCH_ONLY_RUN_ID) return;
   const { error } = await supabase
     .from('snapshot_runs')
     .update({
@@ -305,7 +320,11 @@ async function fetchHistoricalWeather(
   if (!res.ok) {
     throw new Error(`Historical Weather API ${res.status}: ${await res.text()}`);
   }
-  return res.json() as Promise<ArchiveResponse>;
+  const body = (await res.json()) as ArchiveResponse;
+  if (!body?.hourly?.time || !body?.daily?.time) {
+    throw new Error(`Historical Weather API returned no hourly/daily block: ${JSON.stringify(body).slice(0, 200)}`);
+  }
+  return body;
 }
 
 async function fetchMarineWeather(
@@ -325,7 +344,11 @@ async function fetchMarineWeather(
   if (!res.ok) {
     throw new Error(`Marine Weather API ${res.status}: ${await res.text()}`);
   }
-  return res.json() as Promise<MarineResponse>;
+  const body = (await res.json()) as MarineResponse;
+  if (!body?.hourly?.time) {
+    throw new Error(`Marine Weather API returned no hourly block: ${JSON.stringify(body).slice(0, 200)}`);
+  }
+  return body;
 }
 
 // ── weather_snapshots insert (upsert on the table's own unique key) ─────────
@@ -377,6 +400,18 @@ async function upsertDailyContext(
   return { ok: records.length, fail: 0 };
 }
 
+/** Read-through JSON cache keyed by name; no-op passthrough when cacheDir is unset. */
+async function cachedFetch<T>(cacheDir: string | undefined, name: string, fn: () => Promise<T>): Promise<T> {
+  if (!cacheDir) return fn();
+  const file = path.join(cacheDir, `${name}.json`);
+  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
+  const value = await fn();
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(file + '.tmp', JSON.stringify(value));
+  fs.renameSync(file + '.tmp', file); // atomic: a half-written file is never read back as a hit
+  return value;
+}
+
 // ── Retry wrapper (same pattern as the flights job) ──────────────────────────
 
 async function withRetry<T>(
@@ -388,7 +423,7 @@ async function withRetry<T>(
     try {
       return await fn();
     } catch (err) {
-      const delay = 2 ** i * 1_000;
+      const delay = Math.min(2 ** i * 1_000, 60_000);
       console.warn(`[weather-snapshot] ${label} attempt ${i + 1} failed — retry in ${delay}ms`, err);
       if (i < maxAttempts - 1) await sleep(delay);
     }
@@ -420,7 +455,7 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
   // 1. Register run
   let runId: string;
   try {
-    runId = await startRun(supabase, dateRange);
+    runId = config.fetchOnly ? FETCH_ONLY_RUN_ID : await startRun(supabase, dateRange);
     console.log(`[weather-snapshot] run_id=${runId}`);
   } catch (err) {
     console.error('[weather-snapshot] Fatal — cannot register run:', err);
@@ -465,8 +500,10 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
         counters.total++;
         await sleep(API_DELAY_MS);
         const archive = await withRetry(
-          () => fetchHistoricalWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd),
+          () => cachedFetch(config.cacheDir, `${dest.slug}_${year}_archive`,
+            () => fetchHistoricalWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd)),
           `archive ${label}`,
+          config.maxAttempts,
         );
 
         if (!archive) {
@@ -477,10 +514,17 @@ export async function runWeatherSnapshotJob(config: WeatherJobConfig): Promise<W
         counters.total++;
         await sleep(API_DELAY_MS);
         const marine = await withRetry(
-          () => fetchMarineWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd),
+          () => cachedFetch(config.cacheDir, `${dest.slug}_${year}_marine`,
+            () => fetchMarineWeather(dest.latitude, dest.longitude, fetchStart, fetchEnd)),
           `marine ${label}`,
+          config.maxAttempts,
         );
         if (!marine) counters.failed++; else counters.success++;
+
+        if (config.fetchOnly) {
+          console.log(`[weather-snapshot] ${label}: fetched (archive ${archive ? 'ok' : 'MISSING'}, marine ${marine ? 'ok' : 'MISSING'}) — fetch-only, nothing written`);
+          continue;
+        }
 
         const localized = localizeArchive(
           archive, marine, dest.ianaTimezone, yearStart, yearEnd, SEA_TEMP_REPRESENTATIVE_HOUR,
@@ -538,6 +582,9 @@ export const OCT_NOV_RANGE: WeatherDateRange = {
 if (require.main === module) {
   runWeatherSnapshotJob({
     dateRange: OCT_NOV_RANGE,
+    cacheDir: process.env.WEATHER_CACHE_DIR,
+    fetchOnly: process.env.WEATHER_FETCH_ONLY === '1',
+    maxAttempts: process.env.WEATHER_MAX_ATTEMPTS ? Number(process.env.WEATHER_MAX_ATTEMPTS) : undefined,
   }).catch(err => {
     console.error('[weather-snapshot] fatal:', err);
     process.exit(1);

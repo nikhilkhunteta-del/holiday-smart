@@ -25,6 +25,7 @@
 
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
+import { findClockChange, parseUtcIso, toLocalParts, utcOffsetMinutes, formatHHMM } from './localTime';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
 
@@ -37,8 +38,8 @@ const EVENING_AFTER_SUNSET_H = 2;
 const EVENING_CAP_H = 22;
 const DAY_EVENING_SPLIT_H = 18;
 const AFTERNOON_SPLIT_H = 14;
-/** A day-to-day sunset change at least this large is treated as a DST-sized jump. */
-const SUNSET_JUMP_MIN_MINUTES = 45;
+/** Destination IANA zone for the clock-change check (matches destinations.iana_timezone). */
+const IANA_TIMEZONE = 'Europe/Madrid';
 
 type Snap = {
   observed_date: string;
@@ -205,23 +206,54 @@ async function main() {
   const daylightHoursMinutes = `${Math.floor(meanMin / 60)}h ${meanMin % 60}m`;
   console.log(`[4b] daylight on ${midMd} (offset ${midOffset}), mean of ${durations.length} headline years: ${daylightHoursMinutes}`);
 
-  // ── 7. DST-sized sunset jump inside the window ──────────────────────────
-  const jumps: string[] = [];
-  for (const y of headlineYears) {
-    const ds = dailyByYear.get(y)!;
-    for (let i = 1; i < ds.length; i++) {
-      const delta = hhmmToMin(ds[i].sunset_local) - hhmmToMin(ds[i - 1].sunset_local);
-      if (Math.abs(delta) >= SUNSET_JUMP_MIN_MINUTES) {
-        jumps.push(`${y}: sunset ${ds[i - 1].sunset_local.slice(0, 5)} on ${ds[i - 1].observed_date} -> ${ds[i].sunset_local.slice(0, 5)} on ${ds[i].observed_date}`);
+  // ── 7. sunset_shift_note — the window's OWN target year, never a historical loop year ──
+  // Does a clock change fall inside [WINDOW_START, WINDOW_END] in the target year (the year of
+  // WINDOW_START)? Answered from the IANA zone for those exact dates. No weather data exists yet
+  // for a future year, so the two sunset times are estimated as the mean over the headline years
+  // of the real observed sunset on the SAME calendar dates (day before / day of the change),
+  // expressed as UTC instants, then shown on the target year's own wall clock. Sunset on a fixed
+  // calendar date moves by at most a couple of minutes between years, hence "about".
+  const targetYear = Number(WINDOW_START.slice(0, 4));
+  const change = findClockChange(WINDOW_START, WINDOW_END, IANA_TIMEZONE);
+  let sunsetShiftNote: string | null = null;
+  if (change) {
+    const prevDate = addDays(change.date, -1);
+    const sunsetUtcMinutes = async (target: string): Promise<number> => {
+      const md = monthDay(target);
+      const mins: number[] = [];
+      for (const y of headlineYears) {
+        const row = (await pgFetch(
+          `/weather_daily_context?${qs([
+            ['select', 'sunset_local'],
+            ['destination_id', `eq.${destinationId}`],
+            ['observed_date', `eq.${withYear(md, y)}`],
+          ])}`,
+        )) as Array<{ sunset_local: string }>;
+        if (row.length !== 1) throw new Error(`no sunset for ${withYear(md, y)} — cannot estimate ${target}`);
+        // Stored sunset_local is wall-clock in THAT year; convert back to a UTC time-of-day.
+        const [yy, mm, dd] = withYear(md, y).split('-').map(Number);
+        const [hh, mi] = row[0].sunset_local.split(':').map(Number);
+        let utc = Date.UTC(yy, mm - 1, dd, hh, mi);
+        utc -= utcOffsetMinutes(utc, IANA_TIMEZONE) * 60_000; // approximate, then refine once
+        utc = Date.UTC(yy, mm - 1, dd, hh, mi) - utcOffsetMinutes(utc, IANA_TIMEZONE) * 60_000;
+        mins.push((utc % 86_400_000) / 60_000);
       }
-    }
-  }
-  let sunsetShiftNote: string | undefined;
-  if (jumps.length > 0) {
-    console.log(`[4b] sunset jumps found:\n  ${jumps.join('\n  ')}`);
-    sunsetShiftNote = `Clocks change during this window: ${jumps[jumps.length - 1]}`;
+      return mins.reduce((a, b) => a + b, 0) / mins.length;
+    };
+    const toTargetClock = (target: string, utcMinuteOfDay: number): string => {
+      const instant = Date.parse(`${target}T00:00:00Z`) + Math.round(utcMinuteOfDay) * 60_000;
+      return formatHHMM(toLocalParts(instant, IANA_TIMEZONE));
+    };
+    const before = toTargetClock(prevDate, await sunsetUtcMinutes(prevDate));
+    const after = toTargetClock(change.date, await sunsetUtcMinutes(change.date));
+    const dayLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
+      .formatToParts(new Date(`${change.date}T12:00:00Z`));
+    const part = (t: string) => dayLabel.find(p => p.type === t)!.value;
+    const when = `${part('weekday')} ${part('day')} ${part('month')}`;
+    sunsetShiftNote = `Clocks go ${change.direction === 'back' ? 'back' : 'forward'} on ${when} — sunset moves from about ${before} to about ${after}.`;
+    console.log(`[4b] ${targetYear} clock change in window: ${change.date} (${change.direction}); sunset est. ${prevDate} ${before} -> ${change.date} ${after}`);
   } else {
-    console.log(`[4b] no day-to-day sunset jump >= ${SUNSET_JUMP_MIN_MINUTES} min in any of ${headlineYears.length} headline years — sunset_shift_note left NULL`);
+    console.log(`[4b] no ${IANA_TIMEZONE} clock change inside ${WINDOW_START}..${WINDOW_END} in ${targetYear} — sunset_shift_note = NULL`);
   }
 
   // ── Upsert: PK + only the columns computed here ──────────────────────────
@@ -238,7 +270,8 @@ async function main() {
     sea_temp_c: seaTemp,
     daylight_hours_minutes: daylightHoursMinutes,
   };
-  if (sunsetShiftNote !== undefined) body.sunset_shift_note = sunsetShiftNote;
+  // Always sent (string or explicit null) so a note from an earlier run can never go stale.
+  body.sunset_shift_note = sunsetShiftNote;
   console.log(`[4b] feels-like samples: daytime ${dayTemps.length}, evening ${eveTemps.length}`);
 
   // PATCH on the PK, not POST/upsert: an upsert's INSERT half is NOT-NULL-checked before
