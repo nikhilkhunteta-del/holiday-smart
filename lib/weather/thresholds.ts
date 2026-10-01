@@ -11,6 +11,7 @@ export const WEATHER_THRESHOLDS = {
   // NOT the whole year — so the threshold describes late-October rain, not climate-wide extremes.
   // Linear-interpolation percentile (same as Postgres PERCENTILE_CONT).
   severeRainPercentile: 95,
+  severeRainMinMm: 20, // floor: effective severe threshold = max(percentile value, this), so a destination's own p95 can never fall below it
   wetDayMinMm: 1, // a "wet day" has >= this much total daylight precipitation; defines the severe-rain pool
   seaTempSwimmableC: 20, // sea temperature at/above this is considered swimmable
   headlineYearSpan: 10, // years used for the verdict headline

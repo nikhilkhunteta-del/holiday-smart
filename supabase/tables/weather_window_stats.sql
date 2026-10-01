@@ -60,3 +60,13 @@ ALTER TABLE weather_window_stats
   ALTER COLUMN sea_temp_c                  DROP NOT NULL,
   ALTER COLUMN daylight_hours_minutes      DROP NOT NULL,
   ALTER COLUMN severe_rain_warning_years   DROP NOT NULL;
+
+-- Records what sea_temp_c is actually based on. sea_temp_c is a mean over the
+-- headline years that HAVE sea data (the raw archive only has sea values for
+-- recent years), so it can rest on far fewer years than headline_years_used.
+-- sea_temp_years_used = how many headline years contributed; sea_temp_years =
+-- those years as text, consecutive runs collapsed ("2023-2025", "2019, 2022-2024").
+-- Both NULL when the destination has no sea data (sea_temp_c is NULL too).
+ALTER TABLE weather_window_stats
+  ADD COLUMN IF NOT EXISTS sea_temp_years_used smallint,
+  ADD COLUMN IF NOT EXISTS sea_temp_years     text;

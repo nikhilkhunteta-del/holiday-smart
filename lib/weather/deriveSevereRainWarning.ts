@@ -8,7 +8,9 @@
  * A day is "severe rain" when its total daylight precipitation (sum of precipitation_mm
  * over is_daylight hours — the same per-day measure Task 4a uses for washout) is
  * STRICTLY ABOVE the severeRainPercentile-th percentile of that destination's WET days
- * (daylight total >= wetDayMinMm). Linear-interpolation percentile.
+ * (daylight total >= wetDayMinMm). Linear-interpolation percentile. The effective threshold
+ * is the HIGHER of that percentile value and the fixed floor severeRainMinMm, so a dry
+ * destination's p95 can't make a modest shower count as "severe".
  *
  * The pool is every ingested raw day for the destination across the strip years
  * (WEATHER_THRESHOLDS.stripYearSpan). The raw table currently holds only ~15 Oct to
@@ -119,7 +121,8 @@ async function main() {
 
   const dates = pool.map(d => d.date).sort();
   const wet = pool.filter(d => d.mm >= WEATHER_THRESHOLDS.wetDayMinMm);
-  const threshold = percentile(wet.map(d => d.mm), WEATHER_THRESHOLDS.severeRainPercentile / 100);
+  const percentileMm = percentile(wet.map(d => d.mm), WEATHER_THRESHOLDS.severeRainPercentile / 100);
+  const threshold = Math.max(percentileMm, WEATHER_THRESHOLDS.severeRainMinMm);
 
   const flagged = pool
     .filter(d => windowMonthDays.has(monthDay(d.date)) && d.mm > threshold)
@@ -129,7 +132,10 @@ async function main() {
 
   console.log(`\n[4c] pool: ${pool.length} days across ${stripYears.length} strip years (${stripYears[0]}..${stripYears.at(-1)}), ` +
     `ingested range ${dates[0]}..${dates.at(-1)} (seasonal, NOT whole-year); ${wet.length} wet days (>= ${WEATHER_THRESHOLDS.wetDayMinMm} mm)`);
-  console.log(`[4c] threshold: p${WEATHER_THRESHOLDS.severeRainPercentile} of wet days = ${threshold.toFixed(4)} mm (strictly above)`);
+  console.log(
+    `[4c] threshold: p${WEATHER_THRESHOLDS.severeRainPercentile} of wet days = ${percentileMm.toFixed(4)} mm, ` +
+    `floor = ${WEATHER_THRESHOLDS.severeRainMinMm} mm -> effective ${threshold.toFixed(4)} mm (strictly above)`,
+  );
   console.log(`[4c] flagged days in window: ${flagged.map(d => `${d.date} ${d.mm.toFixed(1)}mm`).join('; ') || 'none'}`);
   console.log(`[4c] severe_rain_warning_years = ${count} of ${stripYears.length} (${flaggedYears.join(', ') || 'none'})`);
 
