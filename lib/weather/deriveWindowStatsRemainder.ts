@@ -17,7 +17,7 @@
  *   sunset_shift_note            only written when a ~1h day-to-day sunset jump is
  *                                found inside the window; otherwise left untouched (NULL)
  *
- * Not computed here (still NULL): severe_rain_warning_years.
+ * Not computed here: severe_rain_warning_years (Task 4c, deriveSevereRainWarning.ts).
  *
  * Same transport as 4a: raw PostgREST, credentials injected by the agent
  * proxy. Run with:  NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveWindowStatsRemainder.ts
