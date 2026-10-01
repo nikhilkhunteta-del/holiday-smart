@@ -56,3 +56,36 @@ export function toLocalParts(instantMs: number, timeZone: string): LocalParts {
 export function formatHHMM(p: LocalParts): string {
   return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
 }
+
+/** Offset of `timeZone` from UTC in minutes at an instant (positive = ahead of UTC). */
+export function utcOffsetMinutes(instantMs: number, timeZone: string): number {
+  const p = toLocalParts(instantMs, timeZone);
+  const [y, m, d] = p.date.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d, p.hour, p.minute) - Math.floor(instantMs / 60000) * 60000) / 60000);
+}
+
+export interface ClockChange {
+  /** Local calendar date the new offset first applies, 'YYYY-MM-DD'. */
+  date: string;
+  /** 'back' (offset decreases, e.g. CEST->CET) or 'forward'. */
+  direction: 'back' | 'forward';
+}
+
+/**
+ * First UTC-offset change falling on a local date within [startDate, endDate], per the zone's
+ * tz database for THOSE dates (so it is correct for a future year too). Compares the offset at
+ * noon UTC on consecutive days; every real transition happens well away from noon UTC.
+ */
+export function findClockChange(startDate: string, endDate: string, timeZone: string): ClockChange | null {
+  const day = (d: string, plus: number) => Date.parse(`${d}T12:00:00Z`) + plus * 86_400_000;
+  const n = Math.round((day(endDate, 0) - day(startDate, 0)) / 86_400_000);
+  // Compare each day with the previous one; day -1 lets a change ON startDate be seen.
+  for (let i = 0; i <= n; i++) {
+    const before = utcOffsetMinutes(day(startDate, i - 1), timeZone);
+    const after = utcOffsetMinutes(day(startDate, i), timeZone);
+    if (before !== after) {
+      return { date: new Date(day(startDate, i)).toISOString().slice(0, 10), direction: after < before ? 'back' : 'forward' };
+    }
+  }
+  return null;
+}
