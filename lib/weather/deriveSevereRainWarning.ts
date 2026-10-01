@@ -1,7 +1,7 @@
 /**
  * Task 4c: fills weather_window_stats.severe_rain_warning_years for the SAME
  * (destination_id, window_start, window_end) row Tasks 4a/4b already wrote — a PATCH on
- * the PK sending only that one column, so nothing else is touched and no second row can
+ * the PK sending only the severe-rain columns, so nothing else is touched and no second row can
  * be created (same PATCH-vs-upsert reasoning as deriveWindowStatsRemainder.ts).
  *
  * ── Definition (SEASONAL, not annual) ───────────────────────────────────────
@@ -19,6 +19,8 @@
  *
  * severe_rain_warning_years = how many of the strip years had at least one day inside
  * the window's own calendar dates (same month/day in every year) above the threshold.
+ *
+ * The effective threshold (mm) is stored alongside the count in severe_rain_threshold_mm.
  *
  * Modes (first CLI argument):
  *   (none) / dry-run   compute and print only; writes nothing
@@ -144,11 +146,14 @@ async function main() {
     return;
   }
 
-  // PATCH on the PK, sending only this column; the row is verified to exist above.
+  // PATCH on the PK, sending only the severe-rain columns; the row is verified to exist above.
   const out = (await pgFetch(`/weather_window_stats?${qs(rowFilter)}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ severe_rain_warning_years: count }),
+    body: JSON.stringify({
+      severe_rain_warning_years: count,
+      severe_rain_threshold_mm: Math.round(threshold * 100) / 100, // numeric(5,2)
+    }),
   })) as Array<Record<string, unknown>>;
   if (out.length !== 1) throw new Error(`expected to update exactly 1 row, updated ${out.length}`);
   console.log('\n[4c] row AFTER:');

@@ -743,6 +743,7 @@ Read `FlightInsights.md` before writing any UI component. Summary:
 - Use LON as origin city code for all London-side queries — not individual airport codes.
 - 4 family compositions per run: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
 - Sort all Crawlio calls by price, not Google default ranking.
+- Never trigger a deploy workflow or change the live database outside the normal merge path without asking the owner first.
 
 ---
 
