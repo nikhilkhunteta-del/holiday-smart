@@ -22,26 +22,25 @@
  * Not computed here: severe_rain_warning_years (Task 4c, deriveSevereRainWarning.ts).
  *
  * Same transport as 4a: raw PostgREST, credentials injected by the agent
- * proxy. Run with:  NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveWindowStatsRemainder.ts
+ * proxy. Destination slug and window are inputs; the IANA zone used for the
+ * clock-change check is read from destinations.iana_timezone. Run with:
+ *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveWindowStatsRemainder.ts \
+ *     --slug=barcelona --window-start=2026-10-19 --window-end=2026-10-30
  */
 
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
+import { parseDerivationArgs, loadDestination } from './derivationInputs';
 import { findClockChange, parseUtcIso, toLocalParts, utcOffsetMinutes, formatHHMM } from './localTime';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
 
-const DESTINATION_SLUG = 'barcelona';
-const WINDOW_START = '2026-10-19';
-const WINDOW_END = '2026-10-30';
 
 /** Evening period ends at the earlier of sunset + this many hours, or the cap. */
 const EVENING_AFTER_SUNSET_H = 2;
 const EVENING_CAP_H = 22;
 const DAY_EVENING_SPLIT_H = 18;
 const AFTERNOON_SPLIT_H = 14;
-/** Destination IANA zone for the clock-change check (matches destinations.iana_timezone). */
-const IANA_TIMEZONE = 'Europe/Madrid';
 
 type Snap = {
   observed_date: string;
@@ -95,21 +94,22 @@ function percentile(values: number[], p: number): number {
 }
 
 async function main() {
-  const dayCount = Math.round((Date.parse(WINDOW_END) - Date.parse(WINDOW_START)) / 86_400_000) + 1;
-  const windowMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(WINDOW_START, d)));
-  console.log(`[4b] ${DESTINATION_SLUG} ${WINDOW_START}..${WINDOW_END} (${dayCount} days)`);
+  const { slug, windowStart, windowEnd } = parseDerivationArgs();
+  const dayCount = Math.round((Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000) + 1;
+  const windowMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(windowStart, d)));
+  console.log(`[4b] ${slug} ${windowStart}..${windowEnd} (${dayCount} days)`);
 
-  const dest = (await pgFetch(`/destinations?${qs([['select', 'id'], ['slug', `eq.${DESTINATION_SLUG}`]])}`)) as Array<{ id: string }>;
-  if (dest.length === 0) throw new Error(`no destination '${DESTINATION_SLUG}'`);
-  const destinationId = dest[0].id;
+  const dest = await loadDestination(pgFetch, slug);
+  const destinationId = dest.id;
+  const ianaTimezone = dest.iana_timezone;
 
   // The 4a row must already exist — this task fills it in, it does not originate it.
   const existing = (await pgFetch(
     `/weather_window_stats?${qs([
       ['select', 'destination_id'],
       ['destination_id', `eq.${destinationId}`],
-      ['window_start', `eq.${WINDOW_START}`],
-      ['window_end', `eq.${WINDOW_END}`],
+      ['window_start', `eq.${windowStart}`],
+      ['window_end', `eq.${windowEnd}`],
     ])}`,
   )) as unknown[];
   if (existing.length !== 1) throw new Error(`expected exactly one Task 4a row, found ${existing.length}`);
@@ -204,7 +204,7 @@ async function main() {
       if (d.sea_surface_temp_c !== null) { seaVals.push(Number(d.sea_surface_temp_c)); seaYears.add(y); }
     }
   }
-  // No values at all (e.g. andalusian-corridor, an inland destination with no sea data) is expected,
+  // No values at all (a weather point with no sea grid cell, e.g. an inland point) is expected,
   // not an error: sea_temp_c is written as an explicit NULL, never a placeholder.
   const seaTemp = seaVals.length === 0 ? null : round1(seaVals.reduce((a, b) => a + b, 0) / seaVals.length);
   console.log(`[4b] sea temp: ${seaVals.length} day-values across ${seaYears.size} of ${headlineYears.length} headline years (${[...seaYears].join(', ')}) -> ${seaTemp ?? 'NULL (no data)'}`);
@@ -223,14 +223,14 @@ async function main() {
   console.log(`[4b] daylight on ${midMd} (offset ${midOffset}), mean of ${durations.length} headline years: ${daylightHoursMinutes}`);
 
   // ── 7. sunset_shift_note — the window's OWN target year, never a historical loop year ──
-  // Does a clock change fall inside [WINDOW_START, WINDOW_END] in the target year (the year of
-  // WINDOW_START)? Answered from the IANA zone for those exact dates. No weather data exists yet
+  // Does a clock change fall inside [windowStart, windowEnd] in the target year (the year of
+  // windowStart)? Answered from the IANA zone for those exact dates. No weather data exists yet
   // for a future year, so the two sunset times are estimated as the mean over the headline years
   // of the real observed sunset on the SAME calendar dates (day before / day of the change),
   // expressed as UTC instants, then shown on the target year's own wall clock. Sunset on a fixed
   // calendar date moves by at most a couple of minutes between years, hence "about".
-  const targetYear = Number(WINDOW_START.slice(0, 4));
-  const change = findClockChange(WINDOW_START, WINDOW_END, IANA_TIMEZONE);
+  const targetYear = Number(windowStart.slice(0, 4));
+  const change = findClockChange(windowStart, windowEnd, ianaTimezone);
   let sunsetShiftNote: string | null = null;
   if (change) {
     const prevDate = addDays(change.date, -1);
@@ -250,15 +250,15 @@ async function main() {
         const [yy, mm, dd] = withYear(md, y).split('-').map(Number);
         const [hh, mi] = row[0].sunset_local.split(':').map(Number);
         let utc = Date.UTC(yy, mm - 1, dd, hh, mi);
-        utc -= utcOffsetMinutes(utc, IANA_TIMEZONE) * 60_000; // approximate, then refine once
-        utc = Date.UTC(yy, mm - 1, dd, hh, mi) - utcOffsetMinutes(utc, IANA_TIMEZONE) * 60_000;
+        utc -= utcOffsetMinutes(utc, ianaTimezone) * 60_000; // approximate, then refine once
+        utc = Date.UTC(yy, mm - 1, dd, hh, mi) - utcOffsetMinutes(utc, ianaTimezone) * 60_000;
         mins.push((utc % 86_400_000) / 60_000);
       }
       return mins.reduce((a, b) => a + b, 0) / mins.length;
     };
     const toTargetClock = (target: string, utcMinuteOfDay: number): string => {
       const instant = Date.parse(`${target}T00:00:00Z`) + Math.round(utcMinuteOfDay) * 60_000;
-      return formatHHMM(toLocalParts(instant, IANA_TIMEZONE));
+      return formatHHMM(toLocalParts(instant, ianaTimezone));
     };
     const before = toTargetClock(prevDate, await sunsetUtcMinutes(prevDate));
     const after = toTargetClock(change.date, await sunsetUtcMinutes(change.date));
@@ -269,14 +269,14 @@ async function main() {
     sunsetShiftNote = `Clocks go ${change.direction === 'back' ? 'back' : 'forward'} on ${when} — sunset moves from about ${before} to about ${after}.`;
     console.log(`[4b] ${targetYear} clock change in window: ${change.date} (${change.direction}); sunset est. ${prevDate} ${before} -> ${change.date} ${after}`);
   } else {
-    console.log(`[4b] no ${IANA_TIMEZONE} clock change inside ${WINDOW_START}..${WINDOW_END} in ${targetYear} — sunset_shift_note = NULL`);
+    console.log(`[4b] no ${ianaTimezone} clock change inside ${windowStart}..${windowEnd} in ${targetYear} — sunset_shift_note = NULL`);
   }
 
   // ── Upsert: PK + only the columns computed here ──────────────────────────
   const body: Record<string, unknown> = {
     destination_id: destinationId,
-    window_start: WINDOW_START,
-    window_end: WINDOW_END,
+    window_start: windowStart,
+    window_end: windowEnd,
     hourly_rain_share: hourlyRainShare,
     pct_daylight_rain_after_2pm: pctAfter2pm,
     daytime_feelslike_low_c: p(dayTemps, 0.1),
@@ -288,6 +288,7 @@ async function main() {
     sea_temp_years_used: seaYears.size === 0 ? null : seaYears.size,
     sea_temp_years: seaYears.size === 0 ? null : formatYears([...seaYears]),
     daylight_hours_minutes: daylightHoursMinutes,
+    computed_at: new Date().toISOString(),
   };
   // Always sent (string or explicit null) so a note from an earlier run can never go stale.
   body.sunset_shift_note = sunsetShiftNote;
@@ -300,8 +301,8 @@ async function main() {
   const out = (await pgFetch(
     `/weather_window_stats?${qs([
       ['destination_id', `eq.${destinationId}`],
-      ['window_start', `eq.${WINDOW_START}`],
-      ['window_end', `eq.${WINDOW_END}`],
+      ['window_start', `eq.${windowStart}`],
+      ['window_end', `eq.${windowEnd}`],
     ])}`,
     {
       method: 'PATCH',
@@ -319,7 +320,7 @@ async function main() {
   const count = (await pgFetch(
     `/weather_window_stats?${qs([['select', 'destination_id'], ['destination_id', `eq.${destinationId}`]])}`,
   )) as unknown[];
-  console.log(`\n[4b] weather_window_stats rows for ${DESTINATION_SLUG}: ${count.length}`);
+  console.log(`\n[4b] weather_window_stats rows for ${slug}: ${count.length}`);
 }
 
 main().catch(err => {

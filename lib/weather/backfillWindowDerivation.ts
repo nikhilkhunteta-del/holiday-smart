@@ -9,9 +9,10 @@
  * per historical year.
  *
  * Deliberately NOT hardcoded to a 7-day window: dayCount is derived from
- * WINDOW_START/WINDOW_END, and every loop below runs over
- * [0, dayCount) rather than assuming a week. This run's actual window
- * (Barcelona, 2026-10-19..2026-10-30) is 12 days inclusive.
+ * windowStart/windowEnd, and every loop below runs over
+ * [0, dayCount) rather than assuming a week. The destination slug and
+ * window are command-line inputs (see Usage below); e.g. the October 2026
+ * half-term window 2026-10-19..2026-10-30 is 12 days inclusive.
  *
  * Thresholds come only from WEATHER_THRESHOLDS (lib/weather/thresholds.ts)
  * — nothing here hardcodes a rain/washout number.
@@ -44,12 +45,14 @@
  * If either is missing from the environment's credential config, every
  * call below fails with 401 — see pgFetch()'s error message.
  *
- * Usage:
- *   npx ts-node --project tsconfig.json lib/weather/backfillWindowDerivation.ts
+ * Usage (destination slug and window are inputs — see derivationInputs.ts):
+ *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/backfillWindowDerivation.ts \
+ *     --slug=barcelona --window-start=2026-10-19 --window-end=2026-10-30
  */
 
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
+import { parseDerivationArgs, loadDestination } from './derivationInputs';
 
 // ── Config for this run ──────────────────────────────────────────────────────
 
@@ -59,9 +62,6 @@ import { WEATHER_THRESHOLDS } from './thresholds';
 const SUPABASE_URL = 'https://mlqkicbifcwjvfagtdbc.supabase.co';
 const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
 
-const DESTINATION_SLUG = 'barcelona';
-const WINDOW_START = '2026-10-19';
-const WINDOW_END = '2026-10-30';
 
 /** Representative hour used to test "does this year have data at all" —
  *  same defensive-single-sample reasoning as SEA_TEMP_REPRESENTATIVE_HOUR
@@ -110,7 +110,7 @@ function monthDay(dateStr: string): string {
 }
 
 /** Same month/day as dateStr, in a different year. Not leap-day-safe, but
- *  the Oct 19-30 window this run uses never crosses Feb 29. */
+ *  an October half-term window never crosses Feb 29. */
 function withYear(monthDayStr: string, year: number): string {
   return `${year}-${monthDayStr}`;
 }
@@ -134,23 +134,17 @@ function median(values: number[]): number {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const dayCount = dayCountInclusive(WINDOW_START, WINDOW_END);
-  const offsetMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(WINDOW_START, d)));
+  const { slug, windowStart, windowEnd } = parseDerivationArgs();
+  const dayCount = dayCountInclusive(windowStart, windowEnd);
+  const offsetMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(windowStart, d)));
 
   console.log(
-    `[backfill] ${DESTINATION_SLUG} window ${WINDOW_START}..${WINDOW_END} — ${dayCount} days inclusive`,
+    `[backfill] ${slug} window ${windowStart}..${windowEnd} — ${dayCount} days inclusive`,
   );
 
   // ── 1. Destination lookup ────────────────────────────────────────────────
 
-  const destRows = (await pgFetch(
-    `/destinations?${qs([['select', 'id'], ['slug', `eq.${DESTINATION_SLUG}`]])}`,
-  )) as Array<{ id: string }>;
-
-  if (destRows.length === 0) {
-    throw new Error(`destinations lookup failed: no row for slug '${DESTINATION_SLUG}'`);
-  }
-  const destinationId = destRows[0].id;
+  const destinationId = (await loadDestination(pgFetch, slug)).id;
 
   // ── 2. Which years actually have data ────────────────────────────────────
   // Probe one representative hour per day (rather than fetching every hourly
@@ -174,7 +168,7 @@ async function main() {
   ).sort((a, b) => a - b);
 
   if (allYears.length === 0) {
-    throw new Error(`No weather_snapshots rows found for '${DESTINATION_SLUG}' at this window — nothing to derive.`);
+    throw new Error(`No weather_snapshots rows found for '${slug}' at this window — nothing to derive.`);
   }
 
   // Most recent stripYearSpan years (or fewer, with a loud warning — never
@@ -250,8 +244,8 @@ async function main() {
       cellStates.push(state);
       strippedCellRows.push({
         destination_id: destinationId,
-        window_start: WINDOW_START,
-        window_end: WINDOW_END,
+        window_start: windowStart,
+        window_end: windowEnd,
         strip_year: year,
         day_offset: d,
         cell_state: state,
@@ -354,8 +348,8 @@ async function main() {
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify({
         destination_id: destinationId,
-        window_start: WINDOW_START,
-        window_end: WINDOW_END,
+        window_start: windowStart,
+        window_end: windowEnd,
         ...windowStatsPatch,
       }),
     },

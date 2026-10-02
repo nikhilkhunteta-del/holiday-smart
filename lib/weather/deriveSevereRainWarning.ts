@@ -22,22 +22,21 @@
  *
  * The effective threshold (mm) is stored alongside the count in severe_rain_threshold_mm.
  *
- * Modes (first CLI argument):
- *   (none) / dry-run   compute and print only; writes nothing
- *   write              also PATCH the one existing row
+ * Inputs (see derivationInputs.ts): --slug, --window-start, --window-end, and the mode:
+ *   (default)          dry run — compute and print only; writes nothing
+ *   --write            also PATCH the one existing row
  *
  * Same transport as 4a/4b: raw PostgREST, credentials injected by the agent proxy. Run with:
- *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveSevereRainWarning.ts [write]
+ *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveSevereRainWarning.ts \
+ *     --slug=barcelona --window-start=2026-10-19 --window-end=2026-10-30 [--write]
  */
 
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
+import { parseDerivationArgs, loadDestination } from './derivationInputs';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
 
-const DESTINATION_SLUG = 'barcelona';
-const WINDOW_START = '2026-10-19';
-const WINDOW_END = '2026-10-30';
 
 function qs(pairs: Array<[string, string]>): string {
   return new URLSearchParams(pairs).toString();
@@ -66,20 +65,18 @@ function percentile(values: number[], p: number): number {
 }
 
 async function main() {
-  const write = process.argv[2] === 'write';
-  const dayCount = Math.round((Date.parse(WINDOW_END) - Date.parse(WINDOW_START)) / 86_400_000) + 1;
-  const windowMonthDays = new Set(Array.from({ length: dayCount }, (_, d) => monthDay(addDays(WINDOW_START, d))));
-  console.log(`[4c] ${DESTINATION_SLUG} ${WINDOW_START}..${WINDOW_END} (${dayCount} days) — ${write ? 'WRITE' : 'DRY RUN'}`);
+  const { slug, windowStart, windowEnd, write } = parseDerivationArgs();
+  const dayCount = Math.round((Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000) + 1;
+  const windowMonthDays = new Set(Array.from({ length: dayCount }, (_, d) => monthDay(addDays(windowStart, d))));
+  console.log(`[4c] ${slug} ${windowStart}..${windowEnd} (${dayCount} days) — ${write ? 'WRITE' : 'DRY RUN'}`);
 
-  const dest = (await pgFetch(`/destinations?${qs([['select', 'id'], ['slug', `eq.${DESTINATION_SLUG}`]])}`)) as Array<{ id: string }>;
-  if (dest.length === 0) throw new Error(`no destination '${DESTINATION_SLUG}'`);
-  const destinationId = dest[0].id;
+  const destinationId = (await loadDestination(pgFetch, slug)).id;
 
   // The 4a/4b row must already exist — this task fills one column, it does not originate it.
   const rowFilter: Array<[string, string]> = [
     ['destination_id', `eq.${destinationId}`],
-    ['window_start', `eq.${WINDOW_START}`],
-    ['window_end', `eq.${WINDOW_END}`],
+    ['window_start', `eq.${windowStart}`],
+    ['window_end', `eq.${windowEnd}`],
   ];
   const before = (await pgFetch(`/weather_window_stats?${qs([['select', '*'], ...rowFilter])}`)) as Array<Record<string, unknown>>;
   if (before.length !== 1) throw new Error(`expected exactly one existing row, found ${before.length}`);
@@ -95,7 +92,7 @@ async function main() {
     ])}`,
   )) as Array<{ observed_year: number; observed_date: string }>;
   const allYears = Array.from(
-    new Set(probe.filter(r => monthDay(r.observed_date) === monthDay(WINDOW_START)).map(r => r.observed_year)),
+    new Set(probe.filter(r => monthDay(r.observed_date) === monthDay(windowStart)).map(r => r.observed_year)),
   ).sort((a, b) => a - b);
   const stripYears = allYears.slice(-WEATHER_THRESHOLDS.stripYearSpan);
   if (stripYears.length < WEATHER_THRESHOLDS.stripYearSpan) {
@@ -153,6 +150,7 @@ async function main() {
     body: JSON.stringify({
       severe_rain_warning_years: count,
       severe_rain_threshold_mm: Math.round(threshold * 100) / 100, // numeric(5,2)
+      computed_at: new Date().toISOString(),
     }),
   })) as Array<Record<string, unknown>>;
   if (out.length !== 1) throw new Error(`expected to update exactly 1 row, updated ${out.length}`);
@@ -163,7 +161,7 @@ async function main() {
     `/weather_window_stats?${qs([['select', 'window_start,window_end'], ['destination_id', `eq.${destinationId}`]])}`,
   )) as unknown[];
   const sameWindow = (await pgFetch(`/weather_window_stats?${qs([['select', 'destination_id'], ...rowFilter])}`)) as unknown[];
-  console.log(`\n[4c] rows for ${DESTINATION_SLUG}: ${all.length}; rows for this window: ${sameWindow.length}`);
+  console.log(`\n[4c] rows for ${slug}: ${all.length}; rows for this window: ${sameWindow.length}`);
 }
 
 main().catch(err => {

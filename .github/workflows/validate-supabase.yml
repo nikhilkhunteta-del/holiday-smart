@@ -130,6 +130,10 @@ jobs:
           # columns this stub never defines), so this is the only
           # instance of this failure mode found.
           #
+          # destinations.slug: destinations.sql ends with a data UPDATE
+          # (the andalusian-corridor weather point) filtered on slug, so the
+          # stub needs that column too. Matches 0 rows here, as intended.
+          #
           # Deliberately minimal: just the columns/types the ALTER/FK/
           # DECLARE/LANGUAGE-sql statements in supabase/tables/ and
           # supabase/rpc/ actually touch, not a full schema replica. Every
@@ -138,7 +142,8 @@ jobs:
           cat > /tmp/bootstrap.sql <<'SQL'
           CREATE TYPE destination_type AS ENUM ('city', 'circuit', 'resort');
           CREATE TABLE destinations (
-            id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            slug text
           );
           CREATE TABLE snapshot_runs (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

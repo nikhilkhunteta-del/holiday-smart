@@ -11,23 +11,18 @@
 -- barcelona / malta: single-point destinations, coordinates are just the
 -- city/island centre — no ambiguity.
 --
--- andalusian-corridor: a circuit (Seville/SVQ + Málaga/AGP legs). Per an
--- explicit decision with the user (not assumed — an earlier pass had
--- silently picked "the coastal leg," which was flagged and reverted), this
--- is the MIDPOINT of the two airports, not either leg individually:
---   Seville  (SVQ): 37.41800, -5.89310
---   Málaga   (AGP): 36.67490, -4.49910
---   Midpoint:       37.04645, -5.19610  (simple average — fine at this
---   ~140km separation, no need for geodesic precision for a single
---   representative point)
--- CONSEQUENCE WORTH KNOWING: this midpoint lands inland (roughly the
--- Antequera area of Málaga province), not on the coast. The weather job's
--- Marine Weather API call for sea_surface_temperature at this point will
--- likely return no usable data — weather_daily_context.sea_surface_temp_c
--- for andalusian-corridor may end up NULL for every row, which the column
--- already allows, but this is a direct, foreseeable consequence of the
--- midpoint choice rather than a bug if/when it happens.
---
+-- andalusian-corridor: a circuit (Seville/SVQ + Málaga/AGP legs).
+--   CORRECTED: this file originally set the midpoint of the two airports
+--   (37.04645, -5.19610). That point lands on an inland hill site near
+--   Antequera at ~477 m — not where families stay, and with no sea data (sea_surface_temp_c came back NULL). It has been
+--   replaced by Málaga city centre (36.72130, -4.42140), applied by the
+--   UPDATE at the bottom of supabase/tables/destinations.sql, which is now
+--   the source of truth for this row. The value below is kept identical so
+--   re-running this file can never put the old midpoint back.
+--   Seville  (SVQ airport): 37.41800, -5.89310
+--   Málaga   (AGP airport): 36.67490, -4.49910
+--   Weather point (Málaga city centre): 36.72130, -4.42140
+
 -- Scope: only the 3 pilot destinations — the only rows live in this table
 -- as of Phase 1 (see CLAUDE.md "Current Build Phase" / snapshotJob.ts
 -- PILOT_SLUGS). If destination rows exist beyond these three, the final
@@ -35,7 +30,7 @@
 -- same reasoning as backfill_destination_timezones.sql.
 
 UPDATE destinations SET latitude = 41.38510, longitude =   2.17340 WHERE slug = 'barcelona';
-UPDATE destinations SET latitude = 37.04645, longitude =  -5.19610 WHERE slug = 'andalusian-corridor';
+UPDATE destinations SET latitude = 36.72130, longitude =  -4.42140 WHERE slug = 'andalusian-corridor';
 UPDATE destinations SET latitude = 35.89890, longitude =  14.51460 WHERE slug = 'malta';
 
 ALTER TABLE destinations ALTER COLUMN latitude  SET NOT NULL;
