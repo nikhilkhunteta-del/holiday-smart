@@ -49,10 +49,10 @@
  * Destination coordinates come from destinations.latitude/longitude
  * (added alongside iana_timezone — see supabase/tables/destinations.sql).
  * For a circuit destination (Andalusian Corridor: SVQ + AGP legs), that
- * column holds the MIDPOINT of the circuit's legs, not one leg picked
- * over another — an explicit decision confirmed with the user, not
- * assumed (see the backfill file for the specific values and the known
- * consequence this has for sea_surface_temp_c on that destination).
+ * column holds one representative base where families stay — Málaga city
+ * centre — not the midpoint of the legs (the original midpoint was an
+ * inland hill site with no sea data; see the UPDATE at the bottom of
+ * supabase/tables/destinations.sql).
  *
  * Idempotency: unlike fare_snapshots (an intentionally-growing time series
  * — a re-fetched price is a new, real observation), a given historical
@@ -66,8 +66,9 @@
  *   import { runWeatherSnapshotJob } from './weatherSnapshotJob';
  *   await runWeatherSnapshotJob({ dateRange: OCT_NOV_RANGE });
  *
- * Usage (direct, pilot):
- *   npx ts-node --project tsconfig.json lib/weather/weatherSnapshotJob.ts
+ * Usage (direct): destination slug(s) are an input; omit --slug for all pilot slugs.
+ * Coordinates and IANA zone always come from the destinations row.
+ *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/weatherSnapshotJob.ts --slug=andalusian-corridor
  */
 
 import fs from 'node:fs';
@@ -579,9 +580,21 @@ export const OCT_NOV_RANGE: WeatherDateRange = {
   rangeEnd:   '2026-11-05',
 };
 
+/** `--slug=a --slug=b` or `--slug=a,b`; undefined (= PILOT_SLUGS) when absent. */
+function slugsFromArgv(argv: string[]): string[] | undefined {
+  const slugs: string[] = [];
+  for (const arg of argv) {
+    const m = /^--slug=(.+)$/.exec(arg);
+    if (!m) throw new Error(`unrecognised argument '${arg}' (usage: [--slug=<slug>[,<slug>...]])`);
+    slugs.push(...m[1].split(',').map(s => s.trim()).filter(Boolean));
+  }
+  return slugs.length > 0 ? slugs : undefined;
+}
+
 if (require.main === module) {
   runWeatherSnapshotJob({
     dateRange: OCT_NOV_RANGE,
+    destinationSlugs: slugsFromArgv(process.argv.slice(2)),
     cacheDir: process.env.WEATHER_CACHE_DIR,
     fetchOnly: process.env.WEATHER_FETCH_ONLY === '1',
     maxAttempts: process.env.WEATHER_MAX_ATTEMPTS ? Number(process.env.WEATHER_MAX_ATTEMPTS) : undefined,

@@ -29,16 +29,13 @@ ALTER TABLE destinations
 -- destination's own). Same numeric precision as airports.latitude/
 -- longitude (numeric(8,5)) for consistency.
 --
--- For a circuit destination (e.g. Andalusian Corridor: SVQ + AGP), this is
--- explicitly the MIDPOINT/average of the circuit's legs, not one leg
--- picked over another — confirmed with the user rather than assumed (an
--- earlier pass silently picked "the coastal leg" without asking, which was
--- flagged and reverted). See
--- supabase/backfill/backfill_destination_coordinates.sql for the actual
--- values and the specific consequence this choice has for
--- weather_daily_context.sea_surface_temp_c on that destination. Per-leg
--- weather rows for circuits are explicitly out of scope for now, not
--- silently ruled out — revisit if/when that's wanted.
+-- The point should be where families actually stay, not a geometric
+-- average. For a circuit destination (e.g. Andalusian Corridor: SVQ + AGP)
+-- that means one representative base, not the midpoint of the legs — see
+-- the andalusian-corridor UPDATE at the bottom of this file for why the
+-- original midpoint was replaced. Per-leg weather rows for circuits are
+-- explicitly out of scope for now, not silently ruled out — revisit if/when
+-- that's wanted.
 --
 -- Nullable here for the same reason as iana_timezone above: this file
 -- reruns on every push touching supabase/tables/**, so it must stay safe
@@ -47,3 +44,26 @@ ALTER TABLE destinations
 ALTER TABLE destinations
   ADD COLUMN IF NOT EXISTS latitude  numeric(8,5),
   ADD COLUMN IF NOT EXISTS longitude numeric(8,5);
+
+-- andalusian-corridor weather point: Málaga city centre (36.72130, -4.42140).
+--
+-- Replaces the original value 37.04645, -5.19610 — the simple average of the
+-- SVQ and AGP airports, set by supabase/backfill/backfill_destination_coordinates.sql.
+-- That point is an inland hill site near Antequera at ~477 m elevation: it
+-- does not represent where families on this circuit stay, and it has no
+-- sea, so the Marine API returned no
+-- sea_surface_temperature there (weather_window_stats.sea_temp_c was NULL).
+--
+-- Only the weather pipeline reads destinations.latitude/longitude
+-- (lib/weather/weatherSnapshotJob.ts, for Open-Meteo calls); no RPC or app
+-- code does. Changing the point does NOT change any existing weather row —
+-- the raw weather_snapshots / weather_daily_context rows for this
+-- destination must be re-ingested afterwards, then Tasks 4a/4b/4c re-run.
+--
+-- Lives here, not only in the backfill file, because this file is what
+-- deploy-supabase.yml applies on merge. It re-runs on every such deploy, so
+-- it is an idempotent assignment, and THIS line is now the source of truth
+-- for this destination's point — change it here if it ever moves again.
+UPDATE destinations
+   SET latitude = 36.72130, longitude = -4.42140
+ WHERE slug = 'andalusian-corridor';
