@@ -16,4 +16,19 @@ export const WEATHER_THRESHOLDS = {
   seaTempSwimmableC: 20, // sea temperature at/above this is considered swimmable
   headlineYearSpan: 10, // years used for the verdict headline
   stripYearSpan: 20, // years used for the full year-by-year strip
+  // ── Verdict (computeWeatherVerdict.ts) ──
+  // Tier = headline_clean_year_count: how many of the headlineYearSpan years had at most one
+  // washout day in the window. Each value is the MINIMUM clean-year count for that tier.
+  verdictReliableMinCleanYears: 8, // 8-10 -> reliable
+  verdictMostlyFineMinCleanYears: 6, // 6-7 -> mostly_fine
+  verdictMixedMinCleanYears: 4, // 4-5 -> mixed; anything below -> unreliable (0-3)
+  // Warmth band from the MIDPOINT of the daytime feels-like range (P10..P90, headline years).
+  // Each value is the minimum midpoint for that band; below warmthMildMinC -> cool.
+  warmthMildMinC: 15, // same figure as usableDayMinFeelsLikeC: below it the typical day is under the "usable day" bar
+  warmthWarmMinC: 19, // t-shirt days most of the time
+  warmthHotMinC: 24, // midday heat worth planning around
+  // Back-to-back washout caveat shows when consecutive_washout_years (strip span) reaches this.
+  backToBackWashoutCaveatMinYears: 3,
+  // Severe-rain caveat shows when severe_rain_warning_years (strip span) reaches this.
+  severeRainCaveatMinYears: 1,
 } as const;
