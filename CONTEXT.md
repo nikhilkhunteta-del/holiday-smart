@@ -72,6 +72,10 @@ Single-base breaks.
 
 ## Phase 1 — Flight Insights Page: Active Features
 
+*Product intent, not a build checklist.* What is actually built and rendered is the render tree
+under "File Structure" below; most of these features now live inside the recommendation cards,
+date matrix and comparison table rather than as separate sections.
+
 ### 1. Inset Calendar Engine
 Visualises exact holiday window with inset days. Highlights departure-day arbitrage.
 Example: "Bexley schools close Thursday. Flying Thursday instead of Saturday saves £180 per adult."
@@ -300,39 +304,29 @@ Tested against SerpAPI then validated against SearchAPI.io docs and Colab tests.
 
 ## File Structure
 
+The live results page render tree (verified by tracing imports; full annotated version in
+CLAUDE.md "File Structure"):
+
 ```
-app/
-  results/
-    flight-insights/
-      page.tsx
-components/
-  flight-insights/
-    inset-calendar.tsx
-    compliance-calculator.tsx
-    all-in-cost.tsx
-    capacity-warning.tsx
-    hub-routing-optimizer.tsx        ← merged feature (was 5,6,8,11)
-    baggage-calculator.tsx
-    historical-booking-window.tsx
-    rain-probability.tsx
-lib/
-  flights/
-    fetchFlights.ts                  ← SearchAPI.io adapter (needs update from SerpAPI version)
-    snapshotJob.ts                   ← weekly cross-sectional job (not yet built)
-    fetchAirports.ts
-  schools/
-    getSchoolWindows.ts
-  safety/
-    getFCDO.ts
-  weather/
-    (weather pipeline: weatherSnapshotJob.ts, 4a/4b/4c derivation scripts,
-     computeWeatherVerdict.ts, thresholds.ts — see CLAUDE.md "Weather Pipeline")
-types/
-  flight.ts                          ← shared types (generated, needs price_insights fields removed)
-data-model.md                        ← full schema reference
-CONTEXT.md                           ← this file
-CLAUDE.md                            ← Claude Code session instructions
+app/results/flight-insights/page.tsx
+└─ FlightInsightsProvider
+   ├─ PreferencesCard                party, bags, seats
+   └─ AIRecommendationClient         headline, problem statement, booking box, recommendation cards
+      ├─ ScenarioStrip               what-if preference switcher
+      ├─ SavingsBreakdown            no-op (renders nothing)
+      ├─ ComplianceCalculator        the date matrix → LegOptionsModal → LegOptions
+      ├─ ComparisonTable             "How we chose these prices"
+      ├─ PriceHistorySection         → PriceMovementChart
+      └─ StickyBookingBar
+lib/flights/                         flight data, recommendation assembly, AI copy, price movement
+lib/weather/                         weather pipeline (see CLAUDE.md "Weather Pipeline")
+types/flight.ts                      SearchContext, CalendarWindow, SchoolCalendarData, ComplianceScenario
 ```
+
+Parked components (in the repo, deliberately not rendered):
+- `SchoolCalendarSection.tsx` — inset-day calendar; the hook, and the school data exists — wire in later.
+- `bucket-split.tsx` — split-the-family booking check; matches the real `get_bucket_split` output.
+- `multi-airport.tsx` — per-airport saving vs Heathrow; matches the real `get_multi_airport` output.
 
 ---
 
