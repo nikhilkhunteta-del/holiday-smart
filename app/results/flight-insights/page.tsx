@@ -176,26 +176,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       : null,
   ]);
 
-  // ── Dates ─────────────────────────────────────────────────────────────────
-  const smartOutboundDate = assembled?.baselineIsRecommended
-    ? assembled.baseline.outbound_date
-    : assembled?.recommendation?.outbound_date ?? windowStart;
-
-  const smartReturnDate = assembled?.baselineIsRecommended
-    ? assembled.baseline.return_date
-    : assembled?.recommendation?.return_date ?? windowEnd;
-
-  // ── Open jaw ─────────────────────────────────────────────────────────────
-  const openJawResult = await supabase.rpc('get_open_jaw', {
-    p_destination_slug: destinationSlug,
-    p_school_urn:       urn,
-    p_outbound_date:    smartOutboundDate,
-    p_return_date:      smartReturnDate,
-    p_adults:           adults,
-    p_children:         children,
-    p_infants:          infants,
-  });
-
   const savingsData       = savingsResult.data as any;
   const recommendation    = assembled?.recommendation  ?? null;
   const assembledBaseline = assembled?.baseline        ?? null;

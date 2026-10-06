@@ -181,9 +181,9 @@ without research — the SQL would need to change too, not just the copy.
 ## Current Build Phase
 **Phase 1 — Flight Insights results page.**
 A parent has selected their borough and school break. The page surfaces flight
-intelligence across 11 feature components, plus an AI-written recommendation
-card system (headline, subheadline, problem statement, insight cards) driven
-by `getAIRecommendation.ts` that sits above them.
+intelligence through an AI-written recommendation card system (headline, subheadline,
+problem statement, insight cards) driven by `getAIRecommendation.ts`, followed by the date
+matrix, comparison table and price history — see "File Structure" for the real render tree.
 
 School data is live in Supabase. Flight data provider confirmed: Crawlio via RapidAPI (google-flights8).
 Layer 3 RPC functions: ✅ complete and validated (all 7 functions + helper deployed to Supabase),
@@ -195,11 +195,8 @@ comparison table, and the date matrix. See "AI Recommendation Card System" below
 current architecture; it changed substantially in the most recent work and this doc had not
 been updated to match until now.
 
-⚠️ The `components/flight-insights/` and `lib/flights/` file listings further down predate a
-lot of the actual build — several files exist under different names than documented (e.g. no
-`inset-calendar.tsx`; there's `SchoolCalendarSection.tsx` instead). Run `ls` on those
-directories rather than trusting the stale list below for anything not called out explicitly
-in this update.
+The "File Structure" section below is the verified render tree of the live page (rewritten in
+the cleanup PR after #200); the old aspirational file list and 11-feature checklist are gone.
 
 ---
 
@@ -691,72 +688,48 @@ each — centralised so a future wording change only happens in one place:
 
 ---
 
-## File Structure
+## File Structure — live results page render tree
 
-**⚠️ Verified stale as of this update** — `lib/schools/` and `lib/safety/` do not exist, and
-`lib/weather/` exists but holds the weather pipeline (see "Weather Pipeline"), not a
-`getWeather.ts` (no `getSchoolWindows.ts`/`getFCDO.ts`/`getWeather.ts`; the school lookup that exists is
-inline in `page.tsx` as a direct `all_schools` query, not a lib helper). `fetchAirports.ts`
-also doesn't exist in `lib/flights/`. The `components/flight-insights/` tree below has grown
-well beyond this list (mixed naming conventions — some `PascalCaseSection.tsx`, some
-`kebab-case.tsx`, occasional near-duplicates like `all-in-cost.tsx` alongside `allin-cost.tsx`)
-and the Feature-N mapping shown here has not been confirmed against the real files. Treat this
-block as historical/aspirational, not authoritative — run `ls components/flight-insights/
-lib/flights/` to see what's actually there.
+This is what `app/results/flight-insights/page.tsx` actually renders (verified by tracing
+imports; Barcelona is hardcoded as the destination). Everything in `components/flight-insights/`
+not listed here or under "Parked" was deleted in the cleanup PR after #200.
 
 ```
-app/
-  results/
-    flight-insights/
-      page.tsx                        ← composes all 11 feature components
-components/
-  flight-insights/
-    inset-calendar.tsx                ← Feature 1
-    compliance-calculator.tsx         ← Feature 2
-    all-in-cost.tsx                   ← Feature 3
-    capacity-warning.tsx              ← Feature 4
-    multi-airport.tsx                 ← Feature 5
-    open-jaw.tsx                      ← Feature 6
-    stopover-routing.tsx              ← Feature 7
-    nearby-airports.tsx               ← Feature 8
-    multimodal-routing.tsx            ← Feature 9
-    rail-children-free.tsx            ← Feature 10
-    one-way-vs-return.tsx             ← Feature 11
-lib/
-  flights/
-    fetchFlights.ts  ← Crawlio adapter. ONLY entry point for flight data.
-                       Never import RapidAPI or Crawlio SDK directly elsewhere.
-    fetchAirports.ts                  ← airport metadata, transfer costs
-  schools/
-    getSchoolWindows.ts               ← school/borough queries (live, Supabase)
-  safety/
-    getFCDO.ts                        ← FCDO safety advisories
-  weather/
-    (weather pipeline — see "Weather Pipeline"; no getWeather.ts)
-types/
-  flight.ts                           ← shared UI types
-FlightInsights.md                     ← design tokens — read before any UI work
-CONTEXT.md                            ← full product context
-CLAUDE.md                             ← this file
+app/results/flight-insights/page.tsx      server component; calls get_savings_breakdown,
+│                                         get_smart_recommendation, all_schools lookup
+└─ FlightInsightsProvider                 flight-insights-context.tsx (shared client state)
+   ├─ PreferencesCard                     preferences-card.tsx — party, bags, seats (outside the AI gate)
+   └─ AIRecommendationClient              ai-recommendation-client.tsx — fetches /api/recommend,
+      │                                   gates everything below until the AI result resolves
+      ├─ headline / problem statement / booking box / recommendation cards
+      │  └─ PriceMovementChart            price-movement-chart.tsx (price_movement card)
+      ├─ ScenarioStrip                    scenario-strip.tsx — what-if preference switcher
+      ├─ children (passed from page.tsx, in this order):
+      │  ├─ SavingsBreakdown              savings-breakdown.tsx — NO-OP (returns null), see below
+      │  ├─ ComplianceCalculator          compliance-calculator.tsx — the date matrix
+      │  │  └─ LegOptionsModal            leg-options-modal.tsx → LegOptions (leg-options.tsx)
+      │  ├─ ComparisonTable               comparison-table.tsx — "How we chose these prices"
+      │  └─ PriceHistorySection           price-history-section.tsx → PriceMovementChart
+      └─ StickyBookingBar                 sticky-booking-bar.tsx
 ```
 
-### Which lib files each feature needs
+`SavingsBreakdown` renders nothing, but `get_savings_breakdown` is **not** dead: if that call
+errors or returns no data, `page.tsx` replaces the whole page with a "Savings breakdown failed."
+box. Removing the call would change that failure behaviour — decide deliberately before doing so.
 
-| Feature | fetchFlights | fetchAirports | getSchoolWindows | getFCDO | getWeather |
-|---|---|---|---|---|---|
-| 1 — Inset Calendar | | | ✅ | | |
-| 2 — Compliance Calculator | ✅ | | ✅ | | |
-| 3 — All-in Cost | ✅ | | | | |
-| 4 — Capacity Warning | ✅ | | | | |
-| 5 — Multi-Airport Search | ✅ | ✅ | | | |
-| 6 — Open-Jaw Search | ✅ | ✅ | | | |
-| 7 — Stopover Routing | ✅ | | | | |
-| 8 — Nearby Airports | ✅ | ✅ | | | |
-| 9 — Multi-Modal Routing | ✅ | ✅ | | | |
-| 10 — Rail Children-Free | | | | | |
-| 11 — One-Way vs Return | ✅ | | | | |
+**Parked — kept in the repo, deliberately not rendered:**
+- `SchoolCalendarSection.tsx` — holiday-window calendar with inset days; the product's hook,
+  and real school/term/inset-day data exists in Supabase, so it is worth wiring in later (needs
+  a small adapter to build `SchoolCalendarData`).
+- `bucket-split.tsx` — "is it cheaper to book the family as two groups?"; props match the real
+  `get_bucket_split` output, kept for when the bucket-split lever is surfaced (as of the cleanup
+  PR it shows no saving for Barcelona 2A+2C on the latest run).
+- `multi-airport.tsx` — London-airport comparison with transfer cost and saving vs Heathrow;
+  props match the real `get_multi_airport` output, kept as the source for folding a per-airport
+  saving into the comparison table.
 
-Only read the lib files marked for the feature you are currently building.
+`lib/flights/` and `lib/weather/` are the only lib folders (plus `lib/supabase*.ts`,
+`lib/utils.ts`); there is no `lib/schools/` or `lib/safety/`. Weather: see "Weather Pipeline".
 
 ---
 
@@ -806,30 +779,10 @@ All 7 functions + helper deployed and validated against live Supabase data, plus
 Canonical pilot run: **39409974**.
 
 ### Task 3 — Flight Insights Page UI
-**⚠️ Verified as of this update: `app/results/flight-insights/page.tsx` only imports
-`SavingsBreakdown` (now a no-op — see AI Recommendation Card System above),
-`ComplianceCalculator`, `PreferencesCard`, `AIRecommendationClient`, `FlightInsightsProvider`,
-and `ScenarioStrip`.** Component files exist in `components/flight-insights/` for most/all of
-Features 1, 3–11 (e.g. `CapacityWarningSection.tsx`, `MultiAirportSection.tsx`,
-`OpenJawSection.tsx`, `StopoverSection.tsx`, `NearbyAirportsSection.tsx`,
-`MultiModalSection.tsx`, `RailChildSection.tsx`, `OneWayReturnSection.tsx`,
-`SchoolCalendarSection.tsx`) but **none of them are imported by `page.tsx` or by
-`AIRecommendationClient`** — they are not currently rendered anywhere on the live results page.
-Whether that's intentional (superseded by the AI recommendation card system + date matrix) or
-an unfinished wiring step is unconfirmed — check with whoever owns product direction before
-assuming either. Only Feature 2 (Compliance Calculus Calculator, `compliance-calculator.tsx`)
-is confirmed live, and it has had substantial rework this session (see above).
-
-*Tick off only once a feature is confirmed both built AND rendered on the live page.*
-
-- [ ] Feature 1 — Inset + School Calendar Engine (file may exist as `SchoolCalendarSection.tsx` — not wired in)
-- [x] Feature 2 — Compliance Calculus Calculator (`compliance-calculator.tsx` — live, reworked this session)
-- [ ] Feature 3 — All-in Family Cost Normalisation (file may exist — not wired in)
-- [ ] Feature 4 — Party-Size Capacity Warning (file may exist as `CapacityWarningSection.tsx` — not wired in)
-- [ ] Feature 5 — Multi-Airport London Search (file may exist as `MultiAirportSection.tsx` — not wired in)
-- [ ] Feature 6 — Open-Jaw / Split-City Search (file may exist as `OpenJawSection.tsx` — not wired in)
-- [ ] Feature 7 — Stopover & Long-Layover Routing (file may exist as `StopoverSection.tsx` — not wired in)
-- [ ] Feature 8 — Nearby Destination Airports (file may exist as `NearbyAirportsSection.tsx` — not wired in)
-- [ ] Feature 9 — Multi-Modal Routing (file may exist as `MultiModalSection.tsx` — not wired in)
-- [ ] Feature 10 — Rail Children-Travel-Free Intelligence (file may exist as `RailChildSection.tsx` — not wired in)
-- [ ] Feature 11 — One-Way vs Return Fare Analysis (file may exist as `OneWayReturnSection.tsx` — not wired in)
+The original 11-feature checklist is retired: the live page is the render tree under "File
+Structure" above (recommendation cards + scenario strip + date matrix + comparison table +
+price history), and the standalone per-feature section components were deleted as unrendered
+mock-era code. What survives of the old features lives inside that tree — e.g. multi-airport
+search, open-jaw/split bookings and inset days are handled by `get_smart_recommendation` and the
+recommendation cards, all-in cost by the comparison table. The three parked files above are the
+only remaining standalone feature components.
