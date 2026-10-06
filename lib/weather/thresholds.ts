@@ -33,4 +33,10 @@ export const WEATHER_THRESHOLDS = {
   backToBackWashoutCaveatMinYears: 5,
   // Severe-rain caveat shows when severe_rain_warning_years (strip span) reaches this.
   severeRainCaveatMinYears: 1,
+  // Rain timing: "Mornings are usually dry" is only claimed when at least this share (%) of
+  // meaningful-rain daylight hours fell at or after 14:00 (pct_daylight_rain_after_2pm, all strip
+  // years). Daylight runs roughly 08:00-19:00 in late October, so after-2pm is about half the
+  // daylight hours: rain spread evenly lands near 50% there. 65 asks for a clear tilt (about two
+  // rain hours in three after 2pm) before saying mornings are dry. Below it the copy is neutral.
+  rainTimingLateDayMinPct: 65,
 } as const;

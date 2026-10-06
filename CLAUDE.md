@@ -281,8 +281,21 @@ only the weather job reads the coordinates.
   (dry run unless `--write`).
 - 4a/4b/4c all take `--slug=… --window-start=YYYY-MM-DD --window-end=YYYY-MM-DD` and run in that
   order; each stamps `computed_at` when it writes.
-- `computeWeatherVerdict.ts` (4d) — pure, render-time: tier, headline, "badly hit" definition,
-  warmth band, ordered caveats. Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
+- `computeWeatherVerdict.ts` (4d) — pure, render-time: tier + tier phrase, headline, "washout
+  day" definition, warmth band, evenings, rain timing (`rainTimingLateDayMinPct`: "Mornings are
+  usually dry" only at/above it), severe-rain summary, ordered caveats. Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
+
+**Weather tab (results page):** `?tab=weather` on `/results/flight-insights`. Shown only for
+slugs in `WEATHER_TAB_DESTINATIONS` (`lib/weather/weatherTabConfig.ts` — barcelona, malta; never
+andalusian-corridor until re-ingested). `loadWeatherTab.ts` reads the stats row + strip cells
+server-side with the service-role client (so RLS doesn't block it), picks the row whose window
+matches or most overlaps the page's school window, and returns null on any failure — the tab bar
+then disappears and the page is exactly the old Flights page. Both panels stay mounted (hidden,
+not unmounted) so switching back never re-fetches `/api/recommend`; the switch uses
+`history.pushState`, not a router navigation, so it never re-runs the flight RPCs. `?destination=`
+(default barcelona) picks the destination for both tabs. Design reference (placeholders only):
+`docs/design/weather-tab-stitch.html`. Ingestion uses Open-Meteo's archive API with no `models`
+param, i.e. its default best-match model — do not claim "ERA5-Land 9km" in copy.
 
 **Thresholds:** every rain/temperature/verdict boundary lives in `lib/weather/thresholds.ts`
 (`WEATHER_THRESHOLDS`). No literals in the scripts or the verdict — change a number there.
@@ -698,7 +711,11 @@ not listed here or under "Parked" was deleted in the cleanup PR after #200.
 app/results/flight-insights/page.tsx      server component; calls get_savings_breakdown,
 │                                         get_smart_recommendation, all_schools lookup
 └─ FlightInsightsProvider                 flight-insights-context.tsx (shared client state)
-   ├─ PreferencesCard                     preferences-card.tsx — party, bags, seats (outside the AI gate)
+   ├─ PreferencesCard                     preferences-card.tsx — party, bags, seats (above the tabs)
+   └─ ResultsTabs                         components/results-tabs.tsx — Flights | Weather, ?tab=weather
+      ├─ WeatherTab                       components/weather/weather-tab.tsx (server; only when
+      │                                   loadWeatherTab() returns a row — see "Weather tab")
+      └─ (Flights panel) weather teaser line, then:
    └─ AIRecommendationClient              ai-recommendation-client.tsx — fetches /api/recommend,
       │                                   gates everything below until the AI result resolves
       ├─ headline / problem statement / booking box / recommendation cards

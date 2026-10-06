@@ -10,6 +10,9 @@
  * back-to-back washouts come from the strip span and always say "of the last N years" with
  * the row's own strip_years_used. Sea temperature states the exact years it rests on.
  *
+ * Rain timing: "Mornings are usually dry" only when pct_daylight_rain_after_2pm reaches
+ * WEATHER_THRESHOLDS.rainTimingLateDayMinPct; otherwise neutral wording.
+ *
  * Missing/NULL fields never throw: a caveat whose inputs are missing is omitted, and
  * tier/headline/warmth come back null when their own inputs are missing.
  *
@@ -22,6 +25,7 @@ import { WEATHER_THRESHOLDS as T } from './thresholds';
 export type WeatherTier = 'reliable' | 'mostly_fine' | 'mixed' | 'unreliable';
 export type WarmthBand = 'cool' | 'mild' | 'warm' | 'hot';
 export type WeatherCaveatKind = 'severe_rain' | 'back_to_back_washouts' | 'sea_temperature' | 'clock_change';
+export type RainTiming = 'late_day' | 'spread';
 
 export interface WeatherCaveat {
   kind: WeatherCaveatKind;
@@ -30,11 +34,21 @@ export interface WeatherCaveat {
 
 export interface WeatherVerdict {
   tier: WeatherTier | null;
+  /** Short lead-in phrase per tier ("Usually a good week."), shown before the headline. */
+  tierPhrase: string | null;
   headline: string | null;
-  /** What "badly hit by rain" means, built from WEATHER_THRESHOLDS. Always present: it
+  /** What a "washout day" means, built from WEATHER_THRESHOLDS. Always present: it
    *  describes the definition, not the row. */
   definition: string;
   warmth: { band: WarmthBand; low_c: number; high_c: number; text: string } | null;
+  /** Evening feels-like range (headline span). */
+  evenings: { low_c: number; high_c: number; text: string } | null;
+  /** When daylight rain falls. Only 'late_day' may claim dry mornings. */
+  rainTiming: { category: RainTiming; pct_after_2pm: number; heading: string; stat_label: string } | null;
+  /** Severe-rain summary for its own card — present for any count, including zero. */
+  severeRain: { count: number; strip_years: number; text: string } | null;
+  /** "Based on N years ... Not a forecast." Null when strip_years_used is missing. */
+  basis: string | null;
   caveats: WeatherCaveat[];
 }
 
@@ -47,6 +61,9 @@ export interface WeatherWindowStatsRow {
   consecutive_washout_years?: number | string | null;
   daytime_feelslike_low_c?: number | string | null;
   daytime_feelslike_high_c?: number | string | null;
+  evening_feelslike_low_c?: number | string | null;
+  evening_feelslike_high_c?: number | string | null;
+  pct_daylight_rain_after_2pm?: number | string | null;
   sea_temp_c?: number | string | null;
   sea_temp_years?: string | null;
   severe_rain_warning_years?: number | string | null;
@@ -83,10 +100,15 @@ function latestYear(years: string | null | undefined): number | null {
   return found ? Math.max(...found.map(Number)) : null;
 }
 
-/** "Badly hit by rain" is the washout-day rule from WEATHER_THRESHOLDS, in plain words. */
-export const BADLY_HIT_DEFINITION =
-  `Badly hit means ${T.washoutDayRainHours} or more hours of rain in daylight, ` +
+/** The washout-day rule from WEATHER_THRESHOLDS, in plain words. */
+export const WASHOUT_DEFINITION =
+  `A washout day means ${T.washoutDayRainHours} or more hours of rain in daylight, ` +
   `or ${T.washoutDayTotalMm} mm or more.`;
+
+/** The strip's middle state, from the same thresholds (an "hour of rain" is one at or above
+ *  meaningfulRainHourMm). */
+export const SOME_RAIN_DEFINITION =
+  `Some rain means at least one hour of ${T.meaningfulRainHourMm} mm or more in daylight, short of a washout.`;
 
 // ── Tier: condition -> category ───────────────────────────────────────────────
 
@@ -102,10 +124,29 @@ export function computeWeatherTier(cleanYears: number): WeatherTier {
 // the destination, no comparison with anywhere else.
 
 const HEADLINE_TEMPLATES: Record<WeatherTier, (clean: number, total: number) => string> = {
-  reliable: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain.`,
-  mostly_fine: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain.`,
-  mixed: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain. In the other ${t - c}, they had two or more.`,
-  unreliable: (c, t) => `In ${t - c} of the last ${t} years, these dates had two or more days badly hit by rain. In the other ${c}, they had at most one.`,
+  reliable: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day.`,
+  mostly_fine: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day.`,
+  mixed: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day. In the other ${t - c}, they had two or more.`,
+  unreliable: (c, t) => `In ${t - c} of the last ${t} years, these dates had two or more washout days. In the other ${c}, they had at most one.`,
+};
+
+// Short lead-in per tier, about rain only (the tier is a washout count, not warmth).
+const TIER_PHRASES: Record<WeatherTier, string> = {
+  reliable: 'Rarely rained off.',
+  mostly_fine: 'Usually a good week.',
+  mixed: 'Hit and miss.',
+  unreliable: 'Often rained off.',
+};
+
+// ── Rain timing: condition -> category -> template ───────────────────────────
+
+export function computeRainTiming(pctAfter2pm: number): RainTiming {
+  return pctAfter2pm >= T.rainTimingLateDayMinPct ? 'late_day' : 'spread';
+}
+
+const RAIN_TIMING_HEADINGS: Record<RainTiming, string> = {
+  late_day: 'Mornings are usually dry.',
+  spread: 'Rain can come at any time of day.',
 };
 
 // ── Warmth: condition -> category -> template ─────────────────────────────────
@@ -134,6 +175,7 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   const total = num(r.headline_total_years);
   const tier = clean === null ? null : computeWeatherTier(clean);
   const headline = tier === null || clean === null || total === null ? null : HEADLINE_TEMPLATES[tier](clean, total);
+  const tierPhrase = tier === null ? null : TIER_PHRASES[tier];
 
   // Warmth (headline span, daytime P10..P90 feels-like).
   const lo = num(r.daytime_feelslike_low_c);
@@ -150,22 +192,49 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
     };
   }
 
+  // Evenings (headline span).
+  const eLo = num(r.evening_feelslike_low_c);
+  const eHi = num(r.evening_feelslike_high_c);
+  const evenings =
+    eLo === null || eHi === null
+      ? null
+      : { low_c: eLo, high_c: eHi, text: `Evenings usually feel like ${Math.round(eLo)}–${Math.round(eHi)}°C.` };
+
+  // Rain timing (strip span: the share counts meaningful-rain daylight hours, not millimetres).
+  const after2pm = num(r.pct_daylight_rain_after_2pm);
+  let rainTiming: WeatherVerdict['rainTiming'] = null;
+  if (after2pm !== null) {
+    const category = computeRainTiming(after2pm);
+    rainTiming = {
+      category,
+      pct_after_2pm: after2pm,
+      heading: RAIN_TIMING_HEADINGS[category],
+      stat_label: 'of rainy daylight hours were after 2pm',
+    };
+  }
+
   // Caveats, fixed order, each only when its condition holds and its inputs exist.
   const caveats: WeatherCaveat[] = [];
   const stripYears = num(r.strip_years_used);
+  const basis =
+    stripYears === null
+      ? null
+      : `Based on ${stripYears} years of hourly weather records for these exact dates. Not a forecast.`;
 
   // 1. Severe rain (strip span). "most recently YYYY" only when the row stores the years.
   const severe = num(r.severe_rain_warning_years);
   const thresholdMm = num(r.severe_rain_threshold_mm);
-  if (severe !== null && thresholdMm !== null && stripYears !== null && severe >= T.severeRainCaveatMinYears) {
+  let severeRain: WeatherVerdict['severeRain'] = null;
+  if (severe !== null && thresholdMm !== null && stripYears !== null) {
     const recent = latestYear(r.severe_rain_years);
-    caveats.push({
-      kind: 'severe_rain',
-      text:
-        `A very heavy rain day (more than ${formatMm(thresholdMm)} mm in daylight) has happened on these dates ` +
-        `in ${severe} of the last ${stripYears} ${yearsWord(stripYears)}` +
-        (recent === null ? '.' : `, most recently ${recent}.`),
-    });
+    const text =
+      severe === 0
+        ? `No day with more than ${formatMm(thresholdMm)} mm of rain in daylight on these dates in the last ${stripYears} ${yearsWord(stripYears)}.`
+        : `A very heavy rain day (more than ${formatMm(thresholdMm)} mm in daylight) has happened on these dates ` +
+          `in ${severe} of the last ${stripYears} ${yearsWord(stripYears)}` +
+          (recent === null ? '.' : `, most recently ${recent}.`);
+    severeRain = { count: severe, strip_years: stripYears, text };
+    if (severe >= T.severeRainCaveatMinYears) caveats.push({ kind: 'severe_rain', text });
   }
 
   // 2. Back-to-back washouts (strip span).
@@ -173,7 +242,7 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   if (backToBack !== null && stripYears !== null && backToBack >= T.backToBackWashoutCaveatMinYears) {
     caveats.push({
       kind: 'back_to_back_washouts',
-      text: `Two days in a row badly hit by rain happened on these dates in ${backToBack} of the last ${stripYears} ${yearsWord(stripYears)}.`,
+      text: `Two washout days in a row happened on these dates in ${backToBack} of the last ${stripYears} ${yearsWord(stripYears)}.`,
     });
   }
 
@@ -196,5 +265,16 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   const note = r.sunset_shift_note?.trim();
   if (note) caveats.push({ kind: 'clock_change', text: note });
 
-  return { tier, headline, definition: BADLY_HIT_DEFINITION, warmth, caveats };
+  return {
+    tier,
+    tierPhrase,
+    headline,
+    definition: WASHOUT_DEFINITION,
+    warmth,
+    evenings,
+    rainTiming,
+    severeRain,
+    basis,
+    caveats,
+  };
 }
