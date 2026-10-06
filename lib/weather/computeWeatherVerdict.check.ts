@@ -35,6 +35,7 @@ const BARCELONA: WeatherWindowStatsRow = {
   sea_temp_years: '2023-2025',
   severe_rain_warning_years: 2,
   severe_rain_threshold_mm: 24.54,
+  severe_rain_years: '2019, 2024',
   sunset_shift_note: 'Clocks go back on Sun 25 Oct — sunset moves from about 18:56 to about 17:55.',
 };
 
@@ -49,6 +50,7 @@ const MALTA: WeatherWindowStatsRow = {
   sea_temp_years: '2023-2025',
   severe_rain_warning_years: 1,
   severe_rain_threshold_mm: 20.0,
+  severe_rain_years: '2021',
   sunset_shift_note: 'Clocks go back on Sun 25 Oct — sunset moves from about 18:15 to about 17:13.',
 };
 
@@ -56,17 +58,24 @@ const bcn = computeWeatherVerdict(BARCELONA);
 const mlt = computeWeatherVerdict(MALTA);
 check('barcelona tier', bcn.tier === 'mostly_fine', String(bcn.tier));
 check('malta tier', mlt.tier === 'reliable', String(mlt.tier));
-check('barcelona headline', bcn.headline === 'In 7 of the last 10 years, this window had at most one washout day.', String(bcn.headline));
-check('malta headline', mlt.headline === 'In 9 of the last 10 years, this window had at most one washout day.', String(mlt.headline));
+check('barcelona headline', bcn.headline === 'In 7 of the last 10 years, these dates had at most one day badly hit by rain.', String(bcn.headline));
+check('malta headline', mlt.headline === 'In 9 of the last 10 years, these dates had at most one day badly hit by rain.', String(mlt.headline));
+check('definition built from thresholds',
+  bcn.definition === `Badly hit means ${T.washoutDayRainHours} or more hours of rain in daylight, or ${T.washoutDayTotalMm} mm or more.`,
+  bcn.definition);
+check('definition reads 3 h / 8 mm today', bcn.definition === 'Badly hit means 3 or more hours of rain in daylight, or 8 mm or more.', bcn.definition);
 check('barcelona warmth', bcn.warmth?.band === 'mild', String(bcn.warmth?.band));
 check('malta warmth', mlt.warmth?.band === 'warm', String(mlt.warmth?.band));
-check('barcelona caveats', kinds(bcn) === 'severe_rain,back_to_back_washouts,sea_temperature,clock_change', kinds(bcn));
-check('malta caveats', kinds(mlt) === 'severe_rain,back_to_back_washouts,sea_temperature,clock_change', kinds(mlt));
+// Both real rows have consecutive_washout_years = 3, below the raised trigger of 5.
+check('barcelona caveats', kinds(bcn) === 'severe_rain,sea_temperature,clock_change', kinds(bcn));
+check('malta caveats', kinds(mlt) === 'severe_rain,sea_temperature,clock_change', kinds(mlt));
 check('barcelona severe text',
-  bcn.caveats[0].text === 'Severe rain has happened in this window in 2 of the last 20 years (a day with more than 24.5 mm of daytime rain).',
+  bcn.caveats[0].text === 'A very heavy rain day (more than 24.5 mm in daylight) has happened on these dates in 2 of the last 20 years, most recently 2024.',
   bcn.caveats[0].text);
-check('malta severe mm formatting', mlt.caveats[0].text.includes('more than 20 mm'), mlt.caveats[0].text);
-check('sea text states years', bcn.caveats[2].text.endsWith('Based on 2023–2025.'), bcn.caveats[2].text);
+check('malta severe text',
+  mlt.caveats[0].text === 'A very heavy rain day (more than 20 mm in daylight) has happened on these dates in 1 of the last 20 years, most recently 2021.',
+  mlt.caveats[0].text);
+check('sea text states years', bcn.caveats[1].text.endsWith('Based on 2023–2025.'), bcn.caveats[1].text);
 
 // ── Tier boundaries: every clean-year count 0..10 ───────────────────────────
 
@@ -86,10 +95,10 @@ for (const [c, t] of [[3, 'unreliable'], [4, 'mixed'], [5, 'mixed'], [6, 'mostly
 }
 check('unreliable headline leads with the bad count',
   computeWeatherVerdict({ headline_clean_year_count: 3, headline_total_years: 10 }).headline ===
-    'In 7 of the last 10 years, this window had two or more washout days. In the other 3, it had at most one.');
+    'In 7 of the last 10 years, these dates had two or more days badly hit by rain. In the other 3, they had at most one.');
 check('mixed headline',
   computeWeatherVerdict({ headline_clean_year_count: 5, headline_total_years: 10 }).headline ===
-    'In 5 of the last 10 years, this window had at most one washout day. In the other 5, it had two or more.');
+    'In 5 of the last 10 years, these dates had at most one day badly hit by rain. In the other 5, they had two or more.');
 check('numeric strings accepted', computeWeatherVerdict({ headline_clean_year_count: '6', headline_total_years: '10' }).tier === 'mostly_fine');
 
 // ── Warmth bands at their boundaries (midpoint of low/high) ─────────────────
@@ -112,13 +121,18 @@ check('severe on at min years', has({ ...base, severe_rain_warning_years: T.seve
 check('severe off at 0', !has({ ...base, severe_rain_warning_years: 0 }, 'severe_rain'));
 check('severe off when count NULL', !has({ ...base, severe_rain_warning_years: null }, 'severe_rain'));
 check('severe off when threshold NULL', !has({ ...base, severe_rain_threshold_mm: null }, 'severe_rain'));
-check('severe singular year', computeWeatherVerdict({ ...base, strip_years_used: 1, severe_rain_warning_years: 1 }).caveats[0].text.includes('1 of the last 1 year '));
+check('severe without stored years drops "most recently"',
+  computeWeatherVerdict({ ...base, severe_rain_years: null }).caveats[0].text ===
+    'A very heavy rain day (more than 24.5 mm in daylight) has happened on these dates in 2 of the last 20 years.');
+check('severe blank years drops "most recently"', !computeWeatherVerdict({ ...base, severe_rain_years: ' ' }).caveats[0].text.includes('most recently'));
+check('severe most recent from a range', computeWeatherVerdict({ ...base, severe_rain_years: '2008, 2016-2018' }).caveats[0].text.endsWith('most recently 2018.'));
+check('severe singular year', computeWeatherVerdict({ ...base, strip_years_used: 1, severe_rain_warning_years: 1 }).caveats[0].text.includes('1 of the last 1 year, most recently 2024.'));
 
 check('back-to-back on at min', has({ ...base, consecutive_washout_years: T.backToBackWashoutCaveatMinYears }, 'back_to_back_washouts'));
 check('back-to-back off below min', !has({ ...base, consecutive_washout_years: T.backToBackWashoutCaveatMinYears - 1 }, 'back_to_back_washouts'));
 check('back-to-back off when NULL', !has({ ...base, consecutive_washout_years: null }, 'back_to_back_washouts'));
 check('20-year caveats say "of the last 20 years"',
-  computeWeatherVerdict(base).caveats.filter(c => c.kind === 'severe_rain' || c.kind === 'back_to_back_washouts').every(c => c.text.includes('of the last 20 years')));
+  computeWeatherVerdict({ ...base, consecutive_washout_years: 6 }).caveats.filter(c => c.kind === 'severe_rain' || c.kind === 'back_to_back_washouts').every(c => c.text.includes('of the last 20 years')));
 
 const seaText = (t: number) => computeWeatherVerdict({ ...base, sea_temp_c: t }).caveats.find(c => c.kind === 'sea_temperature')?.text ?? '';
 check('sea swimmable at threshold', seaText(T.seaTempSwimmableC).includes('warm enough to swim ('), seaText(T.seaTempSwimmableC));
@@ -130,7 +144,11 @@ check('clock on when note present', has(base, 'clock_change'));
 check('clock off when NULL', !has({ ...base, sunset_shift_note: null }, 'clock_change'));
 check('clock off when blank', !has({ ...base, sunset_shift_note: '  ' }, 'clock_change'));
 
-check('caveat order fixed', kinds(computeWeatherVerdict(base)) === 'severe_rain,back_to_back_washouts,sea_temperature,clock_change');
+check('back-to-back trigger is 5', T.backToBackWashoutCaveatMinYears === 5);
+check('back-to-back off at 3 (old trigger)', !has({ ...base, consecutive_washout_years: 3 }, 'back_to_back_washouts'));
+check('back-to-back text', computeWeatherVerdict({ ...base, consecutive_washout_years: 5 }).caveats[1].text ===
+  'Two days in a row badly hit by rain happened on these dates in 5 of the last 20 years.');
+check('caveat order fixed', kinds(computeWeatherVerdict({ ...base, consecutive_washout_years: 6 })) === 'severe_rain,back_to_back_washouts,sea_temperature,clock_change');
 check('order holds with gaps', kinds(computeWeatherVerdict({ ...base, consecutive_washout_years: 0, sea_temp_c: null })) === 'severe_rain,clock_change');
 
 // ── Never throws on missing input ────────────────────────────────────────────
@@ -138,7 +156,7 @@ check('order holds with gaps', kinds(computeWeatherVerdict({ ...base, consecutiv
 for (const [label, row] of [['null', null], ['undefined', undefined], ['empty', {}], ['garbage', { headline_clean_year_count: 'abc', sea_temp_c: 'x' } as WeatherWindowStatsRow]] as const) {
   try {
     const v = computeWeatherVerdict(row as WeatherWindowStatsRow | null | undefined);
-    check(`${label}: all null/empty`, v.tier === null && v.headline === null && v.warmth === null && v.caveats.length === 0, JSON.stringify(v));
+    check(`${label}: all null/empty`, v.tier === null && v.headline === null && v.warmth === null && v.caveats.length === 0 && v.definition.length > 0, JSON.stringify(v));
   } catch (e) {
     check(`${label}: threw`, false, String(e));
   }

@@ -212,7 +212,7 @@ in this update.
 | Flight data | ✅ Crawlio via RapidAPI | google-flights8, $9/month, RAPIDAPI_KEY env var |
 | Layer 3 RPC functions | ✅ Complete and validated | 7 functions + calculate_absence_fine helper |
 | Baseline snapshots | ✅ Live in Supabase | 12 rows — canonical pilot run 39409974 |
-| Open-Meteo (weather) | Real-time | Free, no key required |
+| Weather (Open-Meteo history) | ✅ Pre-derived, stored in Supabase | Batch-fetched and derived offline — never fetched per visit; see "Weather Pipeline" |
 | FCDO (safety) | Real-time | Free API |
 | Supabase | Live | Primary data store |
 
@@ -255,6 +255,53 @@ combined `absence_days` — see "AI Recommendation Card System" below for why th
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
 Provider is Crawlio via RapidAPI (google-flights8). UI components import from the adapter only,
 never from RapidAPI or Crawlio SDK directly.
+
+---
+
+## Weather Pipeline (pre-derived and stored — never fetched per visit)
+
+Weather is **not** fetched in real time. Open-Meteo history is fetched in an occasional batch
+job, derived into per-window figures, and stored in Supabase. The page reads the stored row and
+turns it into copy at render time with a pure function; nothing calls Open-Meteo per user visit.
+
+**Tables** (`supabase/tables/`, deployed by `deploy-supabase.yml` on merge):
+| Table | Layer | Holds |
+|---|---|---|
+| `weather_snapshots` | raw | one row per destination × local hour, ~15 Oct–5 Nov, 20 years (borough-blind) |
+| `weather_daily_context` | raw | one row per destination × day: sunrise/sunset, sea surface temp |
+| `weather_window_stats` | derived | one row per destination × (window_start, window_end): every figure the verdict reads |
+| `weather_strip_cells` | derived | the year-by-year strip: destination × window × year × day → dry / some_rain / washout |
+`destinations.latitude/longitude/iana_timezone` give each destination's weather point and zone —
+only the weather job reads the coordinates.
+
+**Scripts** (`lib/weather/`, run by hand with `NODE_USE_ENV_PROXY=1 npx tsx …`):
+- `weatherSnapshotJob.ts` — fetches Open-Meteo archive + marine data into the two raw tables
+  (`--slug=` to limit destinations; also behind `app/api/run-weather-snapshot/route.ts`).
+- `backfillWindowDerivation.ts` (4a) — strip cells + washout/headline columns.
+- `deriveWindowStatsRemainder.ts` (4b) — feels-like, sea temp (+ `sea_temp_years`), daylight,
+  rain share, sunset-shift note.
+- `deriveSevereRainWarning.ts` (4c) — severe-rain count, threshold mm and `severe_rain_years`
+  (dry run unless `--write`).
+- 4a/4b/4c all take `--slug=… --window-start=YYYY-MM-DD --window-end=YYYY-MM-DD` and run in that
+  order; each stamps `computed_at` when it writes.
+- `computeWeatherVerdict.ts` (4d) — pure, render-time: tier, headline, "badly hit" definition,
+  warmth band, ordered caveats. Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
+
+**Thresholds:** every rain/temperature/verdict boundary lives in `lib/weather/thresholds.ts`
+(`WEATHER_THRESHOLDS`). No literals in the scripts or the verdict — change a number there.
+
+**⚠️ RLS: tables created by migration need explicit RLS policies or they are silently
+unreadable.** With row-level security on and no policy, reads with the anon/authenticated key
+return zero rows and no error. The scripts above use the service role (which bypasses RLS), so
+they will happily see data the page cannot. Any new table the page reads needs its own
+`CREATE POLICY` (e.g. a public `SELECT` policy) — check this before debugging "empty" UI.
+
+**⚠️ Andalusian Corridor weather is stale — do not display it.** Its weather point moved from
+an inland hill site (37.04645, -5.19610, ~477 m) to Málaga city centre (36.72130, -4.42140) in
+PR #198, but its raw and derived weather rows still come from the old point: re-ingestion at
+Málaga is pending (blocked so far by Open-Meteo's shared daily rate limit). Until it is
+re-ingested and 4a/4b/4c re-run, never render the andalusian-corridor weather row or use it to
+design or validate anything.
 
 ---
 
@@ -646,8 +693,9 @@ each — centralised so a future wording change only happens in one place:
 
 ## File Structure
 
-**⚠️ Verified stale as of this update** — `lib/schools/`, `lib/safety/`, `lib/weather/` do not
-exist (no `getSchoolWindows.ts`/`getFCDO.ts`/`getWeather.ts`; the school lookup that exists is
+**⚠️ Verified stale as of this update** — `lib/schools/` and `lib/safety/` do not exist, and
+`lib/weather/` exists but holds the weather pipeline (see "Weather Pipeline"), not a
+`getWeather.ts` (no `getSchoolWindows.ts`/`getFCDO.ts`/`getWeather.ts`; the school lookup that exists is
 inline in `page.tsx` as a direct `all_schools` query, not a lib helper). `fetchAirports.ts`
 also doesn't exist in `lib/flights/`. The `components/flight-insights/` tree below has grown
 well beyond this list (mixed naming conventions — some `PascalCaseSection.tsx`, some
@@ -684,7 +732,7 @@ lib/
   safety/
     getFCDO.ts                        ← FCDO safety advisories
   weather/
-    getWeather.ts                     ← Open-Meteo historical data
+    (weather pipeline — see "Weather Pipeline"; no getWeather.ts)
 types/
   flight.ts                           ← shared UI types
 FlightInsights.md                     ← design tokens — read before any UI work
@@ -744,6 +792,9 @@ Read `FlightInsights.md` before writing any UI component. Summary:
 - 4 family compositions per run: 1A+1C, 2A+1C, 2A+2C, 2A+1inf.
 - Sort all Crawlio calls by price, not Google default ranking.
 - Never trigger a deploy workflow or change the live database outside the normal merge path without asking the owner first.
+- Weather is pre-derived and stored — never call Open-Meteo per user visit.
+- Any table the page reads needs an explicit RLS policy; without one, reads silently return no rows.
+- Do not display the andalusian-corridor weather row until it is re-ingested at Málaga.
 
 ---
 

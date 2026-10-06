@@ -28,7 +28,9 @@ export const WEATHER_THRESHOLDS = {
   warmthWarmMinC: 19, // t-shirt days most of the time
   warmthHotMinC: 24, // midday heat worth planning around
   // Back-to-back washout caveat shows when consecutive_washout_years (strip span) reaches this.
-  backToBackWashoutCaveatMinYears: 3,
+  // Raised from 3: at 3 it fired for every pilot destination, including ones whose headline says
+  // nine years in ten were fine, which read as a contradiction rather than a useful warning.
+  backToBackWashoutCaveatMinYears: 5,
   // Severe-rain caveat shows when severe_rain_warning_years (strip span) reaches this.
   severeRainCaveatMinYears: 1,
 } as const;

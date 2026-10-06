@@ -31,6 +31,7 @@
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 import { parseDerivationArgs, loadDestination } from './derivationInputs';
+import { formatYears } from './formatYears';
 import { findClockChange, parseUtcIso, toLocalParts, utcOffsetMinutes, formatHHMM } from './localTime';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
@@ -71,18 +72,6 @@ const hhmmToMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-/** [2019, 2022, 2023, 2024] -> "2019, 2022-2024" (consecutive runs collapsed). */
-function formatYears(years: number[]): string {
-  const s = [...years].sort((a, b) => a - b);
-  const parts: string[] = [];
-  for (let i = 0; i < s.length; ) {
-    let j = i;
-    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
-    parts.push(j > i ? `${s[i]}-${s[j]}` : `${s[i]}`);
-    i = j + 1;
-  }
-  return parts.join(', ');
-}
 
 /** Linear-interpolation percentile (same as Postgres PERCENTILE_CONT), p in [0,1]. */
 function percentile(values: number[], p: number): number {
