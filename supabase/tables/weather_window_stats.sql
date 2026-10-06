@@ -77,3 +77,10 @@ ALTER TABLE weather_window_stats
 -- percentile pool is only the ingested ~15 Oct-5 Nov days. NULL = not computed yet.
 ALTER TABLE weather_window_stats
   ADD COLUMN IF NOT EXISTS severe_rain_threshold_mm numeric(5,2);
+
+-- Which strip years severe_rain_warning_years counted, as text in the same style as
+-- sea_temp_years: consecutive runs collapsed ("2019, 2024", "2016-2018"). Written by Task 4c
+-- alongside the count. NULL = no year flagged, or not computed yet. The verdict uses the latest
+-- year in it for "most recently YYYY", and omits that clause when this is NULL.
+ALTER TABLE weather_window_stats
+  ADD COLUMN IF NOT EXISTS severe_rain_years text;

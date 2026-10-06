@@ -20,7 +20,9 @@
  * severe_rain_warning_years = how many of the strip years had at least one day inside
  * the window's own calendar dates (same month/day in every year) above the threshold.
  *
- * The effective threshold (mm) is stored alongside the count in severe_rain_threshold_mm.
+ * The effective threshold (mm) is stored alongside the count in severe_rain_threshold_mm, and
+ * the flagged years themselves in severe_rain_years ("2019, 2024" — same format as
+ * sea_temp_years; NULL when no year was flagged).
  *
  * Inputs (see derivationInputs.ts): --slug, --window-start, --window-end, and the mode:
  *   (default)          dry run — compute and print only; writes nothing
@@ -34,6 +36,7 @@
 import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 import { parseDerivationArgs, loadDestination } from './derivationInputs';
+import { formatYears } from './formatYears';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
 
@@ -136,7 +139,9 @@ async function main() {
     `floor = ${WEATHER_THRESHOLDS.severeRainMinMm} mm -> effective ${threshold.toFixed(4)} mm (strictly above)`,
   );
   console.log(`[4c] flagged days in window: ${flagged.map(d => `${d.date} ${d.mm.toFixed(1)}mm`).join('; ') || 'none'}`);
+  const severeRainYears = flaggedYears.length === 0 ? null : formatYears(flaggedYears);
   console.log(`[4c] severe_rain_warning_years = ${count} of ${stripYears.length} (${flaggedYears.join(', ') || 'none'})`);
+  console.log(`[4c] severe_rain_years = ${severeRainYears === null ? 'NULL' : `'${severeRainYears}'`}`);
 
   if (!write) {
     console.log('\n[4c] dry run — nothing written.');
@@ -150,6 +155,8 @@ async function main() {
     body: JSON.stringify({
       severe_rain_warning_years: count,
       severe_rain_threshold_mm: Math.round(threshold * 100) / 100, // numeric(5,2)
+      // Explicit NULL when nothing was flagged, so a stale list can never survive a re-run.
+      severe_rain_years: severeRainYears,
       computed_at: new Date().toISOString(),
     }),
   })) as Array<Record<string, unknown>>;

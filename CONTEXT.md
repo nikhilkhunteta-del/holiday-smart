@@ -97,7 +97,14 @@ Compares bare-fare + à la carte bags vs. upgraded fare with bags included.
 Carriers: Ryanair (FR), easyJet (U2), Wizz (W6), Vueling (VY), TAP (TP), BA (BA).
 
 ### 7. P(Rain) for Exact Window
-*(Deferred — build after flight layer)*
+*(In progress — data layer built, not yet on the page.)* Pre-derived, not real-time: 20 years of
+Open-Meteo history per destination (~15 Oct–5 Nov) is batch-fetched into `weather_snapshots` /
+`weather_daily_context`, derived per school window into `weather_window_stats` /
+`weather_strip_cells` by `lib/weather/` scripts (4a/4b/4c), and turned into copy at render time
+by the pure `computeWeatherVerdict()`. All thresholds live in `lib/weather/thresholds.ts`.
+Tables created by migration need explicit RLS policies or the page silently reads no rows.
+The andalusian-corridor weather row is stale (old inland hill point) pending re-ingestion at
+Málaga city centre and must not be displayed. Full detail: CLAUDE.md "Weather Pipeline".
 
 ### 8. Historical Booking Window
 Two-tier: Tier 1 (launch) cites published industry research. Tier 2 uses own tracer snapshot data once 8–10 weeks of accumulation have passed. Do not claim Tier 2 precision prematurely.
@@ -318,7 +325,8 @@ lib/
   safety/
     getFCDO.ts
   weather/
-    getWeather.ts
+    (weather pipeline: weatherSnapshotJob.ts, 4a/4b/4c derivation scripts,
+     computeWeatherVerdict.ts, thresholds.ts — see CLAUDE.md "Weather Pipeline")
 types/
   flight.ts                          ← shared types (generated, needs price_insights fields removed)
 data-model.md                        ← full schema reference
@@ -370,7 +378,7 @@ CLAUDE.md                            ← Claude Code session instructions
 - **Hosting:** Vercel
 - **Email:** Resend
 - **Flight data:** Crawlio Google Flights API via RapidAPI (google-flights8). $9/month for 15,000 calls. Replaced SearchAPI ($40/month).
-- **Weather:** Open-Meteo (free, no key, 5-year historical) — deferred
+- **Weather:** Open-Meteo history (free, no key), 20 years — batch-fetched and pre-derived into Supabase, never fetched per visit
 - **Safety:** FCDO API (free) — deferred
 - **Design system:** DESIGN.md (Editorial Fintech tokens)
 
@@ -392,7 +400,7 @@ CLAUDE.md                            ← Claude Code session instructions
 
 ## Deferred — Do Not Build in Phase 1
 
-- Weather / P(Rain) layer
+- Weather / P(Rain) UI wiring (the data layer and verdict function exist; no page component yet)
 - FCDO safety analysis
 - Fine offset calculator (pending fine-amount research)
 - Historical Booking Window Tier 2 (own booking curve — needs months of snapshots)

@@ -31,6 +31,9 @@ export interface WeatherCaveat {
 export interface WeatherVerdict {
   tier: WeatherTier | null;
   headline: string | null;
+  /** What "badly hit by rain" means, built from WEATHER_THRESHOLDS. Always present: it
+   *  describes the definition, not the row. */
+  definition: string;
   warmth: { band: WarmthBand; low_c: number; high_c: number; text: string } | null;
   caveats: WeatherCaveat[];
 }
@@ -48,6 +51,7 @@ export interface WeatherWindowStatsRow {
   sea_temp_years?: string | null;
   severe_rain_warning_years?: number | string | null;
   severe_rain_threshold_mm?: number | string | null;
+  severe_rain_years?: string | null;
   sunset_shift_note?: string | null;
 }
 
@@ -73,6 +77,17 @@ function formatYears(years: string): string {
 
 const yearsWord = (n: number) => (n === 1 ? 'year' : 'years');
 
+/** Latest year in a stored year list ("2019, 2024" -> 2024, "2016-2018" -> 2018); null if none. */
+function latestYear(years: string | null | undefined): number | null {
+  const found = (years ?? '').match(/\d{4}/g);
+  return found ? Math.max(...found.map(Number)) : null;
+}
+
+/** "Badly hit by rain" is the washout-day rule from WEATHER_THRESHOLDS, in plain words. */
+export const BADLY_HIT_DEFINITION =
+  `Badly hit means ${T.washoutDayRainHours} or more hours of rain in daylight, ` +
+  `or ${T.washoutDayTotalMm} mm or more.`;
+
 // ── Tier: condition -> category ───────────────────────────────────────────────
 
 export function computeWeatherTier(cleanYears: number): WeatherTier {
@@ -87,10 +102,10 @@ export function computeWeatherTier(cleanYears: number): WeatherTier {
 // the destination, no comparison with anywhere else.
 
 const HEADLINE_TEMPLATES: Record<WeatherTier, (clean: number, total: number) => string> = {
-  reliable: (c, t) => `In ${c} of the last ${t} years, this window had at most one washout day.`,
-  mostly_fine: (c, t) => `In ${c} of the last ${t} years, this window had at most one washout day.`,
-  mixed: (c, t) => `In ${c} of the last ${t} years, this window had at most one washout day. In the other ${t - c}, it had two or more.`,
-  unreliable: (c, t) => `In ${t - c} of the last ${t} years, this window had two or more washout days. In the other ${c}, it had at most one.`,
+  reliable: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain.`,
+  mostly_fine: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain.`,
+  mixed: (c, t) => `In ${c} of the last ${t} years, these dates had at most one day badly hit by rain. In the other ${t - c}, they had two or more.`,
+  unreliable: (c, t) => `In ${t - c} of the last ${t} years, these dates had two or more days badly hit by rain. In the other ${c}, they had at most one.`,
 };
 
 // ── Warmth: condition -> category -> template ─────────────────────────────────
@@ -139,15 +154,17 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   const caveats: WeatherCaveat[] = [];
   const stripYears = num(r.strip_years_used);
 
-  // 1. Severe rain (strip span). The row stores a count only, not which years.
+  // 1. Severe rain (strip span). "most recently YYYY" only when the row stores the years.
   const severe = num(r.severe_rain_warning_years);
   const thresholdMm = num(r.severe_rain_threshold_mm);
   if (severe !== null && thresholdMm !== null && stripYears !== null && severe >= T.severeRainCaveatMinYears) {
+    const recent = latestYear(r.severe_rain_years);
     caveats.push({
       kind: 'severe_rain',
       text:
-        `Severe rain has happened in this window in ${severe} of the last ${stripYears} ${yearsWord(stripYears)} ` +
-        `(a day with more than ${formatMm(thresholdMm)} mm of daytime rain).`,
+        `A very heavy rain day (more than ${formatMm(thresholdMm)} mm in daylight) has happened on these dates ` +
+        `in ${severe} of the last ${stripYears} ${yearsWord(stripYears)}` +
+        (recent === null ? '.' : `, most recently ${recent}.`),
     });
   }
 
@@ -156,7 +173,7 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   if (backToBack !== null && stripYears !== null && backToBack >= T.backToBackWashoutCaveatMinYears) {
     caveats.push({
       kind: 'back_to_back_washouts',
-      text: `Two washout days in a row happened in ${backToBack} of the last ${stripYears} ${yearsWord(stripYears)}.`,
+      text: `Two days in a row badly hit by rain happened on these dates in ${backToBack} of the last ${stripYears} ${yearsWord(stripYears)}.`,
     });
   }
 
@@ -179,5 +196,5 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   const note = r.sunset_shift_note?.trim();
   if (note) caveats.push({ kind: 'clock_change', text: note });
 
-  return { tier, headline, warmth, caveats };
+  return { tier, headline, definition: BADLY_HIT_DEFINITION, warmth, caveats };
 }
