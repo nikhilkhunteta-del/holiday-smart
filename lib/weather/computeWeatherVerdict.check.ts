@@ -37,6 +37,9 @@ const BARCELONA: WeatherWindowStatsRow = {
   severe_rain_threshold_mm: 24.54,
   severe_rain_years: '2019, 2024',
   sunset_shift_note: 'Clocks go back on Sun 25 Oct — sunset moves from about 18:56 to about 17:55.',
+  evening_feelslike_low_c: 15.4,
+  evening_feelslike_high_c: 22.6,
+  pct_daylight_rain_after_2pm: 44.6,
 };
 
 const MALTA: WeatherWindowStatsRow = {
@@ -52,18 +55,21 @@ const MALTA: WeatherWindowStatsRow = {
   severe_rain_threshold_mm: 20.0,
   severe_rain_years: '2021',
   sunset_shift_note: 'Clocks go back on Sun 25 Oct — sunset moves from about 18:15 to about 17:13.',
+  evening_feelslike_low_c: 17.3,
+  evening_feelslike_high_c: 25.2,
+  pct_daylight_rain_after_2pm: 48.5,
 };
 
 const bcn = computeWeatherVerdict(BARCELONA);
 const mlt = computeWeatherVerdict(MALTA);
 check('barcelona tier', bcn.tier === 'mostly_fine', String(bcn.tier));
 check('malta tier', mlt.tier === 'reliable', String(mlt.tier));
-check('barcelona headline', bcn.headline === 'In 7 of the last 10 years, these dates had at most one day badly hit by rain.', String(bcn.headline));
-check('malta headline', mlt.headline === 'In 9 of the last 10 years, these dates had at most one day badly hit by rain.', String(mlt.headline));
+check('barcelona headline', bcn.headline === 'In 7 of the last 10 years, these dates had at most one washout day.', String(bcn.headline));
+check('malta headline', mlt.headline === 'In 9 of the last 10 years, these dates had at most one washout day.', String(mlt.headline));
 check('definition built from thresholds',
-  bcn.definition === `Badly hit means ${T.washoutDayRainHours} or more hours of rain in daylight, or ${T.washoutDayTotalMm} mm or more.`,
+  bcn.definition === `A washout day means ${T.washoutDayRainHours} or more hours of rain in daylight, or ${T.washoutDayTotalMm} mm or more.`,
   bcn.definition);
-check('definition reads 3 h / 8 mm today', bcn.definition === 'Badly hit means 3 or more hours of rain in daylight, or 8 mm or more.', bcn.definition);
+check('definition reads 3 h / 8 mm today', bcn.definition === 'A washout day means 3 or more hours of rain in daylight, or 8 mm or more.', bcn.definition);
 check('barcelona warmth', bcn.warmth?.band === 'mild', String(bcn.warmth?.band));
 check('malta warmth', mlt.warmth?.band === 'warm', String(mlt.warmth?.band));
 // Both real rows have consecutive_washout_years = 3, below the raised trigger of 5.
@@ -95,10 +101,10 @@ for (const [c, t] of [[3, 'unreliable'], [4, 'mixed'], [5, 'mixed'], [6, 'mostly
 }
 check('unreliable headline leads with the bad count',
   computeWeatherVerdict({ headline_clean_year_count: 3, headline_total_years: 10 }).headline ===
-    'In 7 of the last 10 years, these dates had two or more days badly hit by rain. In the other 3, they had at most one.');
+    'In 7 of the last 10 years, these dates had two or more washout days. In the other 3, they had at most one.');
 check('mixed headline',
   computeWeatherVerdict({ headline_clean_year_count: 5, headline_total_years: 10 }).headline ===
-    'In 5 of the last 10 years, these dates had at most one day badly hit by rain. In the other 5, they had two or more.');
+    'In 5 of the last 10 years, these dates had at most one washout day. In the other 5, they had two or more.');
 check('numeric strings accepted', computeWeatherVerdict({ headline_clean_year_count: '6', headline_total_years: '10' }).tier === 'mostly_fine');
 
 // ── Warmth bands at their boundaries (midpoint of low/high) ─────────────────
@@ -147,16 +153,37 @@ check('clock off when blank', !has({ ...base, sunset_shift_note: '  ' }, 'clock_
 check('back-to-back trigger is 5', T.backToBackWashoutCaveatMinYears === 5);
 check('back-to-back off at 3 (old trigger)', !has({ ...base, consecutive_washout_years: 3 }, 'back_to_back_washouts'));
 check('back-to-back text', computeWeatherVerdict({ ...base, consecutive_washout_years: 5 }).caveats[1].text ===
-  'Two days in a row badly hit by rain happened on these dates in 5 of the last 20 years.');
+  'Two washout days in a row happened on these dates in 5 of the last 20 years.');
 check('caveat order fixed', kinds(computeWeatherVerdict({ ...base, consecutive_washout_years: 6 })) === 'severe_rain,back_to_back_washouts,sea_temperature,clock_change');
 check('order holds with gaps', kinds(computeWeatherVerdict({ ...base, consecutive_washout_years: 0, sea_temp_c: null })) === 'severe_rain,clock_change');
+
+// ── Tier phrase, rain timing, evenings, severe-rain summary ──────────────────
+
+check('barcelona tier phrase', bcn.tierPhrase === 'Usually a good week.', String(bcn.tierPhrase));
+check('malta tier phrase', mlt.tierPhrase === 'Rarely rained off.', String(mlt.tierPhrase));
+// Barcelona's after-2pm share is 44.6%: it must NOT claim dry mornings.
+check('barcelona rain timing is neutral', bcn.rainTiming?.category === 'spread' && !/dry/i.test(bcn.rainTiming.heading), JSON.stringify(bcn.rainTiming));
+check('malta rain timing is neutral', mlt.rainTiming?.category === 'spread', JSON.stringify(mlt.rainTiming));
+check('late-day at threshold',
+  computeWeatherVerdict({ pct_daylight_rain_after_2pm: T.rainTimingLateDayMinPct }).rainTiming?.heading === 'Mornings are usually dry.');
+check('spread just below threshold',
+  computeWeatherVerdict({ pct_daylight_rain_after_2pm: T.rainTimingLateDayMinPct - 0.1 }).rainTiming?.category === 'spread');
+check('no rain timing when missing', computeWeatherVerdict({}).rainTiming === null);
+check('barcelona evenings', bcn.evenings?.text === 'Evenings usually feel like 15–23°C.', String(bcn.evenings?.text));
+check('severe summary matches caveat', bcn.severeRain?.text === bcn.caveats[0].text && bcn.severeRain?.count === 2);
+check('severe zero still summarised, no caveat', (() => {
+  const v = computeWeatherVerdict({ ...BARCELONA, severe_rain_warning_years: 0, severe_rain_years: null });
+  return v.severeRain?.count === 0 && !v.caveats.some(c => c.kind === 'severe_rain') && !/warning/i.test(v.severeRain.text);
+})());
+check('no "warning" anywhere in copy', !/warning/i.test(JSON.stringify([bcn, mlt])));
+check('basis line', bcn.basis === 'Based on 20 years of hourly weather records for these exact dates. Not a forecast.', String(bcn.basis));
 
 // ── Never throws on missing input ────────────────────────────────────────────
 
 for (const [label, row] of [['null', null], ['undefined', undefined], ['empty', {}], ['garbage', { headline_clean_year_count: 'abc', sea_temp_c: 'x' } as WeatherWindowStatsRow]] as const) {
   try {
     const v = computeWeatherVerdict(row as WeatherWindowStatsRow | null | undefined);
-    check(`${label}: all null/empty`, v.tier === null && v.headline === null && v.warmth === null && v.caveats.length === 0 && v.definition.length > 0, JSON.stringify(v));
+    check(`${label}: all null/empty`, v.tier === null && v.tierPhrase === null && v.headline === null && v.warmth === null && v.evenings === null && v.rainTiming === null && v.severeRain === null && v.basis === null && v.caveats.length === 0 && v.definition.length > 0, JSON.stringify(v));
   } catch (e) {
     check(`${label}: threw`, false, String(e));
   }

@@ -1,0 +1,245 @@
+<!--
+  DESIGN REFERENCE ONLY — the Stitch mock for the Weather tab, saved as pasted.
+  Not served, not imported. Every number and sentence in it is a PLACEHOLDER: never copy them
+  into the app. The live tab (components/weather/weather-tab.tsx) takes all figures from
+  weather_window_stats / weather_strip_cells and lib/weather/computeWeatherVerdict.ts.
+  One change from the paste: a browser-extension geolocation-spoofing <script> injected at the
+  top of <head> has been removed — it was not part of the design.
+-->
+<html class="light" lang="en" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Weather - ClimateIntel</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-low": "#f3f4f4",
+                      "primary-container": "#004349",
+                      "inverse-primary": "#9ad0d7",
+                      "tertiary": "#232723",
+                      "on-tertiary-fixed-variant": "#434843",
+                      "outline": "#70797a",
+                      "tertiary-fixed": "#e0e4dd",
+                      "surface-dim": "#d9dada",
+                      "surface-bright": "#f8f9f9",
+                      "surface-variant": "#e1e3e3",
+                      "inverse-surface": "#2e3131",
+                      "primary-fixed-dim": "#9ad0d7",
+                      "on-tertiary": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "secondary-fixed-dim": "#fdba49",
+                      "surface-container-lowest": "#ffffff",
+                      "on-primary-fixed": "#001f23",
+                      "on-tertiary-container": "#a3a7a1",
+                      "surface": "#f8f9f9",
+                      "tertiary-container": "#383d38",
+                      "on-primary": "#ffffff",
+                      "on-error": "#ffffff",
+                      "on-surface": "#191c1c",
+                      "error": "#ba1a1a",
+                      "outline-variant": "#bfc8c9",
+                      "tertiary-fixed-dim": "#c3c8c1",
+                      "secondary-fixed": "#ffddaf",
+                      "on-background": "#191c1c",
+                      "surface-tint": "#30666c",
+                      "on-secondary": "#ffffff",
+                      "on-secondary-fixed-variant": "#614000",
+                      "on-secondary-fixed": "#281800",
+                      "on-tertiary-fixed": "#181d19",
+                      "secondary-container": "#fdba49",
+                      "on-primary-fixed-variant": "#134e54",
+                      "secondary": "#805600",
+                      "surface-container-high": "#e7e8e8",
+                      "on-secondary-container": "#704b00",
+                      "primary-fixed": "#b6ecf3",
+                      "on-surface-variant": "#404849",
+                      "primary": "#002b2f",
+                      "background": "#f8f9f9",
+                      "surface-container": "#edeeee",
+                      "surface-container-highest": "#e1e3e3",
+                      "inverse-on-surface": "#f0f1f1",
+                      "on-primary-container": "#7aafb6",
+                      "on-error-container": "#93000a",
+                      "dry": "#d1e0d7",
+                      "some-rain": "#fdba49",
+                      "washout": "#ba1a1a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container_padding": "24px",
+                      "section_gap": "48px",
+                      "max_width": "1280px",
+                      "columns": "12",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "headline-sm": ["Newsreader"],
+                      "data-lg": ["Inter"],
+                      "label-caps": ["Inter"],
+                      "body-md": ["Inter"],
+                      "headline-md": ["Newsreader"],
+                      "data-sm": ["Inter"],
+                      "display-lg": ["Newsreader"],
+                      "body-lg": ["Inter"]
+              },
+              "fontSize": {
+                      "headline-sm": ["24px", {"lineHeight": "32px", "fontWeight": "500"}],
+                      "data-lg": ["32px", {"lineHeight": "1", "letterSpacing": "-0.03em", "fontWeight": "600"}],
+                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.06em", "fontWeight": "700"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "headline-md": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "500"}],
+                      "data-sm": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+              },
+              "boxShadow": {
+                  "editorial": "0 4px 20px rgba(13, 67, 73, 0.08)"
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .grid-cell { transition: transform 0.2s; }
+        .grid-cell:hover { transform: scale(1.1); z-index: 10; position: relative; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen">
+<!-- TopAppBar -->
+<!-- Main Content Canvas -->
+<main class="max-w-max_width mx-auto px-container_padding py-12 flex flex-col gap-section_gap"><nav class="flex gap-8 border-b border-outline-variant mb-2"><button class="pb-4 font-label-caps text-on-surface-variant hover:text-primary transition-colors">FLIGHTS</button><button class="pb-4 font-label-caps text-primary border-b-2 border-primary-container">WEATHER</button><button class="pb-4 font-label-caps text-on-surface-variant hover:text-primary transition-colors">EVENTS</button></nav>
+<!-- Context Line -->
+<div class="font-body-md text-on-surface-variant">
+            Barcelona · October half-term · Fri 24 – Thu 30 Oct 2026
+        </div>
+<!-- 1. VERDICT SECTION -->
+<section class="max-w-4xl">
+<h1 class="font-display-lg text-display-lg text-primary mb-4 leading-tight">Usually a good week. Rain is real but lands late in the day — 7 of the last 10 years had one washout day or fewer.</h1>
+<p class="font-body-md text-on-surface-variant text-sm">
+                Based on 20 years of hourly ERA5 records for these exact dates. Not a forecast.
+            </p>
+</section>
+<!-- 2. TWENTY-YEAR STRIP (Hero) -->
+<section class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+<!-- Left Main Grid -->
+<div class="md:col-span-8 lg:col-span-9 bg-surface-container-lowest p-6 rounded-2xl shadow-editorial">
+<!-- Days Header -->
+<div class="grid grid-cols-8 gap-2 mb-2">
+<div></div> <!-- Empty top-left corner -->
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Fri 24</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Sat 25</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Sun 26</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Mon 27</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Tue 28</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Wed 29</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center">Thu 30</div>
+</div>
+<!-- 20 Years Grid Rows -->
+<div class="flex flex-col gap-1" id="twenty-year-grid">
+<!-- JavaScript will populate this -->
+<div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2025</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2024</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2023</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2022</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2021</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2020</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2019</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2018</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2017</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2016</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2015</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2014</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2013</div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2012</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2011</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2010</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2009</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2008</div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2007</div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div><div class="grid grid-cols-8 gap-2 items-center"><div class="font-label-caps text-[10px] text-on-surface-variant text-right pr-2">2006</div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-washout grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-some-rain grid-cell shadow-sm"></div><div class="w-full h-5 rounded-md bg-dry grid-cell shadow-sm"></div></div></div>
+<!-- Legend -->
+<div class="flex gap-6 mt-6 pt-4 border-t border-primary/10 font-label-caps text-label-caps text-on-surface-variant">
+<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-dry"></div> Dry</div>
+<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-some-rain"></div> Some rain</div>
+<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-washout"></div> Washout</div>
+</div>
+</div>
+<!-- Right Narrow Stats -->
+<div class="md:col-span-4 lg:col-span-3 flex flex-col gap-6">
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10">
+<div class="font-data-lg text-data-lg text-primary mb-2">1 day</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant">TYPICAL WASHOUT DAYS</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10">
+<div class="font-data-lg text-data-lg text-primary mb-2">0–4</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant">RANGE ACROSS 20 YEARS</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10">
+<div class="font-data-lg text-data-lg text-primary mb-2">3 in 20</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant">YEARS WITH TWO WASHOUTS IN A ROW</div>
+</div>
+</div>
+</section>
+<!-- 3. WHEN IT RAINS -->
+<section class="bg-surface-container-lowest p-8 rounded-2xl shadow-editorial grid grid-cols-1 md:grid-cols-3 gap-8 items-center border border-primary/10">
+<div class="md:col-span-1 border-b md:border-b-0 md:border-r border-primary/10 pb-6 md:pb-0 md:pr-6">
+<h2 class="font-headline-sm text-headline-sm text-primary mb-4">Mornings are usually dry.</h2>
+<div class="font-data-lg text-data-lg text-primary mb-1">78%</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant">OF DAYLIGHT RAIN FELL AFTER 2PM</div>
+</div>
+<div class="md:col-span-2 h-48 relative flex items-end justify-between px-2 gap-1" id="rain-bar-chart">
+<!-- Bar Chart Elements -->
+<div class="absolute w-full h-full border-b border-primary/10 bottom-6 z-0"></div>
+<div class="absolute w-full border-t border-primary/10 top-1/2 z-0 border-dashed"></div>
+<!-- JS populated bars -->
+<div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 5%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">06</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 8%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">08</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 12%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">10</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 15%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">12</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 30%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">14</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 85%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">16</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 100%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">18</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 60%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">20</div></div><div class="flex flex-col items-center justify-end h-full w-full z-10 group relative"><div class="w-full max-w-[24px] bg-some-rain rounded-t-sm transition-all duration-300 group-hover:bg-primary" style="height: 20%; margin-bottom: 24px;"></div><div class="absolute bottom-0 text-[10px] font-label-caps text-on-surface-variant w-full text-center">22</div></div></div>
+</section>
+<!-- 4. CONDITIONS (4 cards row) -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<!-- Card A -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10 flex flex-col justify-between h-full">
+<div>
+<div class="font-data-lg text-data-lg text-primary mb-2">18–23°C</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-4">DAYTIME FEELS-LIKE</div>
+</div>
+<div class="font-body-md text-on-surface-variant text-sm border-t border-primary/10 pt-4">
+                    Evenings drop to 15–17°C
+                </div>
+</div>
+<!-- Card B -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10 flex flex-col justify-between h-full">
+<div>
+<div class="font-data-lg text-data-lg text-primary mb-2">21°C</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-4">SEA TEMPERATURE</div>
+</div>
+<div class="font-body-md text-on-surface-variant text-sm border-t border-primary/10 pt-4">
+                    Warm enough to swim
+                </div>
+</div>
+<!-- Card C -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10 flex flex-col justify-between h-full">
+<div>
+<div class="font-data-lg text-data-lg text-primary mb-2">10h 10m</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-4">DAYLIGHT</div>
+</div>
+<div class="font-body-md text-on-surface-variant text-sm border-t border-primary/10 pt-4">
+                    Clocks go back Sun 26 Oct — sunset moves from 18:25 to 17:22 mid-trip
+                </div>
+</div>
+<!-- Card D -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl shadow-editorial border border-primary/10 flex flex-col justify-between h-full">
+<div>
+<div class="font-data-lg text-data-lg text-primary mb-2">2 in 20</div>
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-4">YEARS WITH A SEVERE RAIN WARNING</div>
+</div>
+<div class="font-body-md text-on-surface-variant text-sm border-t border-primary/10 pt-4">
+                    Autumn flash-rain is a real Mediterranean pattern
+                </div>
+</div>
+</section>
+<!-- 5. METHOD -->
+<section class="border-t border-primary/10 pt-8">
+<p class="font-body-md text-on-surface-variant text-xs max-w-3xl opacity-80">
+                A washout day means three or more hours of meaningful rain during daylight. Hourly ERA5-Land records, 9km resolution. Headline figures use the most recent 10 years; the strip shows all 20.
+            </p>
+</section>
+</main>
+<!-- Footer -->
+</body></html>

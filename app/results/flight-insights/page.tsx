@@ -9,6 +9,10 @@ import { FlightInsightsProvider } from '@/components/flight-insights/flight-insi
 import { assembleCombinationsOnly, buildAssemblyPrecomputed } from '@/lib/flights/assembleRecommendation';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { ScenarioStrip } from '@/components/flight-insights/scenario-strip';
+import { ResultsTabs } from '@/components/results-tabs';
+import { WeatherTab } from '@/components/weather/weather-tab';
+import { loadWeatherTab } from '@/lib/weather/loadWeatherTab';
+import { computeWeatherVerdict } from '@/lib/weather/computeWeatherVerdict';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +29,8 @@ interface PageProps {
     checked_bags?: string;
     seats?: string;
     transit?: string;
+    destination?: string;
+    tab?: string;
   };
 }
 
@@ -43,7 +49,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const seatsTogether     = searchParams.seats === 'true';
   const transitPreference = (searchParams.transit === 'uber' ? 'uber' : searchParams.transit === 'transit' ? 'transit' : 'auto') as 'auto' | 'uber' | 'transit';
 
-  const destinationSlug = 'barcelona';
+  // Barcelona unless ?destination=<slug> names another (the Malta weather tab needs a way in).
+  // Existing URLs carry no destination param, so they behave exactly as before.
+  const destinationSlug = /^[a-z][a-z-]*$/.test(searchParams.destination ?? '')
+    ? searchParams.destination!
+    : 'barcelona';
 
   if (!urn || !windowStart || !windowEnd) {
     return (
@@ -52,6 +62,10 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       </div>
     );
   }
+
+  // Weather tab rows (stored, pre-derived — never throws, null hides the tab). Started now,
+  // awaited below, so it runs alongside the flight calls rather than after them.
+  const weatherPromise = loadWeatherTab(destinationSlug, windowStart, windowEnd);
 
   // ── Three parallel server calls ───────────────────────────────────────────
   const [savingsResult, smartResult, schoolResult] = await Promise.all([
@@ -203,7 +217,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     { cabinBags, checkedBags, seatsTogether, transitPreference, adults },
   );
 
-  const currentPageUrl = `/results/flight-insights?urn=${urn}&start=${windowStart}&end=${windowEnd}&adults=${adults}&children=${children}&tripStyle=${tripStyle}&cabin_bags=${cabinBags}&checked_bags=${checkedBags}&seats=${seatsTogether}&transit=${transitPreference}`;
+  const currentPageUrl = `/results/flight-insights?urn=${urn}&start=${windowStart}&end=${windowEnd}&adults=${adults}&children=${children}&tripStyle=${tripStyle}&cabin_bags=${cabinBags}&checked_bags=${checkedBags}&seats=${seatsTogether}&transit=${transitPreference}${searchParams.destination ? `&destination=${destinationSlug}` : ''}`;
 
   const combinationRange = assembled?.combinations
     ? Math.max(...assembled.combinations.map((c: any) => c.total_inc_fine ?? 0)) -
@@ -236,6 +250,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     baselineIsRecommended: assembled?.baselineIsRecommended ?? false,
   };
 
+  const weatherData    = await weatherPromise;
+  const weatherVerdict = weatherData ? computeWeatherVerdict(weatherData.row) : null;
+  const weatherTeaser  = weatherVerdict
+    ? [weatherVerdict.tierPhrase, weatherVerdict.headline].filter(Boolean).join(' ') || null
+    : null;
+
   return (
     <FlightInsightsProvider>
       <main className="min-h-screen bg-background">
@@ -252,7 +272,14 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             adults={adults}
           />
 
-          {/* 2. AIRecommendationClient gates all remaining content until AI resolves */}
+          {/* Flights / Weather tabs. Everything below the preferences card is the Flights
+              tab, unchanged; without weather data there is no tab bar at all. */}
+          <ResultsTabs
+            weatherAvailable={weatherData !== null}
+            weatherTeaser={weatherTeaser}
+            weather={weatherData && weatherVerdict ? <WeatherTab data={weatherData} verdict={weatherVerdict} /> : null}
+            flights={
+          /* 2. AIRecommendationClient gates all remaining content until AI resolves */
           <AIRecommendationClient
             fetchParams={aiFetchParams}
             schoolName={schoolName}
@@ -355,6 +382,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             )}
 
           </AIRecommendationClient>
+            }
+          />
 
         </div>
       </main>
