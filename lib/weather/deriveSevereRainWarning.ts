@@ -82,9 +82,13 @@ async function main() {
     ['window_end', `eq.${windowEnd}`],
   ];
   const before = (await pgFetch(`/weather_window_stats?${qs([['select', '*'], ...rowFilter])}`)) as Array<Record<string, unknown>>;
-  if (before.length !== 1) throw new Error(`expected exactly one existing row, found ${before.length}`);
-  console.log('[4c] row BEFORE:');
-  console.log(JSON.stringify(before[0], null, 2));
+  if (before.length !== 1) {
+    if (write) throw new Error(`expected exactly one existing row, found ${before.length}`);
+    console.log(`[4c] dry run: row not written yet (found ${before.length}) — computing anyway`);
+  } else {
+    console.log('[4c] row BEFORE:');
+    console.log(JSON.stringify(before[0], null, 2));
+  }
 
   // Strip years: same probe as 4a/4b (years with data at the window start, most recent N).
   const probe = (await pgFetch(

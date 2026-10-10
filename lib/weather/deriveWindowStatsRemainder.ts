@@ -25,7 +25,11 @@
  * proxy. Destination slug and window are inputs; the IANA zone used for the
  * clock-change check is read from destinations.iana_timezone. Run with:
  *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/deriveWindowStatsRemainder.ts \
- *     --slug=barcelona --window-start=2026-10-19 --window-end=2026-10-30
+ *     --slug=barcelona --window-start=2026-10-24 --window-end=2026-11-01 [--write]
+ *
+ * Preview by default: computes and prints the columns, writes nothing. Pass --write to PATCH
+ * the row (which Task 4a must already have written). In preview the 4a row may be missing —
+ * a preview of a brand-new window runs before 4a has written anything.
  */
 
 import { addDays } from '../flights/snapshotJob';
@@ -83,10 +87,10 @@ function percentile(values: number[], p: number): number {
 }
 
 async function main() {
-  const { slug, windowStart, windowEnd } = parseDerivationArgs();
+  const { slug, windowStart, windowEnd, write } = parseDerivationArgs();
   const dayCount = Math.round((Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000) + 1;
   const windowMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(windowStart, d)));
-  console.log(`[4b] ${slug} ${windowStart}..${windowEnd} (${dayCount} days)`);
+  console.log(`[4b] ${slug} ${windowStart}..${windowEnd} (${dayCount} days) — ${write ? 'WRITE' : 'PREVIEW'}`);
 
   const dest = await loadDestination(pgFetch, slug);
   const destinationId = dest.id;
@@ -101,7 +105,10 @@ async function main() {
       ['window_end', `eq.${windowEnd}`],
     ])}`,
   )) as unknown[];
-  if (existing.length !== 1) throw new Error(`expected exactly one Task 4a row, found ${existing.length}`);
+  if (existing.length !== 1) {
+    if (write) throw new Error(`expected exactly one Task 4a row, found ${existing.length}`);
+    console.log(`[4b] preview: Task 4a row not written yet (found ${existing.length}) — computing anyway`);
+  }
 
   // Years with data at the window start (same probe as 4a), then per-year fetches
   // (a year is 12 days x 24h = 288 rows, well under PostgREST's 1000-row cap).
@@ -287,6 +294,12 @@ async function main() {
   // conflict resolution, so omitting Task 4a's columns would fail. The row is verified
   // to exist above, so a PATCH updates exactly it and can never create a second row.
   const { destination_id: _d, window_start: _s, window_end: _e, ...patch } = body;
+  if (!write) {
+    console.log('\n[4b] columns (preview, not written):');
+    console.log(JSON.stringify(patch, null, 2));
+    console.log('\n[4b] preview — nothing written.');
+    return;
+  }
   const out = (await pgFetch(
     `/weather_window_stats?${qs([
       ['destination_id', `eq.${destinationId}`],

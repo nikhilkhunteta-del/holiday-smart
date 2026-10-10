@@ -47,9 +47,19 @@ export interface WeatherVerdict {
   rainTiming: { category: RainTiming; pct_after_2pm: number; heading: string; stat_label: string } | null;
   /** Severe-rain summary for its own card — present for any count, including zero. */
   severeRain: { count: number; strip_years: number; text: string } | null;
-  /** "Based on N years ... Not a forecast." Null when strip_years_used is missing. */
+  /** "Counted over {first}–{last} of the last N years; the chart shows all M. Not a forecast."
+   *  Null when the year span or counts are missing. */
   basis: string | null;
   caveats: WeatherCaveat[];
+}
+
+/** Figures the verdict needs that are not columns of the row: counted from the stored
+ *  strip cells by the loader (lib/weather/loadWeatherTab.ts). */
+export interface WeatherVerdictExtras {
+  /** Of the headline years, how many had no washout day at all. */
+  headlineNoWashoutYears?: number | null;
+  /** Latest strip year; the headline years are the most recent headline_years_used of the strip. */
+  latestStripYear?: number | null;
 }
 
 /** The weather_window_stats columns the verdict reads. Everything is optional/nullable on
@@ -57,6 +67,7 @@ export interface WeatherVerdict {
 export interface WeatherWindowStatsRow {
   headline_clean_year_count?: number | string | null;
   headline_total_years?: number | string | null;
+  headline_years_used?: number | string | null;
   strip_years_used?: number | string | null;
   consecutive_washout_years?: number | string | null;
   daytime_feelslike_low_c?: number | string | null;
@@ -123,12 +134,20 @@ export function computeWeatherTier(cleanYears: number): WeatherTier {
 // States the number plainly; the tier only picks the closing clause. No adjectives about
 // the destination, no comparison with anywhere else.
 
-const HEADLINE_TEMPLATES: Record<WeatherTier, (clean: number, total: number) => string> = {
-  reliable: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day.`,
-  mostly_fine: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day.`,
-  mixed: (c, t) => `In ${c} of the last ${t} years, these dates had at most one washout day. In the other ${t - c}, they had two or more.`,
-  unreliable: (c, t) => `In ${t - c} of the last ${t} years, these dates had two or more washout days. In the other ${c}, they had at most one.`,
+// `z` is the "In {n}, none at all." clause (or ''), placed straight after the sentence about
+// years with at most one washout day, since the no-washout years are a subset of those.
+const HEADLINE_TEMPLATES: Record<WeatherTier, (clean: number, total: number, z: string) => string> = {
+  reliable: (c, t, z) => `In ${c} of the last ${t} years, these dates had at most one washout day.${z}`,
+  mostly_fine: (c, t, z) => `In ${c} of the last ${t} years, these dates had at most one washout day.${z}`,
+  mixed: (c, t, z) => `In ${c} of the last ${t} years, these dates had at most one washout day.${z} In the other ${t - c}, they had two or more.`,
+  unreliable: (c, t, z) => `In ${t - c} of the last ${t} years, these dates had two or more washout days. In the other ${c}, they had at most one.${z}`,
 };
+
+/** " In {n}, none at all." — omitted when the count is unknown, or zero ("In 0, none at all"
+ *  reads as a mistake; the at-most-one sentence already carries that case). */
+function noWashoutClause(n: number | null): string {
+  return n === null || n <= 0 ? '' : ` In ${n}, none at all.`;
+}
 
 // Short lead-in per tier, about rain only (the tier is a washout count, not warmth).
 const TIER_PHRASES: Record<WeatherTier, string> = {
@@ -167,14 +186,21 @@ const WARMTH_LABEL: Record<WarmthBand, string> = {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefined): WeatherVerdict {
+export function computeWeatherVerdict(
+  row: WeatherWindowStatsRow | null | undefined,
+  extras: WeatherVerdictExtras = {},
+): WeatherVerdict {
   const r = row ?? {};
 
   // Tier + headline (headline span).
   const clean = num(r.headline_clean_year_count);
   const total = num(r.headline_total_years);
   const tier = clean === null ? null : computeWeatherTier(clean);
-  const headline = tier === null || clean === null || total === null ? null : HEADLINE_TEMPLATES[tier](clean, total);
+  const zero = num(extras.headlineNoWashoutYears);
+  const headline =
+    tier === null || clean === null || total === null
+      ? null
+      : HEADLINE_TEMPLATES[tier](clean, total, noWashoutClause(zero));
   const tierPhrase = tier === null ? null : TIER_PHRASES[tier];
 
   // Warmth (headline span, daytime P10..P90 feels-like).
@@ -216,10 +242,13 @@ export function computeWeatherVerdict(row: WeatherWindowStatsRow | null | undefi
   // Caveats, fixed order, each only when its condition holds and its inputs exist.
   const caveats: WeatherCaveat[] = [];
   const stripYears = num(r.strip_years_used);
+  const latest = num(extras.latestStripYear);
+  const headlineSpan = num(r.headline_years_used) ?? total;
   const basis =
-    stripYears === null
+    stripYears === null || latest === null || headlineSpan === null || total === null
       ? null
-      : `Based on ${stripYears} years of hourly weather records for these exact dates. Not a forecast.`;
+      : `Counted over ${latest - headlineSpan + 1}–${latest} of the last ${total} years; ` +
+        `the chart shows all ${stripYears}. Not a forecast.`;
 
   // 1. Severe rain (strip span). "most recently YYYY" only when the row stores the years.
   const severe = num(r.severe_rain_warning_years);

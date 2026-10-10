@@ -176,7 +176,20 @@ check('severe zero still summarised, no caveat', (() => {
   return v.severeRain?.count === 0 && !v.caveats.some(c => c.kind === 'severe_rain') && !/warning/i.test(v.severeRain.text);
 })());
 check('no "warning" anywhere in copy', !/warning/i.test(JSON.stringify([bcn, mlt])));
-check('basis line', bcn.basis === 'Based on 20 years of hourly weather records for these exact dates. Not a forecast.', String(bcn.basis));
+// Line under the headline needs the strip's latest year (passed in by the loader).
+check('basis null without latest year', bcn.basis === null, String(bcn.basis));
+const bcnX = computeWeatherVerdict({ ...BARCELONA, headline_years_used: 10 }, { latestStripYear: 2025, headlineNoWashoutYears: 4 });
+check('basis line', bcnX.basis === 'Counted over 2016–2025 of the last 10 years; the chart shows all 20. Not a forecast.', String(bcnX.basis));
+
+// "In {n}, none at all." straight after the at-most-one sentence, every tier.
+check('none-at-all clause, mostly_fine', bcnX.headline === 'In 7 of the last 10 years, these dates had at most one washout day. In 4, none at all.', String(bcnX.headline));
+const z = (clean: number, zero: number | null) =>
+  computeWeatherVerdict({ headline_clean_year_count: clean, headline_total_years: 10 }, { headlineNoWashoutYears: zero }).headline;
+check('none-at-all clause, reliable', z(8, 7) === 'In 8 of the last 10 years, these dates had at most one washout day. In 7, none at all.', String(z(8, 7)));
+check('none-at-all clause, mixed', z(5, 2) === 'In 5 of the last 10 years, these dates had at most one washout day. In 2, none at all. In the other 5, they had two or more.', String(z(5, 2)));
+check('none-at-all clause, unreliable', z(3, 1) === 'In 7 of the last 10 years, these dates had two or more washout days. In the other 3, they had at most one. In 1, none at all.', String(z(3, 1)));
+check('none-at-all clause omitted at zero', z(8, 0) === 'In 8 of the last 10 years, these dates had at most one washout day.', String(z(8, 0)));
+check('none-at-all clause omitted when unknown', z(8, null) === 'In 8 of the last 10 years, these dates had at most one washout day.', String(z(8, null)));
 
 // ── Never throws on missing input ────────────────────────────────────────────
 
