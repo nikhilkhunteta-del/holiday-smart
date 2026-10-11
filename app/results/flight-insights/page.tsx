@@ -63,7 +63,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     );
   }
 
-  // Weather tab rows (stored, pre-derived — never throws, null hides the tab). Started now,
+  // Weather tab rows (stored, pre-derived — never throws, null hides the tab). Looked up by the
+  // weather window (half-term plus the weekend either side), never by these dates directly;
+  // windowStart/windowEnd themselves are unchanged for every flight call. Started now,
   // awaited below, so it runs alongside the flight calls rather than after them.
   const weatherPromise = loadWeatherTab(destinationSlug, windowStart, windowEnd);
 
@@ -251,7 +253,12 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   };
 
   const weatherData    = await weatherPromise;
-  const weatherVerdict = weatherData ? computeWeatherVerdict(weatherData.row) : null;
+  const weatherVerdict = weatherData
+    ? computeWeatherVerdict(weatherData.row, {
+        headlineNoWashoutYears: weatherData.headlineNoWashoutYears,
+        latestStripYear:        weatherData.latestStripYear,
+      })
+    : null;
   const weatherTeaser  = weatherVerdict
     ? [weatherVerdict.tierPhrase, weatherVerdict.headline].filter(Boolean).join(' ') || null
     : null;

@@ -47,7 +47,15 @@
  *
  * Usage (destination slug and window are inputs — see derivationInputs.ts):
  *   NODE_USE_ENV_PROXY=1 npx tsx lib/weather/backfillWindowDerivation.ts \
- *     --slug=barcelona --window-start=2026-10-19 --window-end=2026-10-30
+ *     --slug=barcelona --window-start=2026-10-24 --window-end=2026-11-01 [--write]
+ *
+ * Preview by default: computes and prints everything, writes nothing. Pass --write to
+ * upsert weather_strip_cells and the weather_window_stats row (same convention as
+ * deriveSevereRainWarning.ts).
+ *
+ * Refuses a window with any day that has no stored daylight hours in any strip year (e.g.
+ * a day outside the ingested ~15 Oct - 5 Nov range): such a day used to be counted as
+ * 'dry' with only a warning, which would silently flatter the figures.
  */
 
 import { addDays } from '../flights/snapshotJob';
@@ -134,12 +142,12 @@ function median(values: number[]): number {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { slug, windowStart, windowEnd } = parseDerivationArgs();
+  const { slug, windowStart, windowEnd, write } = parseDerivationArgs();
   const dayCount = dayCountInclusive(windowStart, windowEnd);
   const offsetMonthDays = Array.from({ length: dayCount }, (_, d) => monthDay(addDays(windowStart, d)));
 
   console.log(
-    `[backfill] ${slug} window ${windowStart}..${windowEnd} — ${dayCount} days inclusive`,
+    `[backfill] ${slug} window ${windowStart}..${windowEnd} — ${dayCount} days inclusive — ${write ? 'WRITE' : 'PREVIEW'}`,
   );
 
   // ── 1. Destination lookup ────────────────────────────────────────────────
@@ -255,15 +263,15 @@ async function main() {
   }
 
   if (missingDataDates.length > 0) {
-    console.warn(
-      `[backfill] WARNING: ${missingDataDates.length} window-date(s) had zero daylight rows ` +
-      `(classified 'dry' by formula, not confirmed dry):\n  ${missingDataDates.join('\n  ')}`,
+    throw new Error(
+      `refusing window ${windowStart}..${windowEnd}: ${missingDataDates.length} window-date(s) have no ` +
+      `stored daylight hours (outside the ingested range?) — nothing written:\n  ${missingDataDates.join('\n  ')}`,
     );
   }
 
   // ── 4. Insert weather_strip_cells (upsert on PK) ─────────────────────────
 
-  await pgFetch(
+  if (write) await pgFetch(
     `/weather_strip_cells?${qs([
       ['on_conflict', 'destination_id,window_start,window_end,strip_year,day_offset'],
     ])}`,
@@ -273,7 +281,7 @@ async function main() {
       body: JSON.stringify(strippedCellRows),
     },
   );
-  console.log(`[backfill] weather_strip_cells: upserted ${strippedCellRows.length} row(s)`);
+  console.log(`[backfill] weather_strip_cells: ${write ? 'upserted' : 'would upsert'} ${strippedCellRows.length} row(s)`);
 
   // ── 5. Per-year washout day counts (reused for both strip + headline) ───
 
@@ -338,6 +346,14 @@ async function main() {
   // columns (feels-like ranges, sea_temp_c, etc.) are omitted, so they stay
   // NULL on insert and are left untouched on conflict — requires the DROP NOT
   // NULL migration at the bottom of supabase/tables/weather_window_stats.sql.
+
+  if (!write) {
+    console.log('\n[backfill] weather_window_stats row (preview, not written):');
+    console.log(JSON.stringify({ destination_id: destinationId, window_start: windowStart, window_end: windowEnd, ...windowStatsPatch }, null, 2));
+    printStripPrintout(stripYears, cellStateByYear);
+    console.log('\n[backfill] preview — nothing written.');
+    return;
+  }
 
   const updatedRows = (await pgFetch(
     `/weather_window_stats?${qs([

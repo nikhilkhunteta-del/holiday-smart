@@ -280,7 +280,13 @@ only the weather job reads the coordinates.
 - `deriveSevereRainWarning.ts` (4c) — severe-rain count, threshold mm and `severe_rain_years`
   (dry run unless `--write`).
 - 4a/4b/4c all take `--slug=… --window-start=YYYY-MM-DD --window-end=YYYY-MM-DD` and run in that
-  order; each stamps `computed_at` when it writes.
+  order; each stamps `computed_at` when it writes. **All three preview by default and write
+  nothing; pass `--write` to write.** 4a refuses a window with any day that has no stored
+  weather (it used to count such a day as dry).
+- `deriveAllWeatherWindows.ts` — lists every distinct weather window across all schools (same
+  school-then-borough date pick as the home page) with school counts and skip reasons
+  (single-day half-terms; days outside the stored ~15 Oct – 5 Nov). `--run` previews 4a/4b/4c
+  for each kept window x destination; `--run --write` writes them.
 - `computeWeatherVerdict.ts` (4d) — pure, render-time: tier + tier phrase, headline, "washout
   day" definition, warmth band, evenings, rain timing (`rainTimingLateDayMinPct`: "Mornings are
   usually dry" only at/above it), severe-rain summary, ordered caveats. Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
@@ -288,9 +294,16 @@ only the weather job reads the coordinates.
 **Weather tab (results page):** `?tab=weather` on `/results/flight-insights`. Shown only for
 slugs in `WEATHER_TAB_DESTINATIONS` (`lib/weather/weatherTabConfig.ts` — barcelona, malta; never
 andalusian-corridor until re-ingested). `loadWeatherTab.ts` reads the stats row + strip cells
-server-side with the service-role client (so RLS doesn't block it), picks the row whose window
-matches or most overlaps the page's school window, and returns null on any failure — the tab bar
-then disappears and the page is exactly the old Flights page. Both panels stay mounted (hidden,
+server-side with the service-role client (so RLS doesn't block it). It widens the school's
+half-term to the **weather window** with `weatherWindowFor()` (`lib/weather/weatherWindow.ts`:
+Sun/Mon start -> the Saturday before, Fri/Sat end -> the Sunday after, e.g. Mon 26 – Fri 30 Oct
+-> Sat 24 Oct – Sun 1 Nov) and uses a stats row only for EXACTLY that window — never another
+window's figures. No exact row, or any failure, returns null: the tab, the tab bar and the
+weather line on the Flights tab all disappear and the page is exactly the old Flights page. The
+weather window is used for weather only; every flight call keeps the school's own dates.
+Rows exist for every school's weather window that fits the stored data (see
+`deriveAllWeatherWindows.ts` below); the original 2026-10-19..2026-10-30 rows are no school's
+weather window any more and are simply never read. Both panels stay mounted (hidden,
 not unmounted) so switching back never re-fetches `/api/recommend`; the switch uses
 `history.pushState`, not a router navigation, so it never re-runs the flight RPCs. `?destination=`
 (default barcelona) picks the destination for both tabs. Design reference (placeholders only):

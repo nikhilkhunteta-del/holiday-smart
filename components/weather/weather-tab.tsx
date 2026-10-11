@@ -47,11 +47,6 @@ export function formatWindow(start: string, end: string): string {
   return `${sPart} – ${WEEKDAYS[e.getUTCDay()]} ${e.getUTCDate()} ${MONTHS[e.getUTCMonth()]} ${e.getUTCFullYear()}`;
 }
 
-/** 1 -> "1", 1.5 -> "1.5". */
-function fmtNum(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 const cardClass = 'bg-surface-container-lowest rounded-lg shadow-md border border-primary/10';
 const labelClass = 'font-inter text-[12px] leading-4 font-bold uppercase tracking-[0.06em] text-on-surface-variant';
 const dataClass = 'font-inter text-[28px] md:text-[32px] leading-none font-semibold tracking-[-0.03em] text-primary';
@@ -136,14 +131,14 @@ function StatTile({ value, label }: { value: string; label: string }) {
 function StripStats({ data }: { data: WeatherTabData }) {
   const { row } = data;
   const stripYears = num(row.strip_years_used);
-  const typical = num(row.typical_washout_days);
+  const noWashout = data.stripNoWashoutYears;
   const min = num(row.washout_days_min);
   const max = num(row.washout_days_max);
   const consecutive = num(row.consecutive_washout_years);
 
   const tiles: { value: string; label: string }[] = [];
-  if (typical !== null && stripYears !== null) {
-    tiles.push({ value: `${fmtNum(typical)} ${typical === 1 ? 'day' : 'days'}`, label: `Typical washout days (median of ${stripYears} years)` });
+  if (noWashout !== null && stripYears !== null) {
+    tiles.push({ value: `${noWashout} in ${stripYears}`, label: 'Years with no washout day' });
   }
   if (min !== null && max !== null && stripYears !== null) {
     tiles.push({ value: `${min}–${max}`, label: `Washout days, fewest to most, across ${stripYears} years` });
@@ -326,6 +321,7 @@ export function WeatherTab({ data, verdict }: { data: WeatherTabData; verdict: W
       <div className="flex flex-col gap-4">
         <div className="font-inter text-[15px] text-on-surface-variant">
           {data.destinationName} · {formatWindow(row.window_start, row.window_end)} · {days} days
+          {data.extended && ' · your half-term plus the weekends either side'}
         </div>
         {headline && (
           <h1 className="font-newsreader text-[30px] leading-[1.15] sm:text-display-md md:text-display-lg font-semibold text-primary max-w-4xl">

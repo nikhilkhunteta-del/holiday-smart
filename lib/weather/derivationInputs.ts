@@ -7,7 +7,7 @@
  *   --slug=<destination slug>      required
  *   --window-start=YYYY-MM-DD      required
  *   --window-end=YYYY-MM-DD        required
- *   --write                        4c only (dry run otherwise); ignored by 4a/4b
+ *   --write                        actually write (4a/4b/4c all preview and write nothing otherwise)
  *
  * The destination's id, IANA time zone and coordinates are read from the
  * `destinations` row for that slug — never hardcoded here.
