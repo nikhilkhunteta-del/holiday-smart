@@ -13,6 +13,7 @@ import { ResultsTabs } from '@/components/results-tabs';
 import { WeatherTab } from '@/components/weather/weather-tab';
 import { loadWeatherTab } from '@/lib/weather/loadWeatherTab';
 import { computeWeatherVerdict } from '@/lib/weather/computeWeatherVerdict';
+import { destinationDisplayName } from '@/lib/destinations';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,8 +70,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // awaited below, so it runs alongside the flight calls rather than after them.
   const weatherPromise = loadWeatherTab(destinationSlug, windowStart, windowEnd);
 
-  // ── Three parallel server calls ───────────────────────────────────────────
-  const [savingsResult, smartResult, schoolResult] = await Promise.all([
+  // ── Four parallel server calls ────────────────────────────────────────────
+  const [savingsResult, smartResult, schoolResult, destinationResult] = await Promise.all([
     supabase.rpc('get_savings_breakdown', {
       p_destination_slug: destinationSlug,
       p_school_urn:       urn,
@@ -97,6 +98,11 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
       .select('postcode_district, borough, school_name')
       .eq('urn', urn)
       .maybeSingle(),
+    supabase
+      .from('destinations')
+      .select('name')
+      .eq('slug', destinationSlug)
+      .maybeSingle(),
   ]);
 
   if (savingsResult.error || !savingsResult.data) {
@@ -114,6 +120,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const postcodeDistrict = (schoolResult.data as any)?.postcode_district ?? 'SW1A';
   const schoolName       = (schoolResult.data as any)?.school_name ?? null;
   const borough          = (schoolResult.data as any)?.borough ?? null;
+  // Display name from the destinations row ("Barcelona, Spain" -> "Barcelona"), used by every
+  // piece of copy that names the destination.
+  const destinationName  = destinationDisplayName((destinationResult.data as any)?.name, destinationSlug);
 
   // ── Assemble combinations (fast, no AI) ──────────────────────────────────
   const smartRaw = smartResult.error ? null : (smartResult.data as any);
@@ -231,6 +240,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // ── Params passed to client for AI fetch + preference re-runs ────────────
   const aiFetchParams = {
     destinationSlug,
+    destinationName,
     schoolUrn:        urn,
     tripType,
     adults,
@@ -377,6 +387,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             {assembled && (
               <PriceHistorySection
                 destinationSlug={destinationSlug}
+                destinationName={destinationName}
                 tripType={tripType}
                 adults={adults}
                 children={children}

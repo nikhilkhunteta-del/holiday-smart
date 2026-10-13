@@ -189,7 +189,7 @@ export function PreferencesCard({ cabinBags, checkedBags, seatsTogether, transit
               {outboundCarrier === 'FR' && adults >= 2
                 ? 'Ryanair charges a one-time £10 fee for the second adult. Toggle to include.'
                 : outboundCarrier
-                  ? `Optional — ${outboundCarrier === 'U2' ? 'easyJet' : outboundCarrier === 'W6' ? 'Wizz Air' : outboundCarrier === 'BA' ? 'British Airways' : outboundCarrier === 'VY' ? 'Vueling' : outboundCarrier === 'TP' ? 'TAP' : outboundCarrier} seats families together at no charge`
+                  ? `Optional — ${outboundCarrier === 'U2' ? 'easyJet' : outboundCarrier === 'W6' ? 'Wizz Air' : outboundCarrier === 'BA' ? 'British Airways' : outboundCarrier === 'VY' ? 'Vueling' : outboundCarrier === 'TP' ? 'TAP' : outboundCarrier === 'LS' ? 'Jet2' : outboundCarrier === 'KM' ? 'KM Malta Airlines' : outboundCarrier} seats families together at no charge`
                   : 'Most airlines seat families together at no charge'}
             </span>
             <Toggle checked={seatsTogether} onChange={v => update('seats', v ? 'true' : 'false')} />

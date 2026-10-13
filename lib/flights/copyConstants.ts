@@ -23,3 +23,11 @@ export const BASELINE_NAME_LABEL = 'Typical Saturday Booking';
 // didn't cover: "all-in" on its own could be misread as including the
 // holiday itself, not just getting there.
 export const ALL_IN_DEFINITION = 'All-in = fare + bags + seats + transport to and from both airports. Flights and getting there. Accommodation isn\'t included.';
+
+// Shown directly under ALL_IN_DEFINITION, and only when the destination airport has no stored
+// transfer price (destination_airports transit/taxi columns empty, so the RPC returns
+// destination_transfer_known = false and a £0 transfer — Malta's MLA today). Without it the
+// definition above would claim a transfer the figures don't contain.
+export function destinationTransferUnpricedNote(destinationName: string): string {
+  return `We don't have a price yet for getting from the airport to where you're staying in ${destinationName}, so that part isn't in the all-in figures.`;
+}

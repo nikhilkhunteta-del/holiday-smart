@@ -47,6 +47,7 @@ const CARRIER_NAMES: Record<string, string> = {
   TP: 'TAP Air Portugal', W6: 'Wizz Air', IB: 'Iberia', AF: 'Air France',
   KL: 'KLM', LH: 'Lufthansa', OS: 'Austrian Airlines', AY: 'Finnair',
   EW: 'Eurowings', SK: 'SAS', VU: 'Volotea',
+  LS: 'Jet2', KM: 'KM Malta Airlines', LO: 'LOT',
 };
 
 function carrierName(iata: string): string {

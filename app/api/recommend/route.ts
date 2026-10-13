@@ -6,6 +6,7 @@ import { effectiveCost, viable } from '@/lib/flights/selectCombination';
 import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { combinationKey } from '@/lib/flights/buildCandidates';
 import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
+import { destinationDisplayName } from '@/lib/destinations';
 
 function fmtDateLong(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
       borough,
     } = body;
 
-    const [smartResult] = await Promise.all([
+    const [smartResult, destinationResult] = await Promise.all([
       supabase.rpc('get_smart_recommendation', {
         p_destination_slug: destinationSlug,
         p_school_urn:       schoolUrn,
@@ -62,7 +63,10 @@ export async function POST(request: NextRequest) {
         p_checked_bags:     checkedBags,
         p_seats_together:   seatsTogether,
       }),
+      supabase.from('destinations').select('name').eq('slug', destinationSlug).maybeSingle(),
     ]);
+    // Display name from the destinations row ("Barcelona, Spain" -> "Barcelona").
+    const destinationName = destinationDisplayName((destinationResult.data as any)?.name, destinationSlug);
 
     if (smartResult.error || !smartResult.data) {
       return NextResponse.json({ error: 'RPC failed' }, { status: 500 });
@@ -214,7 +218,7 @@ export async function POST(request: NextRequest) {
       { light: scenarioLightResult, checked: scenarioCheckedResult,
         uber: scenarioUberResult, seats: null, transit: scenarioTransitResult },
       { cabinBags, checkedBags, seatsTogether, transitPreference, adults,
-        destinationName: destinationSlug?.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        destinationName,
         firstCheckedBagGbp: precomputed.bagFeesCache?.get(recommendation?.outbound_carrier ?? 'BA')?.first_checked_bag_gbp ?? undefined,
       },
     );
@@ -381,6 +385,23 @@ export async function POST(request: NextRequest) {
     };
     const priceMovement = computePriceMovement(priceMovementRaw);
 
+    // Is the baseline flight non-stop? The RPC's baseline object carries no stop count, so read
+    // it from the baseline_snapshots rows behind it. Barcelona's are all direct; Malta's
+    // cheapest Heathrow row is a one-stop LOT flight, which copy must not call "direct".
+    // Unknown (no rows / read failed) stays null and keeps the old wording.
+    let baselineIsDirect: boolean | null = null;
+    if (bl?.outbound_date && bl?.origin_iata && bl?.outbound_carrier) {
+      const stopsResult = await supabase
+        .from('baseline_snapshots')
+        .select('stops')
+        .eq('destination_slug', destinationSlug)
+        .eq('outbound_date', bl.outbound_date)
+        .eq('origin_iata', bl.origin_iata)
+        .eq('airline_iata', bl.outbound_carrier);
+      const stopRows = (stopsResult.data ?? []) as { stops: number | null }[];
+      if (!stopsResult.error && stopRows.length > 0) baselineIsDirect = stopRows.every(r => r.stops === 0);
+    }
+
     const aiResult = await getAIRecommendation(assembled.shortlist, {
       schoolName,
       borough,
@@ -409,6 +430,7 @@ export async function POST(request: NextRequest) {
       baseline_return_date:     bl?.return_date ?? undefined,
       baseline_trip_nights:     blScored?.trip_nights ?? undefined,
       baseline_carrier:         bl?.outbound_carrier ?? undefined,
+      baseline_is_direct:       baselineIsDirect,
       bestInsetFromPool,
       absence_days:        absenceDays,
       absence_out_days:    absenceOutDays,
@@ -454,10 +476,7 @@ export async function POST(request: NextRequest) {
       price_first_checked_on:   priceMovement.first_checked_on,
       price_first_total_gbp:    priceMovement.first_total_gbp,
       price_total_change_gbp:   priceMovement.total_change_gbp,
-      destinationName: destinationSlug
-        .split('-')
-        .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' '),
+      destinationName,
       transitPreference,
       scenarios,
       savingCategory: body.savingCategory ?? 'found_saving',

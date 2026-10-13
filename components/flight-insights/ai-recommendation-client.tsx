@@ -5,13 +5,14 @@ import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
 import { computePriceMovement, buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
-import { BASELINE_NAME, ALL_IN_DEFINITION } from '@/lib/flights/copyConstants';
+import { BASELINE_NAME, ALL_IN_DEFINITION, destinationTransferUnpricedNote } from '@/lib/flights/copyConstants';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
 
 interface FetchParams {
   destinationSlug: string;
+  destinationName: string; // from the destinations row, e.g. "Barcelona" (see lib/destinations.ts)
   schoolUrn: string;
   tripType: string;
   adults: number;
@@ -79,6 +80,7 @@ function carrierName(iata: string): string {
   const map: Record<string, string> = {
     BA: 'British Airways', U2: 'easyJet', FR: 'Ryanair',
     VY: 'Vueling', W6: 'Wizz Air', TP: 'TAP',
+    LS: 'Jet2', KM: 'KM Malta Airlines', LO: 'LOT',
   };
   return map[iata] ?? iata;
 }
@@ -553,10 +555,10 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
 
   // Sticky bar content — mirrors whichever booking box variant is showing
   // (baseline vs. smart pick), same source data, no separate determination.
-  const destinationName = fetchParams.destinationSlug
-    .split('-')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  const destinationName = fetchParams.destinationName;
+  // True only when the destination airport has no stored transfer price (the RPC then counts
+  // the transfer as £0) — Malta today; never Barcelona, whose airports are all priced.
+  const destTransferUnpriced = (combinations ?? []).some(c => c.destination_transfer_known === false);
   const stickyBarNights = fetchParams.baselineIsRecommended
     ? (baseline
         ? Math.round((new Date(baseline.return_date + 'T00:00:00').getTime() - new Date(baseline.outbound_date + 'T00:00:00').getTime()) / 86400000)
@@ -646,6 +648,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             marginTop: 4,
           }}>
             {ALL_IN_DEFINITION}
+            {destTransferUnpriced && <> {destinationTransferUnpricedNote(fetchParams.destinationName)}</>}
           </p>
         )}
       </div>

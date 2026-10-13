@@ -9,6 +9,7 @@ const round5 = (n: number) => Math.round(n / 5) * 5;
 const CARRIER_NAMES: Record<string, string> = {
   BA: 'British Airways', U2: 'easyJet', FR: 'Ryanair',
   W6: 'Wizz Air', VY: 'Vueling', TP: 'TAP Air Portugal',
+  LS: 'Jet2', KM: 'KM Malta Airlines', LO: 'LOT',
 };
 const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
 

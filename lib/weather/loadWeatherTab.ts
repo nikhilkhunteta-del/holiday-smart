@@ -11,6 +11,7 @@
  */
 import { supabaseServer as supabase } from '@/lib/supabase-server';
 import { weatherTabEnabled } from './weatherTabConfig';
+import { destinationDisplayName } from '@/lib/destinations';
 import { weatherWindowFor } from './weatherWindow';
 import type { WeatherWindowStatsRow } from './computeWeatherVerdict';
 
@@ -100,7 +101,7 @@ export async function loadWeatherTab(
     const headlineYears = Number.isFinite(headlineN) ? complete.slice(0, headlineN) : [];
     const allComplete = strip.length > 0 && complete.length === strip.length;
 
-    const destinationName = String((dest.data as any).name ?? destinationSlug).split(',')[0];
+    const destinationName = destinationDisplayName((dest.data as any).name, destinationSlug);
     return {
       destinationName,
       row,

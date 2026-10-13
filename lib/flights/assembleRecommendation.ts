@@ -1038,14 +1038,15 @@ export async function assembleCombinationsOnly(
   const shortlist = buildCandidateShortlist(scoredPool);
   console.log('[shortlist] size:', shortlist.length);
 
-  // Primary destination airport = most frequent out_dest_iata in no-absence combinations
+  // Primary destination airport = most frequent out_dest_iata in no-absence combinations;
+  // with none, the baseline's own destination airport (from the RPC, never typed in).
   const noAbsenceCombinations = assembled.filter(c => !c.requires_absence);
   const destFrequency = noAbsenceCombinations.reduce((acc, c) => {
     acc[c.out_dest_iata] = (acc[c.out_dest_iata] ?? 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   const primaryDestAirport = Object.entries(destFrequency)
-    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'BCN';
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? baseline.destination_iata ?? assembled[0]?.out_dest_iata ?? '';
 
   const recommendedTripNights = shortlist[0]
     ? Math.round(
@@ -1193,6 +1194,7 @@ export async function assembleRecommendation(
   cabinBags: number = adults,
   checkedBags: number = 0,
   seatsTogether: boolean = true,
+  destinationName: string | null = null, // from the destinations row (lib/destinations.ts)
 ): Promise<AssembledResult> {
   // Reuse assembleCombinationsOnly — no duplication
   const base = await assembleCombinationsOnly(
@@ -1445,7 +1447,7 @@ export async function assembleRecommendation(
     lcc_cabin_bag_min_fee: undefined,
     lcc_cabin_bag_max_fee: undefined,
     partySize: adults + children + infants,
-    destinationName: 'Barcelona',
+    destinationName: destinationName ?? undefined,
     transitPreference,
     scenarios: [],
   });
