@@ -105,6 +105,7 @@ function transitModeLabel(transit: AssembledCombination['outbound_transit'] | nu
 const CARRIER_NAMES: Record<string, string> = {
   FR: 'Ryanair', U2: 'easyJet', W6: 'Wizz Air', VY: 'Vueling',
   BA: 'British Airways', TP: 'TAP', LS: 'Jet2',
+  KM: 'KM Malta Airlines', LO: 'LOT',
 };
 
 function carrierName(iata: string): string {
@@ -438,7 +439,18 @@ const ROWS: RowDef[] = [
     ),
   },
   { key: 'dest_transfer', label: 'Dest. transfer', group: 'costs',
-    renderNode: c => (
+    // No stored transfer price for this airport (Malta's MLA today): the RPC counts £0, so say
+    // it isn't priced rather than showing "£0 · Taxi · (estimate)".
+    renderNode: c => !c.dest_transfer_known && c.dest_transfer_gbp === 0
+      ? (
+        <>
+          <span style={{ color: '#6f797a' }}>Not priced</span>
+          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+            Not in the total
+          </span>
+        </>
+      )
+      : (
       <>
         {gbp(c.dest_transfer_gbp)}
         {destTransferDetail(c)}

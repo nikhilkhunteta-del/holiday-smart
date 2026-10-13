@@ -48,6 +48,7 @@ interface PriceHistoryResponse {
 
 interface PriceHistorySectionProps {
   destinationSlug: string;
+  destinationName: string; // from the destinations row (see lib/destinations.ts)
   tripType: string;
   adults: number;
   children: number;
@@ -63,10 +64,6 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function fmtShort(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-}
-
-function humanizeDestination(slug: string): string {
-  return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 function prefersReducedMotion(): boolean {
@@ -91,7 +88,7 @@ function tabStyle(active: boolean): React.CSSProperties {
 // ── Main section ─────────────────────────────────────────────────────────────
 
 export function PriceHistorySection({
-  destinationSlug, tripType, adults, children, infants, recommendation,
+  destinationSlug, destinationName, tripType, adults, children, infants, recommendation,
 }: PriceHistorySectionProps) {
   const { selectedMatrixCell, modalCloseCount } = useFlightInsights();
 
@@ -179,8 +176,6 @@ export function PriceHistorySection({
       .catch(err => console.error('[PriceHistorySection] cell fetch failed:', err))
       .finally(() => setCellLoading(false));
   }, [destinationSlug, tripType, adults, children, infants, effectiveCell?.outboundDate, effectiveCell?.returnDate]);
-
-  const destinationName = humanizeDestination(destinationSlug);
 
   const showingCell = view === 'cell' && !!effectiveCell;
   const data = showingCell ? cellData : destinationData;

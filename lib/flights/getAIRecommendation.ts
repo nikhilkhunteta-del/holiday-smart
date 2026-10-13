@@ -142,6 +142,9 @@ export interface FamilyContext {
   baseline_return_date?:     string;
   baseline_trip_nights?:     number;
   baseline_carrier?:         string;
+  // false when the baseline flight has a stop (Malta's Heathrow baseline today); null/undefined
+  // when unknown, which keeps the "direct" wording.
+  baseline_is_direct?:       boolean | null;
   baseline_out_transit_mode?: string;
   baseline_ret_transit_mode?: string;
   // Best inset option from the full scored pool (not limited to shortlist)
@@ -399,6 +402,9 @@ export async function getAIRecommendation(
     VY: 'Vueling',
     TP: 'TAP Air Portugal',
     EI: 'Aer Lingus',
+    LS: 'Jet2',
+    KM: 'KM Malta Airlines',
+    LO: 'LOT',
   };
   const cn = (iata: string) => CARRIER_NAMES[iata] ?? iata;
   const AIRPORT_NAMES: Record<string, string> = {
@@ -477,9 +483,19 @@ export async function getAIRecommendation(
         requires_absence: false,
         arrival_quality:  recommended.arrival_quality,
       }
-    : viableCombos.reduce((best, c) =>
-        c.total_cost_gbp < best.total_cost_gbp ? c : best
-      , viableCombos[0]);
+    : (() => {
+        // A shortlist can hold no "viable" combination at all — e.g. Malta, where most
+        // London flights land late (arrival_quality 'poor') — and reducing an empty list
+        // crashed the whole recommendation. Relax only when nothing qualifies: first any
+        // absence-free combination, then any combination (never empty — checked at entry).
+        const absenceFree = combinationsForPrompt.filter(c => !c.requires_absence);
+        const pool = viableCombos.length > 0 ? viableCombos
+          : absenceFree.length > 0 ? absenceFree
+          : combinationsForPrompt;
+        return pool.reduce((best, c) =>
+          c.total_cost_gbp < best.total_cost_gbp ? c : best
+        , pool[0]);
+      })();
 
   const winnerIsCheapest =
     recommended.outbound_date === cheapestOverall?.outbound_date &&
@@ -566,7 +582,7 @@ export async function getAIRecommendation(
         voice: `Copy the sentence from facts VERBATIM. Assembly only.`,
         facts: {
           locked_headline:      `${combCount} combinations checked`,
-          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} direct from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — came out on top.`,
+          sentence_1:           `We checked ${combCount} date, carrier, and airport combinations for ${destinationName} this half-term. The ${cn(context.baseline_carrier ?? 'BA')} ${context.baseline_is_direct === false ? 'flight' : 'direct'} from ${context.baseline_airport_name ?? 'Heathrow'} — the closest airport to your school — came out on top.`,
           combination_count:    combCount,
           is_baseline_cheapest: isBaselineCheapest,
         },
@@ -1027,7 +1043,7 @@ If allin_saving <= 0, skip sentence 2 and instead write: "We show the true all-i
         transportCard = {
           lever: 'transport_return',
           headline_hint: 'Worth the Uber home',
-          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from Barcelona and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round5(round(uLowRet))}–£${round5(round(uHighRet ?? uLowRet))} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
+          voice: `The family is ARRIVING at ${recommended.ret_dest_iata ?? recommended.origin_iata} from ${destinationName} and needs to get HOME. Public transport home involves ${tChangesRet} change${tChangesRet === 1 ? '' : 's'} at ${recommended.return_arrival_time ?? 'an early hour'} with tired kids. Uber from ${recommended.ret_dest_iata ?? recommended.origin_iata} costs £${round5(round(uLowRet))}–£${round5(round(uHighRet ?? uLowRet))} direct to home. Write: "Getting home FROM [airport] ..." — never "to [airport]", never "to Stansted", never mixing up directions. One sentence.`,
           facts: {
             airport:         recommended.ret_dest_iata ?? recommended.origin_iata,
             arrival_time:    recommended.return_arrival_time,
@@ -1072,12 +1088,12 @@ If allin_saving <= 0, skip sentence 2 and instead write: "We show the true all-i
       voice: `Copy each statement from facts VERBATIM.
 Write exactly two sentences — no more:
 
-Sentence 1: "[bcn_departure]."
+Sentence 1: "[destination_departure]."
 Sentence 2: "[arrival_statement]; [transit_statement]. [uber_statement] — worth considering with tired kids after a night flight."
 
 Do not add, remove, or rephrase anything. Assembly only.`,
       facts: {
-        bcn_departure:     `Flight leaves Barcelona at ${retDep} — plan to leave the hotel around 03:00–03:30`,
+        destination_departure: `Flight leaves ${destinationName} at ${retDep} — plan to leave the hotel around 03:00–03:30`,
         arrival_statement: `Lands at ${recommended.ret_dest_iata ?? 'STN'} at ${recommended.return_arrival_time?.toString().slice(0,5) ?? '07:45'}`,
         transit_statement: `${simplifyRoute(recommended.return_transit_route)} (£${round(tCostRet)}) is already included in your cost`,
         uber_statement:    `Uber from ${recommended.ret_dest_iata ?? 'STN'} home costs £${uLowRet ? round5(round(uLowRet)) : 'X'}–£${uHighRet ? round5(round(uHighRet)) : 'Y'} direct`,
@@ -1144,7 +1160,7 @@ Do not add, remove, or rephrase anything. Assembly only.`,
       voice: `CRITICAL: Do NOT mention split carrier saving or the £[X] saving from mixing carriers. That is covered by the split_carrier card.
 
 The selection_story explains ONLY the airport or destination routing tension:
-- Why a secondary destination airport (like Reus) looks cheap on the fare but costs more all-in
+- Why a secondary destination airport looks cheap on the fare but costs more all-in
 - Why different outbound and return airports were chosen
 
 If the only tension is split carrier (no all-in trap, no open jaw), do NOT fire this card — return null and skip it.
@@ -1665,7 +1681,7 @@ One sentence. Specific. No carrier saving numbers.`,
     const f = spec.facts;
     let insight = '';
     if (spec.lever === 'early_return_warning') {
-      insight = `${f.bcn_departure}. ${f.arrival_statement}; ${f.transit_statement}. ${f.uber_statement} — worth considering with tired kids after a night flight.`;
+      insight = `${f.destination_departure}. ${f.arrival_statement}; ${f.transit_statement}. ${f.uber_statement} — worth considering with tired kids after a night flight.`;
     } else if (spec.lever === 'transit_changes') {
       insight = `Getting to ${f.airport} involves ${f.changes} changes (${f.route}). Allow extra time — or consider Uber on the day.`;
     }
@@ -1822,7 +1838,7 @@ RULES:
 
 SUBHEADLINE
 IF is_baseline_cheapest is true:
-  "Direct flight both ways, arriving ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''} — early start, and you gain the whole day."
+  "${context.baseline_is_direct === false ? 'Arriving' : 'Direct flight both ways, arriving'} ${destinationName} at ${context.baseline_out_arr_time ?? ''} and home by ${context.baseline_ret_arr_time ?? ''} — early start, and you gain the whole day."
   Do not repeat the cost. No comparison language.
 
 OTHERWISE (saving_category = 'significant' or 'found_saving'):

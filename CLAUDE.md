@@ -248,6 +248,40 @@ combined `absence_days` — see "AI Recommendation Card System" below for why th
 
 ---
 
+### Destinations other than Barcelona (Malta live as of this section)
+`?destination=malta` runs the same page end to end, Flights and Weather tabs. Rules that keep it
+that way:
+- **Destination names come from the `destinations` row**, never typed in: `page.tsx` and
+  `app/api/recommend/route.ts` read `destinations.name` and shorten it with
+  `lib/destinations.ts` (`"Barcelona, Spain"` -> `"Barcelona"`, `"Malta"` -> `"Malta"`); the page
+  passes it down as `fetchParams.destinationName` and `PriceHistorySection`'s `destinationName`.
+  `loadWeatherTab.ts` uses the same helper. Airports come from `destination_airports` via the RPC.
+- **No "viable" combination is a real case.** `getAIRecommendation`'s `cheapestOverall` used to
+  reduce the shortlist's viable combinations (no absence, no 'poor' arrival/departure) with no
+  fallback; Malta's shortlist can have none (many London–Malta flights land late), so every
+  Malta `/api/recommend` call crashed with a 500 and the Flights tab never loaded. It now falls
+  back to absence-free combinations, then all — only when the viable list is empty, so
+  Barcelona is unaffected.
+- **MLA has no destination transfer data** (`destination_airports` transit/taxi columns empty),
+  so the RPC returns `destination_transfer_known = false` and £0. The comparison table shows
+  "Not priced" for that row and the all-in definition gets one extra sentence
+  (`destinationTransferUnpricedNote`) — both only when the transfer is unknown. Filling those
+  columns for MLA is a data job (one row), not a code change.
+- **Malta's "typical Saturday booking" from Heathrow is a one-stop LOT flight** in most
+  compositions: the RPC's baseline is the cheapest `baseline_snapshots` row for the nearest
+  airport, with no filter on stops, and Malta's only direct Heathrow row (KM, 2A+1C only) is
+  dearer. The recommend route reads the stop count and passes `baseline_is_direct`, so copy
+  never calls it "direct"; whether the baseline should prefer direct flights is an open
+  product/SQL question, not settled here.
+- Malta's `destinations.type` is `resort`, but the page and SQL only know `city` | `circuit`, so
+  Malta runs with the city rules (3–4 nights, same airport both ways). Open-jaw and nearby
+  destination airports don't apply to a one-airport destination; the page doesn't call
+  `get_open_jaw` / `get_nearby_destination_airports` (both return null for Malta anyway).
+- Carrier-name maps (several files) include Malta's carriers (KM Malta Airlines, LOT, Jet2) so
+  copy never shows a raw code. Known pre-existing gap for both destinations: the prompt's
+  SELECTION CONTEXT says `baseline_carrier: British Airways round-trip` regardless of the real
+  baseline carrier — not changed, because changing it changes Barcelona's prompt.
+
 ### Flight API Abstraction Rule
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
 Provider is Crawlio via RapidAPI (google-flights8). UI components import from the adapter only,
@@ -717,7 +751,8 @@ each — centralised so a future wording change only happens in one place:
 ## File Structure — live results page render tree
 
 This is what `app/results/flight-insights/page.tsx` actually renders (verified by tracing
-imports; Barcelona is hardcoded as the destination). Everything in `components/flight-insights/`
+imports; the destination is `?destination=<slug>`, default barcelona — see "Destinations other
+than Barcelona" above). Everything in `components/flight-insights/`
 not listed here or under "Parked" was deleted in the cleanup PR after #200.
 
 ```
