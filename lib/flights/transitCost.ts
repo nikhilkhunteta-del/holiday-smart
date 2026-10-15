@@ -34,6 +34,12 @@ export type TransitCostInput = {
 export type AirportTransitCost = {
   airport_iata: string;
 
+  // false when district_airport_transit has nothing for this postcode district × airport (no
+  // row, or a row with neither an Uber nor a public-transport price). The cost fields below are
+  // then 0 only so arithmetic doesn't break: they are NOT a price. Callers show "Not priced" and
+  // say the totals leave airport travel out — never present it as £0.
+  priced: boolean;
+
   transit: {
     total_family_pence: number;
     duration_mins: number;
@@ -201,8 +207,12 @@ export function computeTransitCost(
   const time_delta_mins = uberDuration - transitDuration;
   const show_time_delta = Math.abs(time_delta_mins) >= TIME_DELTA_THRESHOLD_MINS;
 
+  const priced = row !== null &&
+    (row.uber_low_pence != null || row.uber_high_pence != null || row.transit_offpeak_fare_pence != null);
+
   return {
     airport_iata,
+    priced,
     transit,
     uber: {
       low_pence: uberLow,

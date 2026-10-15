@@ -171,7 +171,9 @@ export function buildScenarioResults(
   }
 
   // ── SCENARIO 3 — Transport flip ───────────────────
-  if (scenarioResults.uber?.recommendation) {
+  // Skipped when the school's postcode district has no airport-travel data: the scenario is
+  // entirely about that cost, so it could only ever say "£0" (see london_transit_priced).
+  if (scenarioResults.uber?.recommendation && currentWinner.london_transit_priced !== false) {
     const w = scenarioResults.uber.recommendation;
     const scenarioTotal = round(w.total_cost_gbp);
     const diff = scenarioTotal - currentTotal;

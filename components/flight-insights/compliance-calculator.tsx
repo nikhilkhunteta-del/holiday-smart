@@ -262,22 +262,16 @@ export function ComplianceCalculator({
   const [modalOpen, setModalOpen]       = useState(false);
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
 
-  const baselineTotal = baseline.total_cost_gbp;
-
   const cellMap = new Map<string, AssembledCombination>();
   for (const c of combinations) {
     const key = `${c.outbound_date}|${c.return_date}`;
     if (!cellMap.has(key)) cellMap.set(key, c);
   }
 
-  // Include baseline dates in the matrix axes
-  const allDepDates = new Set(combinations.map(c => c.outbound_date));
-  if (baseline.outbound_date) allDepDates.add(baseline.outbound_date);
-  const depDates = Array.from(allDepDates).sort();
-
-  const allRetDates = new Set(combinations.map(c => c.return_date));
-  if (baseline.return_date) allRetDates.add(baseline.return_date);
-  const retDates = Array.from(allRetDates).sort();
+  // Axes are the half-term combinations' own dates. (The "typical Saturday booking" baseline's
+  // dates used to be forced in too; the baseline is no longer shown, so it adds nothing.)
+  const depDates = Array.from(new Set(combinations.map(c => c.outbound_date))).sort();
+  const retDates = Array.from(new Set(combinations.map(c => c.return_date))).sort();
 
   // ── 7. Row label column: 128px; secondary labels use on-surface-variant ──
   const LABEL_COL_WIDTH = 128;
@@ -301,22 +295,16 @@ export function ComplianceCalculator({
   // overstated the spread — e.g. showing a £1,417 spread against a grid
   // whose actual visible cells only ranged £440–£691 (a £251 spread) —
   // by comparing an obscure, never-rendered high-priced combination
-  // against the true minimum. Also fold in `baselineTotal` when it's
-  // rendered as the hardcoded baseline-recommended cell (see ~line 457
-  // below) — that one price is displayed outside cellMap entirely, since
-  // the baseline's own date pair isn't guaranteed to appear in the raw
-  // `combinations` pool (see "Include baseline dates in the matrix axes"
-  // above, which exists precisely because it sometimes doesn't).
+  // against the true minimum. (page.tsx computes the same lowest/highest
+  // cell prices with the same rule for the opening paragraph's range.)
   const cellMapTotals = Array.from(cellMap.values()).map(c => c.total_cost_gbp);
-  if (baselineIsRecommended) cellMapTotals.push(baselineTotal);
   const priceSpread = cellMapTotals.length >= 2
     ? Math.round(Math.max(...cellMapTotals) - Math.min(...cellMapTotals))
     : null;
 
   function handleCellClick(outbound_date: string, return_date: string) {
     const combo = cellMap.get(`${outbound_date}|${return_date}`);
-    const isBaseline = outbound_date === baseline.outbound_date && return_date === baseline.return_date;
-    const totalIncFine = combo?.total_inc_fine ?? (isBaseline ? baseline.total_cost_gbp : 0);
+    const totalIncFine = combo?.total_inc_fine ?? 0;
     const fineGbp = combo?.fine_gbp ?? 0;
     const requiresAbsence = combo?.requires_absence ?? false;
     setSelectedCell({
@@ -465,11 +453,8 @@ export function ComplianceCalculator({
                         </td>
                         {retDates.map((ret) => {
                           const c             = cellMap.get(`${dep}|${ret}`);
-                          const isBaselinePos = dep === baseline.outbound_date && ret === baseline.return_date;
 
-                          const isRec = baselineIsRecommended
-                            ? false
-                            : !!(isAIPick(
+                          const isRec = !!(isAIPick(
                                 { outbound_date: dep, return_date: ret },
                                 aiRecommended as AssembledCombination | null,
                               ) || (!aiRecommended && recommendation &&
@@ -480,38 +465,6 @@ export function ComplianceCalculator({
                           const cellNights = nightsBetween(dep, ret);
                           const cellNightsText = `${cellNights} ${cellNights === 1 ? 'night' : 'nights'}`;
 
-                          if (isBaselinePos && baselineIsRecommended) {
-                            return (
-                              <td
-                                key={ret}
-                                onClick={() => handleCellClick(dep, ret)}
-                                style={{
-                                  padding: 8, verticalAlign: 'top',
-                                  background: '#0d5c63',
-                                  border: isSelected ? '2px solid #004349' : 'none',
-                                  borderRadius: 6, cursor: 'pointer',
-                                }}
-                              >
-                                <div style={{ position: 'relative', overflow: 'hidden', paddingTop: 16 }}>
-                                  {/* ── 4. Cheapest badge on baseline-rec cell ── */}
-                                  <div style={{
-                                    position: 'absolute', top: 0, left: 0,
-                                    fontFamily: 'Inter, sans-serif',
-                                    fontSize: 12, fontWeight: 500,
-                                    color: 'rgba(255,255,255,0.85)',
-                                    letterSpacing: '0.02em', textTransform: 'uppercase' as const,
-                                    whiteSpace: 'nowrap' as const,
-                                  }}>
-                                    Cheapest
-                                  </div>
-                                  <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 700, color: '#ffffff', display: 'block' }}>
-                                    {gbp(baselineTotal)}
-                                    <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.75 }}> · {cellNightsText}</span>
-                                  </span>
-                                </div>
-                              </td>
-                            );
-                          }
 
                           if (c) {
                             return (

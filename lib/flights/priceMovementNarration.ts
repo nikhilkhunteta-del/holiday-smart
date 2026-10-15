@@ -13,7 +13,7 @@
 // which export is actually used. Only ever import this file from API
 // routes or other server-only code (never from a 'use client' component).
 import Anthropic from '@anthropic-ai/sdk';
-import { buildCadenceLabel } from './priceMovement';
+import { buildCadenceLabel, lastCheckedOnLabel } from './priceMovement';
 import type { PriceMovementRaw, PriceMovementComputed } from './priceMovement';
 
 // ── Shared narration call ───────────────────────────────────────────────────
@@ -106,6 +106,11 @@ Hard rules — violating any of these is a failure:
     Describe only the trajectory (what changed, since when, by how much).
 12. Output plain text only. No markdown, no quotes around the sentence, no
     preamble like "Here's the insight:".
+13. Never say "today", "now", "currently", "right now" or "at the moment"
+    about a fare — these prices come from our checks, not from a live search,
+    and the latest one may be weeks old. When you refer to the most recent
+    price, say "at our last check on {last_checked_on}" using the date
+    given in last_checked_on, e.g. "…to £157 at our last check on 11 Aug".
 
 Return ONLY the sentence(s) — nothing else.`;
 
@@ -147,6 +152,8 @@ export async function narratePriceMovement(
           first_checked_on:   input.first_checked_on,
           first_total_gbp:    input.first_total_gbp,
           total_change_gbp:   input.total_change_gbp,
+          // "11 Aug" — the date of the latest check, for rule 13's "at our last check on …".
+          last_checked_on:    lastCheckedOnLabel(input.price_points),
         }),
       }],
     });

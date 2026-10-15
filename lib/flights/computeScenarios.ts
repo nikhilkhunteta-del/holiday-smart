@@ -2,6 +2,7 @@ import type { AssembledCombination } from './assembleRecommendation';
 import { NIGHT_VALUE } from './selectCombination';
 export type { ScenarioResult } from './buildScenarioResults';
 import type { ScenarioResult } from './buildScenarioResults';
+import { cheapestBy } from './tieBreak';
 
 const round  = (n: number) => Math.round(n);
 const round5 = (n: number) => Math.round(n / 5) * 5;
@@ -79,15 +80,10 @@ function selectWithAdjustedCosts(
   const viableCombos = combinations.filter(c => !c.requires_absence);
   if (!viableCombos.length) return null;
 
-  return viableCombos.reduce((best, c) => {
-    const nights    = tripNightsFromDates(c.outbound_date, c.return_date);
-    const bestNights = tripNightsFromDates(best.outbound_date, best.return_date);
-    const adjC    = adjustedTotal(c, opts);
-    const adjBest = adjustedTotal(best, opts);
-    const effC    = adjC    - NIGHT_VALUE * nights     - (c.is_inset_day    ? 30 : 0);
-    const effBest = adjBest - NIGHT_VALUE * bestNights - (best.is_inset_day ? 30 : 0);
-    return effC < effBest ? c : best;
-  }, viableCombos[0]);
+  // Ties go to the earlier departure (lib/flights/tieBreak.ts).
+  return cheapestBy(viableCombos, c =>
+    adjustedTotal(c, opts) - NIGHT_VALUE * tripNightsFromDates(c.outbound_date, c.return_date) - (c.is_inset_day ? 30 : 0),
+  ) ?? null;
 }
 
 // ── Build scenario result ────────────────────────────────────────────────────

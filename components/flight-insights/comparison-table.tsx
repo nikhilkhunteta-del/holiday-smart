@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import type { CombinationsOnlyResult, AssembledCombination } from '@/lib/flights/assembleRecommendation';
 import { computeQualityFields } from '@/lib/flights/buildCandidates';
-import { BASELINE_NAME_LABEL } from '@/lib/flights/copyConstants';
+import { compareCostThenDeparture } from '@/lib/flights/tieBreak';
 
 // ── Quality label mapping ────────────────────────────────────────────────────
 // Unified 4-tier scale across all three quality dimensions (departure,
@@ -233,15 +233,9 @@ function extractColumn(
 }
 
 // ── Label derivation ─────────────────────────────────────────────────────────
-// is_baseline is checked first — above isWinner, above is_inset_day, above
-// everything — so the baseline column always reads BASELINE_NAME_LABEL even
-// when it also happens to be the winner (baseline_cheapest) or its airport
-// differs from the winner's. Sourced from copyConstants.ts (BASELINE_NAME
-// is the prose form used everywhere else the baseline is named — headline,
-// booking box, penalty card) so the name can't drift out of sync.
+// (The baseline column and its "Typical Saturday Booking" label are gone.)
 
 function deriveLabel(col: ColumnData, winner: ColumnData, n: number): string {
-  if (col.isBaseline) return BASELINE_NAME_LABEL;
   if (col.isWinner) return 'Recommended';
   if (col.is_inset_day) return 'Inset day';
 
@@ -323,6 +317,17 @@ function londonTransitDetail(
           Check first train time
         </span>
       )}
+    </>
+  );
+}
+
+function notPricedCell(): ReactNode {
+  return (
+    <>
+      <span style={{ color: '#6f797a' }}>Not priced</span>
+      <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
+        Not in the total
+      </span>
     </>
   );
 }
@@ -422,8 +427,12 @@ const ROWS: RowDef[] = [
           <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">Pay extra above to guarantee seats together in advance.</span>
         </>)
       : gbp(c.seat_cost_gbp) },
+  // No airport-travel data for the school's postcode district: "Not priced", never £0 (the
+  // total leaves it out, and the all-in definition at the top of the page says so).
   { key: 'out_transit', label: 'To airport', group: 'costs',
-    renderNode: c => (
+    renderNode: c => c.outbound_transit?.priced === false
+      ? notPricedCell()
+      : (
       <>
         {gbp(c.out_transit_cost_gbp)}
         {londonTransitDetail(c.outbound_transit, true)}
@@ -431,7 +440,9 @@ const ROWS: RowDef[] = [
     ),
   },
   { key: 'ret_transit', label: 'From airport', group: 'costs',
-    renderNode: c => (
+    renderNode: c => c.return_transit?.priced === false
+      ? notPricedCell()
+      : (
       <>
         {gbp(c.ret_transit_cost_gbp)}
         {londonTransitDetail(c.return_transit, true)}
@@ -442,14 +453,7 @@ const ROWS: RowDef[] = [
     // No stored transfer price for this airport (Malta's MLA today): the RPC counts £0, so say
     // it isn't priced rather than showing "£0 · Taxi · (estimate)".
     renderNode: c => !c.dest_transfer_known && c.dest_transfer_gbp === 0
-      ? (
-        <>
-          <span style={{ color: '#6f797a' }}>Not priced</span>
-          <span className="block text-[11px] text-[#6f797a] font-normal mt-0.5">
-            Not in the total
-          </span>
-        </>
-      )
+      ? notPricedCell()
       : (
       <>
         {gbp(c.dest_transfer_gbp)}
@@ -499,25 +503,16 @@ interface ComparisonTableProps {
 }
 
 export function ComparisonTable({ result }: ComparisonTableProps) {
-  const { baselineAsCombination, recommendation, shortlist, savingCategory, scoredPool } = result;
-  const isBaselineCheapest = savingCategory === 'baseline_cheapest';
+  const { recommendation, shortlist, scoredPool } = result;
 
   // Build columns directly from result props — no scoredPool lookups.
-  // Fixed order: baseline, then winner, then everything else sorted by
-  // total_cost_gbp ascending — so the parent reads left-to-right from
-  // reference point to recommendation to alternatives in cost order.
+  // Fixed order: the recommendation, then the alternatives sorted by total_cost_gbp ascending
+  // (ties to the earlier departure). The "Typical Saturday Booking" column that used to lead
+  // the table is gone with the baseline; the alternatives are the same as before.
   const columns: ColumnData[] = [];
+  columns.push(extractColumn(recommendation, '', true, false));
 
-  if (isBaselineCheapest && baselineAsCombination) {
-    columns.push(extractColumn(baselineAsCombination, '', true, true));
-  } else {
-    if (baselineAsCombination) {
-      columns.push(extractColumn(baselineAsCombination, '', false, true));
-    }
-    columns.push(extractColumn(recommendation, '', true, false));
-  }
-
-  // Add shortlist alternatives (skip if already shown as winner or baseline)
+  // Add shortlist alternatives (skip if already shown as the recommendation)
   const shownKeys = new Set(
     columns.map(c => `${c.outbound_date}_${c.return_date}_${c.outbound_carrier}`),
   );
@@ -525,11 +520,12 @@ export function ComparisonTable({ result }: ComparisonTableProps) {
   for (const s of shortlist) {
     const key = `${s.outbound_date}_${s.return_date}_${s.outbound_carrier}`;
     if (shownKeys.has(key)) continue;
-    if (columns.length + otherColumns.length >= 5) break;
+    // Up to 3 alternatives — the same columns as before the baseline column was removed.
+    if (columns.length + otherColumns.length >= 4) break;
     otherColumns.push(extractColumn(s, '', false, false));
     shownKeys.add(key);
   }
-  otherColumns.sort((a, b) => a.total_cost_gbp - b.total_cost_gbp);
+  otherColumns.sort(compareCostThenDeparture(c => c.total_cost_gbp));
 
   columns.push(...otherColumns);
 

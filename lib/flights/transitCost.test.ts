@@ -52,7 +52,8 @@ console.log('\ncomputeTransitCost');
 // SE18 → LGW, 07:30 Thursday (peak), 2A + 2C (ages 8, 10)
 // Thameslink → NR child fare: 50% of adult fare regardless of peak time
 // total_family = 2×1800 + 900 + 900 = 5400p
-// total_people = 4 → XL: uber low=round(7000×1.5)=10500, high=round(9500×1.5)=14250, mean=12375
+// total_people = 4 < UBER_XL_THRESHOLD (5), no checked bags → standard Uber (seats 4):
+// uber low=7000, high=9500, mean=8250
 // 07:30 → hourOfDep = 7, NOT < EARLY_FLIGHT_HOUR (7) → Rule 1 does not apply
 // 0 changes < MIN_CHANGES_FOR_UBER → Rule 3 does not apply
 // → Rule 4: transit recommended, cost = 5400p
@@ -80,14 +81,15 @@ test('case 1: SE18 → LGW, 07:30, 2A+2C (ages 8,10) — transit recommended', (
 
   assert.equal(r.recommended_mode, 'transit');
   assert.equal(r.recommended_cost_pence, 5400);
+  assert.equal(r.priced, true);
   assert.equal(r.transit?.total_family_pence, 5400);
   assert.equal(r.transit?.changes, 0);
   assert.equal(r.transit?.fare_unavailable, false);
   assert.equal(r.transit?.early_flight_warning, false);
-  assert.equal(r.uber.is_xl, true);
-  assert.equal(r.uber.low_pence, 10500);
-  assert.equal(r.uber.high_pence, 14250);
-  assert.equal(r.uber.mean_pence, 12375);
+  assert.equal(r.uber.is_xl, false);
+  assert.equal(r.uber.low_pence, 7000);
+  assert.equal(r.uber.high_pence, 9500);
+  assert.equal(r.uber.mean_pence, 8250);
   assert.equal(r.uber.early_morning_surge_warning, false);
 });
 
@@ -132,10 +134,11 @@ test('case 2: N10 → STN, 06:30, 2A+1C (age 6) — uber (early flight, Rule 1)'
 // RM18 → LHR, 09:00 Thursday (peak — 540 mins in 390–570 band), 2A + 2C (ages 5, 8)
 // TfL route → TfL peak child fare: 105p each (both ages in 5–15 band)
 // total_family = 2×1500 + 105 + 105 = 3210p
-// total_people = 4 → XL: uber low=round(3500×1.5)=5250, high=round(6000×1.5)=9000, mean=7125
+// total_people = 4 < UBER_XL_THRESHOLD (5), no checked bags → standard Uber:
+// uber low=3500, high=6000, mean=4750
 // Rule 3: transit_changes=4 >= MIN_CHANGES_FOR_UBER (2)
-//         AND uber_mean−transit_total = 7125−3210 = 3915 ≤ UBER_TRANSIT_THRESHOLD (5000)
-// → uber recommended, cost = uber_mean = 7125p
+//         AND uber_mean−transit_total = 4750−3210 = 1540 ≤ UBER_TRANSIT_THRESHOLD (5000)
+// → uber recommended, cost = uber_mean = 4750p
 test('case 3: RM18 → LHR, 09:00, 2A+2C (ages 5,8) — uber (4 changes, Rule 3)', () => {
   const input: TransitCostInput = {
     postcode_district: 'RM18',
@@ -159,14 +162,14 @@ test('case 3: RM18 → LHR, 09:00, 2A+2C (ages 5,8) — uber (4 changes, Rule 3)
   const r = computeTransitCost(input, row);
 
   assert.equal(r.recommended_mode, 'uber');
-  assert.equal(r.recommended_cost_pence, 7125);
+  assert.equal(r.recommended_cost_pence, 4750);
   assert.equal(r.transit?.changes, 4);
   assert.equal(r.transit?.total_family_pence, 3210);
   assert.equal(r.transit?.early_flight_warning, false);
-  assert.equal(r.uber.is_xl, true);
-  assert.equal(r.uber.low_pence, 5250);
-  assert.equal(r.uber.high_pence, 9000);
-  assert.equal(r.uber.mean_pence, 7125);
+  assert.equal(r.uber.is_xl, false);
+  assert.equal(r.uber.low_pence, 3500);
+  assert.equal(r.uber.high_pence, 6000);
+  assert.equal(r.uber.mean_pence, 4750);
   assert.equal(r.uber.early_morning_surge_warning, false);
 });
 
@@ -213,6 +216,27 @@ test('case 4: TW6 → LHR, 10:00, 2A — transit, £0 (walking distance)', () =>
 });
 
 // ── Edge: no row found ────────────────────────────────────────────────────────
+// ── Uber XL by luggage ────────────────────────────────────────────────────────
+// A family of 4 fits a standard Uber; 2+ checked bags tips it into an XL (×1.5) even below
+// the 5-person threshold — the rule cases 1 and 3 above rely on staying un-triggered.
+test('2A+2C with 2 checked bags → Uber XL', () => {
+  const r = computeTransitCost(
+    {
+      postcode_district: 'RM18', airport_iata: 'LHR', departure_time: new Date('2026-10-22T09:00:00'),
+      adults: 2, children: [{ age: 5 }, { age: 8 }], infants: 0, checkedBags: 2,
+    },
+    {
+      transit_offpeak_fare_pence: 1500, transit_offpeak_duration_mins: 120,
+      transit_offpeak_route_summary: 'Tube to Elizabeth line', transit_changes: 4,
+      uber_low_pence: 3500, uber_high_pence: 6000, uber_duration_offpeak_mins: 75,
+    },
+  );
+  assert.equal(r.uber.is_xl, true);
+  assert.equal(r.uber.low_pence, 5250);
+  assert.equal(r.uber.high_pence, 9000);
+  assert.equal(r.uber.mean_pence, 7125);
+});
+
 test('no transit row → transit is null, uber recommended (Rule 2)', () => {
   const input: TransitCostInput = {
     postcode_district: 'XX99',
@@ -228,6 +252,7 @@ test('no transit row → transit is null, uber recommended (Rule 2)', () => {
   assert.equal(r.transit, null);
   assert.equal(r.recommended_mode, 'uber');
   assert.equal(r.recommended_cost_pence, 0);  // no uber data → 0
+  assert.equal(r.priced, false);              // …and flagged, so it's shown as "Not priced", never £0
 });
 
 // ── Edge: transit fare NULL (row exists but fare absent) ──────────────────────
@@ -257,6 +282,7 @@ test('null fare in row → fare_unavailable, uber recommended (Rule 2)', () => {
   assert.equal(r.transit?.confidence, 'estimated');
   assert.equal(r.recommended_mode, 'uber');
   assert.equal(r.recommended_cost_pence, 10000);  // (8000+12000)/2
+  assert.equal(r.priced, true);                   // Uber prices exist even without a fare
 });
 
 // ── Edge: early morning surge (before 06:00) ──────────────────────────────────

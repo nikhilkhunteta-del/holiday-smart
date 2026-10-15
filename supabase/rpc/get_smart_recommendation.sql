@@ -262,7 +262,9 @@ BEGIN
         out_arr_time,
         out_duration
       FROM out_fares
-      ORDER BY departure_date, airline_iata, destination_iata, fare ASC
+      -- Equal fares: the earlier departure wins, then a fixed airport order — never row
+      -- order, which made the page show a different flight between visits.
+      ORDER BY departure_date, airline_iata, destination_iata, fare ASC, departure_time ASC, origin_iata ASC
     ),
     ret_fares AS (
       SELECT
@@ -271,6 +273,7 @@ BEGIN
         fs.origin_iata              AS ret_orig_iata,
         fs.destination_iata         AS ret_dest_iata,
         fs.party_total_gbp          AS fare,
+        fs.departure_time           AS ret_dep_time,
         fs.arrival_time,
         fs.duration_minutes         AS ret_duration
       FROM fare_snapshots fs
@@ -290,10 +293,11 @@ BEGIN
         ret_orig_iata,
         ret_dest_iata,
         fare                        AS ret_fare,
+        ret_dep_time,
         arrival_time                AS ret_arr_time,
         ret_duration
       FROM ret_fares
-      ORDER BY ret_date, airline_iata, ret_orig_iata, fare ASC
+      ORDER BY ret_date, airline_iata, ret_orig_iata, fare ASC, ret_dep_time ASC, ret_dest_iata ASC
     ),
     cheapest_ret AS (
       SELECT DISTINCT ON (ret_date, ret_orig_iata)
@@ -302,10 +306,11 @@ BEGIN
         ret_dest_iata,
         airline_iata,
         ret_fare,
+        ret_dep_time,
         ret_arr_time,
         ret_duration
       FROM best_ret
-      ORDER BY ret_date, ret_orig_iata, ret_fare ASC
+      ORDER BY ret_date, ret_orig_iata, ret_fare ASC, ret_dep_time ASC, ret_dest_iata ASC, airline_iata ASC
     ),
     carrier_pairs AS (
       SELECT
@@ -325,6 +330,8 @@ BEGIN
              THEN br.ret_fare      ELSE cr.ret_fare      END             AS ret_fare,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
              THEN br.ret_arr_time  ELSE cr.ret_arr_time  END             AS ret_arr_time,
+        CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
+             THEN br.ret_dep_time  ELSE cr.ret_dep_time  END             AS ret_dep_time,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
              THEN br.ret_dest_iata ELSE cr.ret_dest_iata END             AS ret_dest_iata,
         CASE WHEN br.ret_fare IS NOT NULL AND br.ret_fare <= cr.ret_fare
@@ -613,6 +620,10 @@ BEGIN
         'outbound_arrival_time',         to_char(f.out_arr_time, 'HH24:MI'),
         'outbound_duration_mins',        f.out_duration,
         'return_departure_time',         to_char(f.ret_arr_time - (f.ret_duration || ' minutes')::interval, 'HH24:MI'),
+        -- The return flight's own stored (local) departure time. return_departure_time above is
+        -- arrival minus duration, which mixes the two time zones; this one is used to match the
+        -- exact recommended flight in get_price_movement.
+        'return_flight_departure_time',  to_char(f.ret_dep_time, 'HH24:MI'),
         'return_arrival_time',           to_char(f.ret_arr_time, 'HH24:MI'),
         'return_duration_mins',          f.ret_duration,
         -- ── Flags ────────────────────────────────────────────────────────────
@@ -625,7 +636,11 @@ BEGIN
     FROM with_dest_transfer f
   )
   SELECT COALESCE(
-    jsonb_agg(row_json ORDER BY sort_key ASC NULLS LAST),
+    jsonb_agg(row_json ORDER BY sort_key ASC NULLS LAST,
+                                row_json->>'outbound_date', row_json->>'outbound_departure_time',
+                                row_json->>'return_date',   row_json->>'return_departure_time',
+                                row_json->>'origin_iata',   row_json->>'ret_dest_iata',
+                                row_json->>'outbound_carrier', row_json->>'return_carrier'),
     '[]'::jsonb
   )
   INTO v_combinations
