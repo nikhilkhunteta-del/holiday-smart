@@ -167,7 +167,10 @@ export async function POST(request: NextRequest) {
       p_infants:          infants,
     };
     const outDepTime = recommendation.outbound_departure_time?.slice(0, 5) ?? null;
-    const retDepTime = recommendation.return_flight_departure_time?.slice(0, 5) ?? null;
+    // The return flight's stored local departure time. return_flight_departure_time (from #206)
+    // and return_departure_time now hold the same value; the former is read first so a database
+    // still on the old function (where return_departure_time was an hour early) matches correctly.
+    const retDepTime = (recommendation.return_flight_departure_time ?? recommendation.return_departure_time)?.slice(0, 5) ?? null;
     const priceMovementPromise = (async () => {
       if (outDepTime && retDepTime) {
         const exact = await supabase.rpc('get_price_movement', {

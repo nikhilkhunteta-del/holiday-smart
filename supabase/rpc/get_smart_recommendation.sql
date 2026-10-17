@@ -619,10 +619,12 @@ BEGIN
         'outbound_departure_time',       to_char(f.out_dep_time, 'HH24:MI'),
         'outbound_arrival_time',         to_char(f.out_arr_time, 'HH24:MI'),
         'outbound_duration_mins',        f.out_duration,
-        'return_departure_time',         to_char(f.ret_arr_time - (f.ret_duration || ' minutes')::interval, 'HH24:MI'),
-        -- The return flight's own stored (local) departure time. return_departure_time above is
-        -- arrival minus duration, which mixes the two time zones; this one is used to match the
-        -- exact recommended flight in get_price_movement.
+        -- The return flight's own stored departure time — local time at the departure airport,
+        -- like every other stored time. It used to be worked out as arrival minus flight length,
+        -- which subtracts a London-clock arrival from a duration and so came out one hour early
+        -- for Barcelona/Malta (the 09:50 Barcelona→Luton flight showed as 08:50).
+        'return_departure_time',         to_char(f.ret_dep_time, 'HH24:MI'),
+        -- Same value, kept for callers written against #206 (get_price_movement matching).
         'return_flight_departure_time',  to_char(f.ret_dep_time, 'HH24:MI'),
         'return_arrival_time',           to_char(f.ret_arr_time, 'HH24:MI'),
         'return_duration_mins',          f.ret_duration,

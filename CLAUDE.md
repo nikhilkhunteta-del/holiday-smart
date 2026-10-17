@@ -331,16 +331,25 @@ Malta's Heathrow "baseline" was a one-stop LOT flight even though a direct KM fl
 - **Flights with a stop:** arrival is the final destination's (`result.arrival` / last
   segment), never segment 0 (the stopover). Combinations and leg options are direct-only anyway.
 
+### Flight times are stored local times — never derive one (fixed after #206)
+Every `fare_snapshots` time is the local clock at that airport: `departure_time` at the
+departure airport, `arrival_time` at the arrival airport (checked: all 3,111 direct flights in
+the latest run satisfy arrival − departure = duration ± the 1-hour London/Barcelona-Malta gap).
+`get_smart_recommendation` used to work out `return_departure_time` as `arrival − duration`,
+which subtracted from a London-clock arrival and came out an hour early for every Barcelona/Malta
+return (09:50 Barcelona→Luton showed 08:50). It now returns the stored `departure_time`, so the
+booking box, comparison table, AI prompts, the early-return card's hotel-leaving time and the
+time-of-day scoring (`return_departure_quality`) all use the real local time.
+`return_flight_departure_time` (added in #206) now holds the same value. Never compute a flight
+time from another time plus/minus a duration — read the stored one.
+
 ### Known issues found alongside, not fixed
-- **Every return departure time shown is one hour early** for Barcelona/Malta:
-  `get_smart_recommendation`'s `return_departure_time` is `arrival − duration`, which mixes the
-  London and destination clocks (the 09:50 Barcelona→Luton flight shows as 08:50). The real
-  local time is now in `return_flight_departure_time`; switching the display (and the quality
-  scoring that reads it) to it would change cards and possibly recommendations — decide first.
 - **`cell_price_history` (the "cheapest for these dates" cache) stops at the 21 Jul check** — the
   28 Jul and 11 Aug runs were never added. Refreshing it is a data job.
-- **Infant-only families** still get the penalty card ("misses 2 school days — £0…") because
-  `absence_days` is counted from the window, not from whether a school-age child travels.
+- The penalty card and the "Misses N school days" clause now need a school-age child
+  (`context.children > 0`); `absence_days` itself is still counted from the term window, so the
+  leg-options modal's "This combination includes term-time absence" note still shows for
+  infant-only families.
 
 ### Flight API Abstraction Rule
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
