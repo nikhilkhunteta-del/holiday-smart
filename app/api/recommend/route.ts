@@ -7,6 +7,7 @@ import { buildScenarioResults } from '@/lib/flights/buildScenarioResults';
 import { combinationKey } from '@/lib/flights/buildCandidates';
 import { computePriceMovement, type PriceMovementRaw } from '@/lib/flights/priceMovement';
 import { destinationDisplayName } from '@/lib/destinations';
+import { compareCostThenDeparture } from '@/lib/flights/tieBreak';
 
 function fmtDateLong(iso: string): string {
   const d = new Date(iso + 'T00:00:00');
@@ -146,7 +147,13 @@ export async function POST(request: NextRequest) {
     //             → out_dest_iata  (abroad,  outbound arrival)
     //   return:   ret_orig_iata    (abroad,  return departure)
     //             → ret_dest_iata  (London,  return arrival)
-    const priceMovementPromise = supabase.rpc('get_price_movement', {
+    //
+    // The series follows the EXACT recommended flight: each leg is also matched on its own
+    // departure time (direct flights only), so a check never counts the same airline's other
+    // flight that day. The price-history card, its chart and the "These dates" chart below the
+    // matrix all show this one series. If the database doesn't have the newer function yet
+    // (before this change is deployed) the call is retried without the times.
+    const priceMovementArgs = {
       p_out_origin_iata:  recommendation.origin_iata,
       p_out_dest_iata:    recommendation.out_dest_iata,
       p_ret_origin_iata:  recommendation.ret_orig_iata,
@@ -158,7 +165,21 @@ export async function POST(request: NextRequest) {
       p_adults:           adults,
       p_children:         children,
       p_infants:          infants,
-    });
+    };
+    const outDepTime = recommendation.outbound_departure_time?.slice(0, 5) ?? null;
+    const retDepTime = recommendation.return_flight_departure_time?.slice(0, 5) ?? null;
+    const priceMovementPromise = (async () => {
+      if (outDepTime && retDepTime) {
+        const exact = await supabase.rpc('get_price_movement', {
+          ...priceMovementArgs,
+          p_outbound_departure_time: outDepTime,
+          p_return_departure_time:   retDepTime,
+        });
+        if (!exact.error) return exact;
+        console.error('[api/recommend] exact-flight get_price_movement failed, retrying without times:', exact.error);
+      }
+      return supabase.rpc('get_price_movement', priceMovementArgs);
+    })();
 
     // ── TEMP DIAGNOSTIC — remove once the checks_with_data=0 report is
     // confirmed/resolved. Logs the exact identity get_price_movement is
@@ -228,7 +249,7 @@ export async function POST(request: NextRequest) {
       JSON.stringify(
         combinations
           .filter(c => !c.requires_absence)
-          .sort((a, b) => effectiveCost(a) - effectiveCost(b))
+          .sort(compareCostThenDeparture(effectiveCost))
           .slice(0, 10)
           .map(c => ({
             out: c.outbound_date,
@@ -274,7 +295,7 @@ export async function POST(request: NextRequest) {
     const bestInsetFromPool = (() => {
       const insets = assembled.scoredPool
         .filter(c => c.is_inset_day && !(c as any).is_baseline)
-        .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+        .sort(compareCostThenDeparture(effectiveCost));
       const best = insets[0];
       if (!best) return undefined;
       return {
@@ -318,7 +339,7 @@ export async function POST(request: NextRequest) {
         combinationKey(c) !== winnerCombinationKey &&
         (absenceDays > 0 ? c.absence_days === 0 : true),
       )
-      .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+      .sort(compareCostThenDeparture(effectiveCost));
     const bestNoFineAlternative = alternatives[0] ?? null;
 
     const altTotalCost = bestNoFineAlternative ? Math.round(bestNoFineAlternative.total_cost_gbp) : null;
@@ -357,10 +378,8 @@ export async function POST(request: NextRequest) {
 
     // Single most meaningful quality contrast — first matching rule wins,
     // falling through to cost_driven when nothing distinctive applies.
+    // (The old 'departure_vs_baseline' contrast is gone with the baseline.)
     const winnerQualityAdvantage: string = (() => {
-      if (winnerOutDepQuality === 'ideal' && baselineOutDepQuality === 'very_early') {
-        return 'departure_vs_baseline';
-      }
       if (
         (winnerArrQuality === 'excellent' || winnerArrQuality === 'good') &&
         (altArrQ === 'acceptable' || altArrQ === 'poor')
@@ -482,6 +501,11 @@ export async function POST(request: NextRequest) {
       savingCategory: body.savingCategory ?? 'found_saving',
       combinationCount: body.combinationCount ?? 0,
       distinctDatePairs: body.distinctDatePairs ?? 0,
+      // The date matrix's lowest/highest cell prices, computed once in page.tsx with the
+      // matrix's own cell rule — the opening paragraph's range and the headline's "lowest" test.
+      matrix_lowest_gbp:  typeof body.matrixLowest  === 'number' ? body.matrixLowest  : null,
+      matrix_highest_gbp: typeof body.matrixHighest === 'number' ? body.matrixHighest : null,
+      london_transit_priced: recommendation.london_transit_priced,
     }, selectionContext, assembled.scoredPool);
 
     return NextResponse.json({

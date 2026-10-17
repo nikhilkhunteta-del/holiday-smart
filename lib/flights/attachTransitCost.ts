@@ -45,7 +45,13 @@ export function attachTransitCost(
 
     const cost = transitPreference === 'uber' ? transit.uber.mean_pence : transit.recommended_cost_pence;
 
-    return { ...opt, transit_cost_gbp: Math.round(cost) / 100 };
+    // No airport-travel data for this postcode district: null + transit_priced false, so the
+    // modal shows "Not priced" instead of a £0 that looks like a real price.
+    return {
+      ...opt,
+      transit_priced: transit.priced,
+      transit_cost_gbp: transit.priced ? Math.round(cost) / 100 : null,
+    };
   });
 
   return { ...legResult.data, options };

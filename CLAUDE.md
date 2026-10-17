@@ -267,20 +267,80 @@ that way:
   "Not priced" for that row and the all-in definition gets one extra sentence
   (`destinationTransferUnpricedNote`) — both only when the transfer is unknown. Filling those
   columns for MLA is a data job (one row), not a code change.
-- **Malta's "typical Saturday booking" from Heathrow is a one-stop LOT flight** in most
-  compositions: the RPC's baseline is the cheapest `baseline_snapshots` row for the nearest
-  airport, with no filter on stops, and Malta's only direct Heathrow row (KM, 2A+1C only) is
-  dearer. The recommend route reads the stop count and passes `baseline_is_direct`, so copy
-  never calls it "direct"; whether the baseline should prefer direct flights is an open
-  product/SQL question, not settled here.
 - Malta's `destinations.type` is `resort`, but the page and SQL only know `city` | `circuit`, so
   Malta runs with the city rules (3–4 nights, same airport both ways). Open-jaw and nearby
   destination airports don't apply to a one-airport destination; the page doesn't call
   `get_open_jaw` / `get_nearby_destination_airports` (both return null for Malta anyway).
 - Carrier-name maps (several files) include Malta's carriers (KM Malta Airlines, LOT, Jet2) so
-  copy never shows a raw code. Known pre-existing gap for both destinations: the prompt's
-  SELECTION CONTEXT says `baseline_carrier: British Airways round-trip` regardless of the real
-  baseline carrier — not changed, because changing it changes Barcelona's prompt.
+  copy never shows a raw code.
+
+### The baseline is gone from the page — what replaced it (and what still exists)
+The "typical Saturday booking" (cheapest stored `baseline_snapshots` fare on the Saturday before
+half-term, from the nearer of LHR/LGW) is **no longer shown to parents anywhere and no longer
+competes to be the recommendation**. It couldn't be made accurate from stored data: the baseline
+collector (`scripts/run_baseline.py`) keeps only the single cheapest result per search, so e.g.
+Malta's Heathrow "baseline" was a one-stop LOT flight even though a direct KM flight ran that day.
+- **What parents see instead:** the opening paragraph ("We priced {n} combinations across five
+  London airports and every viable date pair in your half-term. All-in prices for your family
+  range from £{lowest} to £{highest}."), the headline ("We found {nights} nights in {destination}
+  — £{cost} all-in, the lowest across your half-term." / "…the best balance of price and flight
+  times."), the line under it (carrier, airports, dates, plus "Misses {n} school days — £{fine}
+  if your school fines you." when a school-age child misses school), and the booking box's
+  "Lowest all-in price of {n} we checked" / "Best balance of price and flight times of {n} we
+  checked". All four are built in TypeScript (`getAIRecommendation.ts`, `fixedHeadline` etc.) and
+  used verbatim — the model's own version is overwritten. {lowest}/{highest} are the date
+  matrix's lowest/highest cells, computed once in `page.tsx` with the matrix's own cell rule and
+  passed through (`matrixLowest`/`matrixHighest` → `matrix_lowest_gbp`); "the lowest" means the
+  recommendation costs no more than that lowest cell (`winner_is_lowest`).
+- **Gone:** the baseline column in "How we chose these prices", the baseline-cheapest card set,
+  booking-box variant and "Your total saving" step, the `departure_vs_baseline` quality contrast,
+  the penalty card's "net saving after the fine" sentence (now "With the fine, the trip comes to
+  £X."), the baseline's forced row/column in the date matrix, and `BASELINE_NAME` /
+  `BASELINE_NAME_LABEL`. The "Smart Trip" badge no longer switches to "Saving Found" or hides —
+  there is no saving to measure.
+- **Still there, unused:** `get_smart_recommendation` still returns `baseline` (SQL untouched for
+  it) and `assembleCombinationsOnly` still assembles it; `savingCategory` is still computed but
+  can never be `'baseline_cheapest'` and no copy depends on it. Don't reintroduce a baseline
+  comparison without new baseline data (direct-flight rows for each Saturday and airport).
+
+### Accuracy rules (added with the baseline removal)
+- **Price ties → earlier departure, everywhere.** Equal-cost options (to the penny) are broken
+  by the earlier outbound departure, then the earlier return, then a fixed airport/carrier order
+  — `lib/flights/tieBreak.ts` (`compareCostThenDeparture`, `cheapestBy`) for every TS sort/pick,
+  and the same ORDER BY in `get_smart_recommendation`, `get_leg_options` and `get_price_movement`.
+  Before this, ties fell to database row order and the page could show a different flight on
+  different visits. Ties are common (e.g. three Barcelona→Gatwick returns at £130 on 28 Oct).
+  One deliberate exception: in `get_smart_recommendation`'s carrier_pairs, an equal return fare
+  on the outbound's own airline still beats another airline's (single booking, same bag rules).
+- **Missing airport-travel data is "Not priced", never £0.** `district_airport_transit` is
+  all-or-nothing per postcode district (5 airports or none); 275 schools in 16 boroughs have none.
+  `computeTransitCost` returns `priced: false`, combinations carry `london_transit_priced`, and
+  the page shows "Not priced · Not in the total" (comparison table, leg-options modal), a note
+  under the all-in definition (`londonTransitUnpricedNote`), hides the "Door-to-door" scenario,
+  and the early-return card says the journey home isn't priced. Totals leave the journey out.
+- **Fares are never "today's".** The range line reads "At our last check on {date}, £X was…"
+  (`buildPriceRangeLine`, `last_checked_on`); the narration prompt's rule 13 forbids
+  today/now/currently and supplies `last_checked_on`.
+- **One price-history series for the recommended trip: the exact flight.** `get_price_movement`
+  takes optional `p_outbound_departure_time` / `p_return_departure_time` (it was dropped and
+  recreated — the parameter list grew) and, with them, matches that departure time and direct
+  flights only. `get_smart_recommendation` now also returns `return_flight_departure_time` (the
+  return flight's own stored local time) for this. The top card, its chart and the "These dates"
+  view below the matrix (when it shows the recommended dates) all use this one series; other
+  clicked cells keep the cached "cheapest for these dates" series (`cell_price_history`).
+- **Flights with a stop:** arrival is the final destination's (`result.arrival` / last
+  segment), never segment 0 (the stopover). Combinations and leg options are direct-only anyway.
+
+### Known issues found alongside, not fixed
+- **Every return departure time shown is one hour early** for Barcelona/Malta:
+  `get_smart_recommendation`'s `return_departure_time` is `arrival − duration`, which mixes the
+  London and destination clocks (the 09:50 Barcelona→Luton flight shows as 08:50). The real
+  local time is now in `return_flight_departure_time`; switching the display (and the quality
+  scoring that reads it) to it would change cards and possibly recommendations — decide first.
+- **`cell_price_history` (the "cheapest for these dates" cache) stops at the 21 Jul check** — the
+  28 Jul and 11 Aug runs were never added. Refreshing it is a data job.
+- **Infant-only families** still get the penalty card ("misses 2 school days — £0…") because
+  `absence_days` is counted from the window, not from whether a school-age child travels.
 
 ### Flight API Abstraction Rule
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
@@ -425,7 +485,8 @@ from an earlier round (distinct icons signalling distinct *kinds* of information
   ever safe to say when that specific card's own gate guarantees it.
 
 ### Card set for `significant` / `found_saving` (in `getAIRecommendation.ts`)
-Fixed order, built in `if (!isBaselineCheapest) { ... }`:
+Fixed order — now the only card set (the baseline-cheapest set is gone, see "The baseline is
+gone from the page" above):
 1. **quality_advantage** — "Why this over the alternatives". Always shows. Must be concrete
    (actual times/airports on this specific combination, never a description of the scoring
    process in the abstract) AND state explicitly which of three things won it — checked in this
@@ -545,7 +606,7 @@ Fixed order, built in `if (!isBaselineCheapest) { ... }`:
 When `absence_days === 0`, card 2 is skipped entirely; when none of the three trade-off triggers
 apply, card 3 is skipped too — order is just whatever subset of quality → penalty → trade-off →
 inset actually has something to say, quality_advantage being the only one that always shows.
-`baseline_cheapest` has its own separate, unrelated card set — untouched by any of the above.
+(`baseline_cheapest` used to have its own separate card set; it was removed with the baseline.)
 
 Removed entirely from the significant/found_saving set (do not resurrect without checking why
 they were cut): `split_carrier`, `transport_outbound`/`transport_return`, `selection_story`
@@ -554,7 +615,7 @@ statement/headline/subheadline already carry that), the old `allin_trap` "why no
 cheapest headline fare" card that used to occupy card 3's slot, and (as of this update) the
 standalone `alternative_option` card — folded into `penalty_notice`, see above.
 
-### Problem statement (significant/found_saving)
+### Problem statement — HISTORY (superseded: see "The baseline is gone from the page" above)
 Fixed sentence template, pre-resolved in TypeScript (not left for the LLM to branch on):
 reference point ("The obvious way to book {borough}'s half-term is the first Saturday —
 {date} from {airport}...") → true cost → methodology → finding. No fine mention — that's the
@@ -612,7 +673,7 @@ each — centralised so a future wording change only happens in one place:
   definition rather than restating "bags, transit and transfers" (or any close variant) each
   time. Do not re-add an inline explanation next to "all-in" anywhere else; if the definition
   itself needs to change, change it only here.
-- **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
+- *(Removed with the baseline — kept here as history.)* **`BASELINE_NAME`** (`"the typical Saturday booking"`) and **`BASELINE_NAME_LABEL`**
   (`"Typical Saturday Booking"`, Title Case for compact UI contexts like the comparison table's
   column header, kept in sync with `BASELINE_NAME` by hand) — the comparison baseline (a direct
   BA flight on the first Saturday of half-term) used to be called four different things across
@@ -641,10 +702,8 @@ each — centralised so a future wording change only happens in one place:
   since been removed entirely and replaced with a plain, non-interactive small heading (`13px`,
   `Inter`, uppercase, `#004349`) — the table always renders, since this is the strongest
   evidence on the page and there's nothing left to disclose.
-  Column order is fixed: baseline, winner, then the rest sorted by `total_cost_gbp` ascending.
-  Labels come from `deriveLabel()` — `is_baseline` is checked first, above everything else
-  including `isWinner`, so the baseline column always reads "Typical Saturday" even when it's
-  also the winner or its airport differs from the winner's. The "Checked bags"/"Seats" rows
+  Column order is fixed: the recommendation, then up to 3 alternatives sorted by `total_cost_gbp`
+  ascending (ties to the earlier departure). The "Typical Saturday Booking" column is gone. The "Checked bags"/"Seats" rows
   render as a merged, left-aligned "Same for all" band (tinted background, explicit tag) when
   uniform across columns — not centred grey text spanning every column, which read as an
   empty/error state.

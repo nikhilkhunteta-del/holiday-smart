@@ -20,6 +20,17 @@
 -- type, not just open-jaw circuits. p_ret_origin_iata is read directly from
 -- get_smart_recommendation's own ret_orig_iata field — never approximated
 -- from out_dest_iata.
+--
+-- Departure times (optional, added so the series is the EXACT recommended flight): with them,
+-- each leg also matches departure_time and stops = 0, so a check only counts the flight the page
+-- recommends — not the same airline's other flight that day. Without them the old
+-- carrier/route/date match applies (same airline, any time). Equal prices within a run go to
+-- the earlier departure, never row order.
+--
+-- The parameter list grew, so the old 11-argument version is dropped first — otherwise
+-- CREATE OR REPLACE adds a second overload and PostgREST can't tell the two apart.
+DROP FUNCTION IF EXISTS get_price_movement(char, char, char, char, date, date, char, char, smallint, smallint, smallint);
+
 CREATE OR REPLACE FUNCTION get_price_movement(
   p_out_origin_iata  char(3),  -- London airport, outbound departure
   p_out_dest_iata    char(3),  -- destination-side airport, outbound leg
@@ -31,7 +42,9 @@ CREATE OR REPLACE FUNCTION get_price_movement(
   p_return_carrier   char(2),
   p_adults           smallint,
   p_children         smallint,
-  p_infants          smallint
+  p_infants          smallint,
+  p_outbound_departure_time time DEFAULT NULL,  -- local departure time of the recommended outbound flight
+  p_return_departure_time   time DEFAULT NULL   -- local departure time of the recommended return flight
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -54,11 +67,12 @@ BEGIN
       AND destination_iata = p_out_dest_iata
       AND departure_date   = p_outbound_date
       AND airline_iata      = p_outbound_carrier
+      AND (p_outbound_departure_time IS NULL OR (departure_time = p_outbound_departure_time AND stops = 0))
       AND adults   = p_adults
       AND children = p_children
       AND infants  = p_infants
       AND run_id IN (SELECT run_id FROM valid_runs)
-    ORDER BY run_id, party_total_gbp ASC, observed_at ASC
+    ORDER BY run_id, party_total_gbp ASC, departure_time ASC, observed_at ASC
   ),
   return_per_run AS (
     SELECT DISTINCT ON (run_id)
@@ -68,11 +82,12 @@ BEGIN
       AND destination_iata = p_ret_dest_iata
       AND departure_date   = p_return_date
       AND airline_iata      = p_return_carrier
+      AND (p_return_departure_time IS NULL OR (departure_time = p_return_departure_time AND stops = 0))
       AND adults   = p_adults
       AND children = p_children
       AND infants  = p_infants
       AND run_id IN (SELECT run_id FROM valid_runs)
-    ORDER BY run_id, party_total_gbp ASC, observed_at ASC
+    ORDER BY run_id, party_total_gbp ASC, departure_time ASC, observed_at ASC
   ),
   usable AS (
     -- Inner join — a run only counts if BOTH legs have a matching row.

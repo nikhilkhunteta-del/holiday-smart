@@ -5,7 +5,7 @@ import { useFlightInsights } from './flight-insights-context';
 import { ScenarioStrip } from './scenario-strip';
 import { PriceMovementChart } from './price-movement-chart';
 import { computePriceMovement, buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
-import { BASELINE_NAME, ALL_IN_DEFINITION, destinationTransferUnpricedNote } from '@/lib/flights/copyConstants';
+import { ALL_IN_DEFINITION, destinationTransferUnpricedNote, londonTransitUnpricedNote } from '@/lib/flights/copyConstants';
 import { buildGoogleFlightsUrl, buildGoogleFlightsRoundTripUrl } from '@/lib/flights/googleFlightsUrl';
 import { StickyBookingBar } from './sticky-booking-bar';
 import type { ScenarioResult } from '@/lib/flights/buildScenarioResults';
@@ -31,6 +31,12 @@ interface FetchParams {
   savingCategory: string;
   combinationCount: number;
   distinctDatePairs: number;
+  // The date matrix's lowest/highest cell prices (page.tsx) — the opening paragraph's range.
+  matrixLowest: number | null;
+  matrixHighest: number | null;
+  // false when the school's postcode district has no airport-travel data (all totals leave the
+  // London airport journey out, and the page says so).
+  londonTransitPriced: boolean;
   baselineIsRecommended?: boolean;
 }
 
@@ -51,21 +57,7 @@ interface AIRecommendationClientProps {
     return_arrival_time: string | null;
   } | null;
   combinations?: Array<Record<string, any>> | null;
-  hsSaving?: number;
-  benchmarkCost?: number | null;
   scenarios?: ScenarioResult[];
-  baseline?: {
-    outbound_date: string;
-    return_date: string;
-    origin_iata: string;
-    destination_iata: string;
-    carrier: string;
-    outbound_departure_time: string | null;
-    outbound_arrival_time: string | null;
-    return_departure_time: string | null;
-    return_arrival_time: string | null;
-    total_cost_gbp: number;
-  } | null;
 }
 
 function fmtShortDate(iso: string): string {
@@ -383,7 +375,7 @@ function LeverCard({ insight }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, hsSaving, benchmarkCost, scenarios, baseline }: AIRecommendationClientProps) {
+export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, children, recommendation, combinations, scenarios }: AIRecommendationClientProps) {
   const { aiResult, aiLoading, setAIResult, setAILoading } = useFlightInsights();
   const abortRef = useRef<AbortController | null>(null);
   const prevParamsRef = useRef<string>('');
@@ -445,9 +437,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           const winnerReturn   = data.winner_return_date;
           const winnerCarrier  = data.winner_outbound_carrier;
 
-          const resolvedCombination = fetchParams.baselineIsRecommended
-            ? null
-            : combinations?.find(c =>
+          const resolvedCombination = combinations?.find(c =>
                 c.outbound_date    === winnerOutbound &&
                 c.return_date      === winnerReturn &&
                 c.outbound_carrier === winnerCarrier
@@ -491,13 +481,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
   );
 
   // ── Derive booking data ──────────────────────────────────────────────────
-  const aiSaving = (() => {
-    const rec = aiResult?.recommendedCombination;
-    if (!rec || !benchmarkCost) return hsSaving ?? 0;
-    const recCost = rec.total_cost_gbp ?? rec.total_inc_fine ?? 0;
-    return Math.round(benchmarkCost - recCost);
-  })();
-
   const rec = aiResult?.recommendedCombination ?? recommendation;
 
   const adults      = fetchParams.adults;
@@ -553,30 +536,14 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
     children: numChildren,
   }) : '#';
 
-  // Sticky bar content — mirrors whichever booking box variant is showing
-  // (baseline vs. smart pick), same source data, no separate determination.
+  // Sticky bar content — mirrors the booking box, same source data.
   const destinationName = fetchParams.destinationName;
   // True only when the destination airport has no stored transfer price (the RPC then counts
   // the transfer as £0) — Malta today; never Barcelona, whose airports are all priced.
   const destTransferUnpriced = (combinations ?? []).some(c => c.destination_transfer_known === false);
-  const stickyBarNights = fetchParams.baselineIsRecommended
-    ? (baseline
-        ? Math.round((new Date(baseline.return_date + 'T00:00:00').getTime() - new Date(baseline.outbound_date + 'T00:00:00').getTime()) / 86400000)
-        : null)
-    : ((rec as any)?.trip_nights ?? null);
-  const stickyBarTotalCostGbp = fetchParams.baselineIsRecommended
-    ? (baseline?.total_cost_gbp ?? null)
-    : ((rec as any)?.total_cost_gbp ?? null);
-  const stickyBarBookUrl = fetchParams.baselineIsRecommended
-    ? (baseline ? buildGoogleFlightsRoundTripUrl({
-        origin:      baseline.origin_iata,
-        destination: baseline.destination_iata,
-        outbound:    baseline.outbound_date,
-        return_date: baseline.return_date,
-        adults,
-        children:    numChildren,
-      }) : '#')
-    : roundTripUrl;
+  const stickyBarNights = (rec as any)?.trip_nights ?? null;
+  const stickyBarTotalCostGbp = (rec as any)?.total_cost_gbp ?? null;
+  const stickyBarBookUrl = roundTripUrl;
 
   // Timeline shows only lever_insights (qualitative cards now in right column)
   const timelineCards = aiResult?.lever_insights ?? [];
@@ -649,6 +616,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
           }}>
             {ALL_IN_DEFINITION}
             {destTransferUnpriced && <> {destinationTransferUnpricedNote(fetchParams.destinationName)}</>}
+            {fetchParams.londonTransitPriced === false && <> {londonTransitUnpricedNote(fetchParams.postcodeDistrict)}</>}
           </p>
         )}
       </div>
@@ -659,7 +627,7 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
         {/* LEFT — Timeline steps */}
         <div className="lg:col-span-7 space-y-0">
           {timelineCards.map((card, i) => {
-            const isLast = i === timelineCards.length - 1 && !(aiSaving > 0);
+            const isLast = i === timelineCards.length - 1;
             const icon = LEVER_ICONS[card.lever] ?? 'lightbulb';
             const isAmber = ['travel_light', 'allin_trap', 'checked_bags',
                              'transport_outbound', 'transport_return'].includes(card.lever);
@@ -810,77 +778,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             );
           })}
 
-          {/* Final step — Total Advantage. Only for baseline_cheapest — the
-              headline and problem statement already carry this for
-              significant/found_saving, so this card would just repeat it. */}
-          {fetchParams.baselineIsRecommended && aiSaving > 0 && (
-            <div className="relative flex gap-lg pb-xl hs-step-line-last">
-              <div
-                className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white z-10 animate-pulse"
-                style={{
-                  background: '#F06543',
-                  boxShadow: '0 2px 12px -2px rgba(240,101,67,0.2)',
-                }}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  savings
-                </span>
-              </div>
-              <div className="flex-1">
-                <h3 style={{
-                  fontFamily: 'Newsreader, serif',
-                  fontSize: 22,
-                  fontWeight: 500,
-                  color: '#F06543',
-                  marginBottom: 8,
-                  lineHeight: 1.4,
-                }}>
-                  Your total saving
-                </h3>
-                <p style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: 16,
-                  color: '#3f484a',
-                  lineHeight: 1.6,
-                  marginBottom: 16,
-                  maxWidth: '42ch',
-                }}>
-                  {benchmarkCost != null
-                    ? `Compared to ${BASELINE_NAME} from Heathrow${fetchParams.borough ? ` — the default for most ${fetchParams.borough} families` : ''} — this trip saves your family £${Math.round(aiSaving)}.`
-                    : `This optimised trip saves your family £${Math.round(aiSaving)} compared to ${BASELINE_NAME} from Heathrow.`
-                  }
-                </p>
-                <div style={{
-                  display: 'inline-block',
-                  background: 'rgba(240,101,67,0.08)',
-                  border: '1px solid rgba(240,101,67,0.2)',
-                  borderRadius: 12,
-                  padding: '12px 20px',
-                }}>
-                  <span style={{
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: 36,
-                    fontWeight: 600,
-                    color: '#F06543',
-                  }}>
-                    £{Math.round(aiSaving)}
-                  </span>
-                  <span style={{
-                    fontFamily: 'Newsreader, serif',
-                    fontSize: 22,
-                    fontWeight: 400,
-                    color: '#F06543',
-                    marginLeft: 8,
-                  }}>
-                    Saved
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* RIGHT — Sticky sidebar */}
@@ -891,16 +788,11 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
             className="bg-white rounded-xl border border-outline-variant relative overflow-hidden"
             style={{ padding: 32, boxShadow: '0 2px 12px -2px rgba(13,92,99,0.08)' }}
           >
-            {/* Badge — context-dependent; suppressed entirely when the fine
-                wipes out the saving, relabelled when absence is involved
-                but the saving survives. */}
+            {/* Badge. It used to switch to "Saving Found" or disappear depending on the
+                saving against the "typical Saturday booking"; with no baseline there is no
+                saving to measure, so it always reads "Smart Trip". */}
             {(() => {
-              const days  = aiResult?.winner_absence_days ?? 0;
-              const wipes = aiResult?.winner_fine_wipes_saving ?? false;
-              if (days > 0 && wipes) return null;
-              const label = days > 0
-                ? 'Saving Found'
-                : (fetchParams.baselineIsRecommended ? 'Best All-In Price' : 'Smart Trip');
+              const label = 'Smart Trip';
               return (
                 <div className="absolute top-0 right-0 p-lg">
                   <div className="bg-primary/5 text-primary border border-primary/20 px-md py-xs rounded-full flex items-center gap-xs">
@@ -913,94 +805,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               );
             })()}
 
-            {fetchParams.baselineIsRecommended && baseline ? (
-              /* ── Baseline sidebar (BA Heathrow round-trip) ── */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#6f797a', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Best option found
-                  </div>
-                </div>
-
-                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 18, color: '#004349', fontWeight: 500 }}>
-                  {(() => {
-                    const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                    return `${fmt(baseline.outbound_date)} — ${fmt(baseline.return_date)}`;
-                  })()}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid #e1e3e3', paddingTop: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 15, fontWeight: 600, color: '#191c1d' }}>
-                      {baseline.carrier === 'BA' ? 'British Airways' : baseline.carrier}
-                    </span>
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
-                    {baseline.outbound_departure_time?.slice(0, 5) ?? ''}
-                    <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
-                    {baseline.outbound_arrival_time?.slice(0, 5) ?? ''}
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
-                    {baseline.origin_iata} → {baseline.destination_iata} &nbsp;·&nbsp; {baseline.outbound_date ? new Date(baseline.outbound_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
-                  </div>
-                  <div style={{ height: 1, background: '#e1e3e3', margin: '12px 0' }} />
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Return
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 400, color: '#191c1d' }}>
-                    {baseline.return_departure_time?.slice(0, 5) ?? ''}
-                    <span style={{ color: '#6f797a', margin: '0 8px' }}>–</span>
-                    {baseline.return_arrival_time?.slice(0, 5) ?? ''}
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, color: '#6f797a' }}>
-                    {baseline.destination_iata} → {baseline.origin_iata} &nbsp;·&nbsp; {baseline.return_date ? new Date(baseline.return_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px solid #e1e3e3', paddingTop: 12 }}>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6f797a', marginBottom: 4 }}>
-                    All-in total
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 28, fontWeight: 600, color: '#004349' }}>
-                    £{Math.round(baseline.total_cost_gbp)}
-                  </div>
-                  <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6f797a', marginTop: 2 }}>
-                    Fare + bags + transport · bags included in BA fare
-                  </div>
-                </div>
-
-                <a
-                  href={buildGoogleFlightsRoundTripUrl({
-                    origin:      baseline.origin_iata,
-                    destination: baseline.destination_iata,
-                    outbound:    baseline.outbound_date,
-                    return_date: baseline.return_date,
-                    adults:      fetchParams.adults,
-                    children:    fetchParams.children,
-                  })}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'block',
-                    background: '#004349',
-                    color: '#ffffff',
-                    fontFamily: 'Inter, sans-serif',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    textAlign: 'center',
-                    textDecoration: 'none',
-                    padding: '14px 20px',
-                    borderRadius: 12,
-                  }}
-                >
-                  Book · British Airways
-                </a>
-
-              </div>
-            ) : (
             <div className="space-y-xl">
 
               {/* Date summary */}
@@ -1124,8 +928,10 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                 </div>
               )}
 
-              {/* Saving vs benchmark */}
-              {aiSaving > 0 && (
+              {/* Where this sits among everything we priced — replaces the old
+                  "£X below the typical Saturday booking" line. Same "lowest" test as the
+                  headline (getAIRecommendation's winner_is_lowest). */}
+              {aiResult?.winner_is_lowest !== undefined && (
                 <div className="pt-md">
                   <div className="h-1 w-full bg-outline-variant/30 rounded-full overflow-hidden">
                     <div className="h-full bg-primary" style={{ width: '100%' }} />
@@ -1137,7 +943,9 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
                     marginTop: 8,
                     textAlign: 'center',
                   }}>
-                    £{Math.round(aiSaving)} below {BASELINE_NAME}
+                    {aiResult.winner_is_lowest
+                      ? `Lowest all-in price of ${fetchParams.combinationCount.toLocaleString('en-GB')} we checked`
+                      : `Best balance of price and flight times of ${fetchParams.combinationCount.toLocaleString('en-GB')} we checked`}
                   </p>
                 </div>
               )}
@@ -1244,7 +1052,6 @@ export function AIRecommendationClient({ fetchParams, schoolName, hasInsetDay, c
               )}
 
             </div>
-            )} {/* end baseline ternary */}
           </div>
 
           {/* Right column notes */}

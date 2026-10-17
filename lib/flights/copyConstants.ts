@@ -2,19 +2,8 @@
 // so a future wording change only has to happen in one place. See CLAUDE.md
 // → "AI Recommendation Card System" for the redundancy these replaced.
 
-// The name for the comparison baseline (a direct BA flight on the first
-// Saturday of half-term) — previously called four different things across
-// the headline, booking box, penalty card, and comparison table
-// ("the standard Saturday booking from Heathrow" / "the typical booking" /
-// "the Saturday booking" / "Typical Saturday"). Use this constant verbatim
-// wherever the baseline is named in prose.
-export const BASELINE_NAME = 'the typical Saturday booking';
-
-// Short label form for compact UI contexts (table column headers etc.),
-// where "Recommended" / "Inset day" style Title Case labels are the
-// convention — not a different name for the baseline, just a different
-// register. Keep in sync with BASELINE_NAME if either changes.
-export const BASELINE_NAME_LABEL = 'Typical Saturday Booking';
+// (BASELINE_NAME / BASELINE_NAME_LABEL — "the typical Saturday booking" — were removed with
+// the baseline: the page no longer compares against it anywhere.)
 
 // The one place "all-in" is defined for the reader. Rendered once, directly
 // under the subheadline — every other mention of cost inclusions elsewhere
@@ -28,6 +17,14 @@ export const ALL_IN_DEFINITION = 'All-in = fare + bags + seats + transport to an
 // transfer price (destination_airports transit/taxi columns empty, so the RPC returns
 // destination_transfer_known = false and a £0 transfer — Malta's MLA today). Without it the
 // definition above would claim a transfer the figures don't contain.
+export function londonTransitUnpricedNote(postcodeDistrict: string): string {
+  return `We don't have travel costs from ${postcodeDistrict} to London's airports yet, so getting to and from the airport isn't in the all-in figures.`;
+}
+
+// Shown under ALL_IN_DEFINITION when the destination airport has no stored transfer price (see
+// below). londonTransitUnpricedNote above is the London-side equivalent: shown only when the
+// school's postcode district has no row in district_airport_transit (275 schools as of this
+// writing), where every total leaves the airport journey out rather than counting it as £0.
 export function destinationTransferUnpricedNote(destinationName: string): string {
   return `We don't have a price yet for getting from the airport to where you're staying in ${destinationName}, so that part isn't in the all-in figures.`;
 }

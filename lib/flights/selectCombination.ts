@@ -1,4 +1,5 @@
 import type { ScoredCombination } from './buildCandidates';
+import { cheapestBy, compareCostThenDeparture } from './tieBreak';
 
 // ── Tuning constants ──────────────────────────────────────────────────────
 // NIGHT_VALUE: max flight premium we'll pay for one extra night (£)
@@ -146,7 +147,7 @@ export function selectCombination(
   // computed and logged BEFORE the winner is picked, so Vercel logs show the
   // reasoning that determines the winner, not just the outcome.
   const top10 = [...viable_combos]
-    .sort((a, b) => effectiveCost(a) - effectiveCost(b))
+    .sort(compareCostThenDeparture(effectiveCost))
     .slice(0, 10)
     .map(c => {
       const outTransit = c.outbound_transit?.transit;
@@ -195,29 +196,22 @@ export function selectCombination(
   console.log('[selectCombination] top10 by effCost:', JSON.stringify(top10, null, 2));
 
   // ── Pick winner: minimum effective cost ──────────────────────────────
-  const winner = viable_combos.reduce((best, c) =>
-    effectiveCost(c) < effectiveCost(best) ? c : best
-  );
+  // Ties go to the earlier departure (lib/flights/tieBreak.ts) — never to row order.
+  const winner = cheapestBy(viable_combos, effectiveCost)!;
   const winnerEffCost = effectiveCost(winner);
 
   console.log('[selectCombination] winner:', winner.outbound_date, '→', winner.return_date,
     'eff:', Math.round(winnerEffCost));
 
   // ── Context set ───────────────────────────────────────────────────────
-  const cheapestOverall = viable_combos.reduce((best, c) =>
-    c.total_cost_gbp < best.total_cost_gbp ? c : best
-  );
+  const cheapestOverall = cheapestBy(viable_combos, c => c.total_cost_gbp)!;
 
   const insetCombos = viable_combos.filter(c => c.is_inset_day);
   const cheapestInset = insetCombos.length
-    ? insetCombos.reduce((best, c) =>
-        c.total_cost_gbp < best.total_cost_gbp ? c : best
-      )
+    ? cheapestBy(insetCombos, c => c.total_cost_gbp)!
     : null;
 
-  const mostNights = viable_combos.reduce((best, c) =>
-    c.trip_nights > best.trip_nights ? c : best
-  );
+  const mostNights = cheapestBy(viable_combos, c => -c.trip_nights)!;
 
   // ── Pre-computed deltas ───────────────────────────────────────────────
   const vsChepeast = {

@@ -140,7 +140,9 @@ BEGIN
       origin_iata,
       destination_iata,
       (fare_gbp + cabin_bag_cost_gbp + checked_bag_cost_gbp +
-       seat_cost_gbp + destination_transfer_gbp) ASC
+       seat_cost_gbp + destination_transfer_gbp) ASC,
+      -- Equal cost: the earlier departure wins — never row order.
+      departure_time ASC
   )
 
   SELECT jsonb_agg(
@@ -175,7 +177,7 @@ BEGIN
       'family_split_risk',          family_split_risk,
       'seating_notes',              seating_notes
     )
-    ORDER BY sort_total ASC
+    ORDER BY sort_total ASC, departure_time ASC, origin_iata ASC, destination_iata ASC, airline_iata ASC
   )
   INTO v_result
   FROM cheapest_per_route;

@@ -26,6 +26,9 @@ export interface LegOption {
   // Family-adjusted transit cost — computed server-side via the canonical
   // lib/flights/transitCost.ts and attached to each option before reaching this component.
   transit_cost_gbp: number | null;
+  // false when the postcode district has no airport-travel data: shown as "Not priced" and left
+  // out of the total (never counted as £0). Optional for older API responses.
+  transit_priced?: boolean;
   transit_method: string | null;
   transit_duration_mins: number | null;
   transit_changes: number | null;
@@ -80,10 +83,23 @@ export function getCheapestOption(
     ...opt,
     total_gbp: opt.fare_gbp + ancillaryGbp(opt) + (opt.transit_cost_gbp ?? 0) + opt.destination_transfer_gbp,
   }));
-  processed.sort((a, b) => a.total_gbp - b.total_gbp);
+  processed.sort(byTotalThenDeparture);
   return processed[0];
 }
 
+
+// Cheaper first (to the penny); on a tie, the earlier departure — never row order
+// (lib/flights/tieBreak.ts has the same rule for whole combinations).
+function byTotalThenDeparture(
+  a: Pick<LegOption, 'departure_time' | 'origin_iata' | 'destination_iata' | 'airline_iata'> & { total_gbp: number },
+  b: Pick<LegOption, 'departure_time' | 'origin_iata' | 'destination_iata' | 'airline_iata'> & { total_gbp: number },
+): number {
+  return (Math.round(a.total_gbp * 100) - Math.round(b.total_gbp * 100))
+    || (a.departure_time ?? '').localeCompare(b.departure_time ?? '')
+    || a.origin_iata.localeCompare(b.origin_iata)
+    || a.destination_iata.localeCompare(b.destination_iata)
+    || a.airline_iata.localeCompare(b.airline_iata);
+}
 
 function gbp(n: number): string {
   return `£${Math.round(n).toLocaleString('en-GB')}`;
@@ -138,7 +154,7 @@ function RowDetail({ opt }: { opt: LegOption }) {
     { label: 'Seats',        value: opt.seat_cost_gbp        === 0 ? 'Not selected' : gbp(opt.seat_cost_gbp) },
     {
       label: opt.transit_method ? `Transport (${opt.transit_method})` : 'Transport',
-      value: opt.transit_cost_gbp != null ? gbp(opt.transit_cost_gbp) : '—',
+      value: opt.transit_priced === false ? 'Not priced' : opt.transit_cost_gbp != null ? gbp(opt.transit_cost_gbp) : '—',
     },
     { label: 'Dest. transfer', value: gbp(opt.destination_transfer_gbp) },
     { label: 'Total',          value: gbp(opt.total_gbp), bold: true },
@@ -427,10 +443,19 @@ function LeverRow({
 
         {/* Col 5: Transport */}
         <td style={{ ...tdBase, paddingLeft: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
-          <div style={{ fontSize: 10, color: '#3f484a', lineHeight: 1.3 }}>
-            {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method, opt.transit_duration_mins)}
-          </div>
+          {opt.transit_priced === false ? (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#6f797a' }}>Not priced</div>
+              <div style={{ fontSize: 10, color: '#6f797a', lineHeight: 1.3 }}>Not in the total</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2526' }}>{gbp(cost)}</div>
+              <div style={{ fontSize: 10, color: '#3f484a', lineHeight: 1.3 }}>
+                {transitPreference === 'uber' ? 'Uber (estimated)' : extractTransitMode(opt.transit_method, opt.transit_duration_mins)}
+              </div>
+            </>
+          )}
         </td>
 
         {/* Col 6: Destination transfer */}
@@ -493,11 +518,11 @@ function buildLeverGroups(
 
   const groups: LeverGroup[] = [];
   for (const [airportIata, members] of groupMap) {
-    const cheapest = [...members].sort((a, b) => a.total_gbp - b.total_gbp)[0];
+    const cheapest = [...members].sort(byTotalThenDeparture)[0];
     groups.push({ airportIata, displayRow: cheapest });
   }
 
-  groups.sort((a, b) => a.displayRow.total_gbp - b.displayRow.total_gbp);
+  groups.sort((a, b) => byTotalThenDeparture(a.displayRow, b.displayRow));
   return groups;
 }
 
@@ -532,7 +557,7 @@ export function LegOptions({
       total_gbp:        totalGbp,
     };
   });
-  processedOptions.sort((a, b) => a.total_gbp - b.total_gbp);
+  processedOptions.sort(byTotalThenDeparture);
 
   function getLondonIata(o: ProcessedOption): string {
     return direction === 'outbound' ? o.origin_iata : o.destination_iata;

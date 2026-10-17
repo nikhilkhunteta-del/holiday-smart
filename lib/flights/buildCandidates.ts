@@ -1,5 +1,6 @@
 import { AssembledCombination } from './assembleRecommendation';
 import { effectiveCost } from './selectCombination';
+import { cheapestBy, compareCostThenDeparture } from './tieBreak';
 
 // ── Quality field computation ─────────────────────────────────────────────────
 // These are pre-computed labels the AI uses for reasoning.
@@ -163,7 +164,7 @@ export function scoreAndDedupeCombinations(
   for (const c of combinations) {
     const key = combinationKey(c);
     const existing = cheapestPerKey.get(key);
-    if (!existing || c.total_inc_fine < existing.total_inc_fine) {
+    if (!existing || compareCostThenDeparture<AssembledCombination>(x => x.total_inc_fine)(c, existing) < 0) {
       cheapestPerKey.set(key, c);
     }
   }
@@ -194,7 +195,7 @@ export function buildCandidateShortlist(
   if (!nonBaseline.length) return [];
 
   const selected = new Map<string, ScoredCombination>();
-  const byEff = [...nonBaseline].sort((a, b) => effectiveCost(a) - effectiveCost(b));
+  const byEff = [...nonBaseline].sort(compareCostThenDeparture(effectiveCost));
   const winnerKey = combinationKey(byEff[0]);
 
   function add(c: ScoredCombination | undefined, _label: string) {
@@ -208,7 +209,7 @@ export function buildCandidateShortlist(
   add(byEff.find(c => c.is_inset_day), 'best_inset');
 
   // Slot 3 — cheapest_raw: lowest total_cost_gbp
-  const cheapest = [...nonBaseline].sort((a, b) => a.total_cost_gbp - b.total_cost_gbp)[0];
+  const cheapest = cheapestBy(nonBaseline, c => c.total_cost_gbp);
   add(cheapest, 'cheapest_raw');
 
   // Slot 4 — best_quality: lowest eff_cost with good outbound departure AND
@@ -233,7 +234,7 @@ export function buildCandidateShortlist(
   add(altAirport, 'best_alt_airport');
 
   return Array.from(selected.values())
-    .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+    .sort(compareCostThenDeparture(effectiveCost));
 }
 
 // ── Guarantee winner membership ───────────────────────────────────────────────
@@ -311,7 +312,7 @@ export function computeBenchmark(
              !c.requires_absence;
     });
     if (fallback2.length) {
-      const sorted = [...fallback2].sort((a, b) => a.total_inc_fine - b.total_inc_fine);
+      const sorted = [...fallback2].sort(compareCostThenDeparture(c => c.total_inc_fine));
       const mid = Math.floor(sorted.length / 2);
       return sorted[mid].total_inc_fine; // median
     }

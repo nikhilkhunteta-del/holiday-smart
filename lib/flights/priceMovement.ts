@@ -56,6 +56,7 @@ export interface PriceMovementComputed {
   range_low_gbp?: number | null;
   range_high_gbp?: number | null;
   price_position?: PricePositionTier | null;
+  last_checked_on?: string | null; // ISO date of the most recent check
 }
 
 const FLAT_THRESHOLD_GBP = 5;
@@ -67,7 +68,7 @@ export function computePriceMovement(raw: PriceMovementRaw): PriceMovementComput
     return {
       latest_total_gbp: null, previous_total_gbp: null, delta_gbp: null, direction: 'no_data',
       first_checked_on: null, first_total_gbp: null, total_change_gbp: null, is_current_lowest: false,
-      range_low_gbp: null, range_high_gbp: null, price_position: null,
+      range_low_gbp: null, range_high_gbp: null, price_position: null, last_checked_on: null,
     };
   }
 
@@ -75,6 +76,7 @@ export function computePriceMovement(raw: PriceMovementRaw): PriceMovementComput
   const latest = totals[totals.length - 1];
   const first = totals[0];
   const firstCheckedOn = points[0].checked_on;
+  const lastCheckedOn = points[points.length - 1].checked_on;
   const rangeLow = Math.min(...totals);
   const rangeHigh = Math.max(...totals);
   const isCurrentLowest = latest === rangeLow;
@@ -84,7 +86,7 @@ export function computePriceMovement(raw: PriceMovementRaw): PriceMovementComput
       latest_total_gbp: latest, previous_total_gbp: null, delta_gbp: null, direction: 'single_point',
       first_checked_on: firstCheckedOn, first_total_gbp: first, total_change_gbp: null,
       is_current_lowest: isCurrentLowest,
-      range_low_gbp: null, range_high_gbp: null, price_position: null,
+      range_low_gbp: null, range_high_gbp: null, price_position: null, last_checked_on: lastCheckedOn,
     };
   }
 
@@ -101,7 +103,15 @@ export function computePriceMovement(raw: PriceMovementRaw): PriceMovementComput
     first_checked_on: firstCheckedOn, first_total_gbp: first, total_change_gbp: totalChange,
     is_current_lowest: isCurrentLowest,
     range_low_gbp: rangeLow, range_high_gbp: rangeHigh, price_position: pricePosition,
+    last_checked_on: lastCheckedOn,
   };
+}
+
+/** "11 Aug" for the latest check in a series (points in date order), or null when empty. */
+export function lastCheckedOnLabel(points: PricePoint[]): string | null {
+  if (!points.length) return null;
+  const latest = [...points].sort((a, b) => a.checked_on.localeCompare(b.checked_on))[points.length - 1];
+  return formatRangeLineDate(latest.checked_on);
 }
 
 const RANGE_LINE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -115,6 +125,9 @@ export interface PriceRangeFacts {
   direction: PriceMovementDirection;
   latest_total_gbp: number | null;
   first_checked_on: string | null;
+  // Date of the most recent check — "at our last check on {date}". Prices are never described
+  // as "today's": they come from stored checks, and the latest may be weeks old.
+  last_checked_on?: string | null;
   // Optional to match PriceMovementComputed's optional range fields (which
   // computePriceMovement always populates in practice, but the type allows
   // undefined) — the `== null` checks below treat null and undefined alike.
@@ -133,9 +146,10 @@ export interface PriceRangeFacts {
 export function buildPriceRangeLine(facts: PriceRangeFacts): string | null {
   if (facts.latest_total_gbp == null || facts.first_checked_on == null) return null;
   const since = formatRangeLineDate(facts.first_checked_on);
+  const last = formatRangeLineDate(facts.last_checked_on ?? facts.first_checked_on);
 
   if (facts.direction === 'single_point') {
-    return `Today's £${facts.latest_total_gbp} is the only price we've recorded so far — we began checking on ${since}.`;
+    return `At our last check on ${last}, £${facts.latest_total_gbp} was the only price we've recorded so far — we began checking on ${since}.`;
   }
   if (facts.range_low_gbp == null || facts.range_high_gbp == null || facts.price_position == null) {
     return null;
@@ -143,12 +157,12 @@ export function buildPriceRangeLine(facts: PriceRangeFacts): string | null {
   const { range_low_gbp: low, range_high_gbp: high, price_position: position, latest_total_gbp: latest } = facts;
 
   if (position === 'low') {
-    return `Today's £${latest} is the lowest we've recorded since we began checking on ${since} (range £${low}–£${high}).`;
+    return `At our last check on ${last}, £${latest} was the lowest we've recorded since we began checking on ${since} (range £${low}–£${high}).`;
   }
   if (position === 'high') {
-    return `Today's £${latest} is the highest we've recorded since ${since} (range £${low}–£${high}).`;
+    return `At our last check on ${last}, £${latest} was the highest we've recorded since ${since} (range £${low}–£${high}).`;
   }
-  return `Today's £${latest} sits in the middle of the range we've recorded since ${since} (£${low}–£${high}).`;
+  return `At our last check on ${last}, £${latest} sat in the middle of the range we've recorded since ${since} (£${low}–£${high}).`;
 }
 
 // Flat, standing disclaimer — hardcoded, never AI-generated, always

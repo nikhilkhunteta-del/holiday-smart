@@ -207,10 +207,6 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const savingCategory    = assembled?.savingCategory  ?? 'significant';
   const hasInsetDay       = assembled?.combinations?.some(c => c.is_inset_day) ?? false;
 
-  const hsSaving = assembled
-    ? (assembled.baseline?.total_cost_gbp ?? 0) -
-      (assembled.recommendation?.total_cost_gbp ?? assembled.baseline?.total_cost_gbp ?? 0)
-    : 0;
 
   const combinationCount = assembled?.combinations?.length ?? 0;
   // Same (outbound_date, return_date) key as compliance-calculator.tsx's own
@@ -219,6 +215,25 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   const distinctDatePairs = assembled?.combinations
     ? new Set(assembled.combinations.map((c: any) => `${c.outbound_date}|${c.return_date}`)).size
     : 0;
+
+  // The date matrix's lowest and highest cell prices — the range the opening paragraph quotes
+  // ("All-in prices for your family range from £X to £Y") and the "lowest" test for the
+  // headline. Same cell rule as compliance-calculator.tsx's cellMap: the first combination per
+  // (outbound_date, return_date) in assembled order, rounded the way the cells display it.
+  const matrixCellTotals = (() => {
+    if (!assembled?.combinations?.length) return [] as number[];
+    const cells = new Map<string, number>();
+    for (const c of assembled.combinations as any[]) {
+      const key = `${c.outbound_date}|${c.return_date}`;
+      if (!cells.has(key)) cells.set(key, Math.round(c.total_cost_gbp));
+    }
+    return Array.from(cells.values());
+  })();
+  const matrixLowest  = matrixCellTotals.length ? Math.min(...matrixCellTotals) : null;
+  const matrixHighest = matrixCellTotals.length ? Math.max(...matrixCellTotals) : null;
+  // No airport-travel data for this school's postcode district: every total leaves the London
+  // airport journey out, and the page says so (never shown as £0).
+  const londonTransitPriced = assembled?.recommendation?.london_transit_priced ?? true;
 
   const scenarios = buildScenarioResults(
     recommendation,
@@ -259,6 +274,9 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
     savingCategory,
     combinationCount,
     distinctDatePairs,
+    matrixLowest,
+    matrixHighest,
+    londonTransitPriced,
     baselineIsRecommended: assembled?.baselineIsRecommended ?? false,
   };
 
@@ -303,21 +321,7 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
             hasInsetDay={hasInsetDay}
             recommendation={recommendation}
             combinations={assembled?.combinations ?? null}
-            hsSaving={hsSaving}
-            benchmarkCost={assembled?.baseline?.total_cost_gbp ?? null}
             scenarios={scenarios}
-            baseline={assembled?.baseline ? {
-              outbound_date:           assembled.baseline.outbound_date,
-              return_date:             assembled.baseline.return_date,
-              origin_iata:             assembled.baseline.origin_iata,
-              destination_iata:        assembled.baseline.destination_iata,
-              carrier:                 assembled.baseline.carrier,
-              outbound_departure_time: assembled.baseline.outbound_departure_time,
-              outbound_arrival_time:   assembled.baselineAsCombination?.outbound_arrival_time ?? null,
-              return_departure_time:   assembled.baselineAsCombination?.return_departure_time ?? null,
-              return_arrival_time:     assembled.baselineAsCombination?.return_arrival_time ?? null,
-              total_cost_gbp:          assembled.baseline.total_cost_gbp,
-            } : null}
           >
 
             {/* 3. SavingsBreakdown */}

@@ -3,6 +3,7 @@ import { getAIRecommendation, type AIRecommendationOutput } from './getAIRecomme
 import { buildCandidateShortlist, combinationKey, computeBenchmark, computeCostRange, computeQualityFields, scoreAndDedupeCombinations, withWinnerIncluded, type ScoredCombination, type CostRange } from './buildCandidates';
 import { NIGHT_VALUE, ARRIVAL_PENALTY, OUT_DEP_PENALTY, RET_DEP_PENALTY, DEST_TRANSFER_PENALTY, LONDON_TRANSIT_PENALTY, effectiveCost, selectCombination, type SelectionContext } from './selectCombination';
 import { supabaseServer as supabase } from '@/lib/supabase-server';
+import { compareCostThenDeparture } from './tieBreak';
 
 // mapCombination and the pre-map-keys log below fire once per combination,
 // and assembleCombinationsOnly runs ~5x per /api/recommend request (main +
@@ -52,6 +53,13 @@ export type AssembledCombination = {
   checked_bag_cost_max_gbp: number;
   destination_transfer_cost_gbp: number;
   destination_transfer_known: boolean;
+  // false when the school's postcode district has no airport-travel data for either London
+  // airport: the transit costs are 0 placeholders, so total_cost_gbp leaves airport travel out.
+  // The page says so and shows "Not priced" — it is never presented as a £0 cost.
+  london_transit_priced: boolean;
+  // The return flight's own stored (local) departure time — used to match the exact flight's
+  // price history. Absent until the updated get_smart_recommendation is deployed.
+  return_flight_departure_time?: string | null;
   destination_transfer_is_taxi: boolean;
   destination_transit_duration_mins: number | null;
   destination_transit_changes:       number | null;
@@ -203,6 +211,8 @@ function mapCombination(
     checked_bag_cost_max_gbp: c.checked_bag_cost_max_gbp ?? c.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: c.destination_transfer_cost_gbp,
     destination_transfer_known: c.destination_transfer_known,
+    london_transit_priced: outTransit.priced && retTransit.priced,
+    return_flight_departure_time: c.return_flight_departure_time ?? null,
     destination_transfer_is_taxi: c.destination_transfer_is_taxi ?? false,
     destination_transit_duration_mins: c.destination_transit_duration_mins ?? null,
     destination_transit_changes:       c.destination_transit_changes ?? null,
@@ -675,10 +685,14 @@ async function buildBaselineAsCombination(
     : null;
   const rawSegOut = rawJson?.result?.segments?.[0] ?? null;
 
-  // Outbound arrival from raw_json — the baseline only has one segment (outbound).
+  // Outbound arrival from raw_json: the arrival at the FINAL destination. A flight with a stop
+  // has several segments, and segment 0's arrival is the stopover (Malta's LOT baseline showed
+  // its Warsaw arrival, 21:45, instead of landing in Malta at 11:10 the next day) — so read
+  // result.arrival, then the last segment, never segment 0 on its own.
   // Return leg times come from fare_snapshots via lookupFareLeg below.
-  const outArrTimeRaw = rawSegOut?.arrival?.slice(11, 16)
-    ?? rawJson?.result?.arrival?.slice(11, 16)
+  const rawSegments: any[] = rawJson?.result?.segments ?? [];
+  const outArrTimeRaw = rawJson?.result?.arrival?.slice(11, 16)
+    ?? rawSegments[rawSegments.length - 1]?.arrival?.slice(11, 16)
     ?? null;
 
   function durationFromSegment(seg: any): number | null {
@@ -746,6 +760,7 @@ async function buildBaselineAsCombination(
     checked_bag_cost_max_gbp: assembledBaseline.checked_bag_cost_gbp,
     destination_transfer_cost_gbp: assembledBaseline.destination_transfer_cost_gbp,
     destination_transfer_known:    assembledBaseline.destination_transfer_known,
+    london_transit_priced:         (assembledBaseline.outbound_transit?.priced ?? false) && (assembledBaseline.return_transit?.priced ?? false),
     destination_transfer_is_taxi:  assembledBaseline.destination_transfer_is_taxi,
     destination_transit_duration_mins: assembledBaseline.destination_transit_duration_mins,
     destination_transit_changes:       assembledBaseline.destination_transit_changes,
@@ -963,7 +978,9 @@ export async function assembleCombinationsOnly(
     assembled = assembled.map(c => applyDestTransferFlip(c, partySize));
   }
 
-  assembled.sort((a, b) => a.total_inc_fine - b.total_inc_fine);
+  // Canonical order for everything downstream (the date matrix keeps the first combination per
+  // date pair): cheapest first, ties to the earlier departure (lib/flights/tieBreak.ts).
+  assembled.sort(compareCostThenDeparture(c => c.total_inc_fine));
 
   const assembledBaseline = buildAssembledBaseline(
     baseline, nearestAirport, transitCache, baselineOutKey, baselineRetKey,
@@ -1024,13 +1041,11 @@ export async function assembleCombinationsOnly(
   // assumptions) to the cheapest representative.
   const dedupedPool = scoreAndDedupeCombinations(assembled);
 
-  // Fold the baseline into the scored pool so selectCombination() can pick it
-  // naturally if it has the lowest eff_cost. The baseline has a unique
-  // outbound_date (Saturday before the holiday window) so it can never collide
-  // with any holiday-window combination key.
-  const scoredPool: ScoredCombination[] = baselineNormalised
-    ? [...dedupedPool, baselineNormalised.scored]
-    : dedupedPool;
+  // The "typical Saturday booking" baseline is no longer shown to parents and no longer
+  // competes to be the recommendation: every family is recommended a real combination from
+  // the half-term pool. (The RPC still returns the baseline and it is still assembled above,
+  // unused by the page.)
+  const scoredPool: ScoredCombination[] = dedupedPool;
   console.log('[scoredPool] raw:', assembled.length, 'deduped:', dedupedPool.length,
     'with_baseline:', scoredPool.length);
 
@@ -1121,14 +1136,12 @@ export async function assembleCombinationsOnly(
   const recEffCost = selectionResult
     ? selectionResult.winnerEffCost
     : recommendation.total_cost_gbp;
-  const isBaselineWinner = (recommendation as any).is_baseline === true;
-  const savingCategory = isBaselineWinner
-    ? 'baseline_cheapest' as const
-    : computeSavingCategory(
-        assembledBaseline.eff_cost,
-        recEffCost,
-        0,
-      );
+  // The baseline can't win any more (it isn't in scoredPool), so 'baseline_cheapest' — which
+  // used to switch the page to a separate card set — never reaches the page. The category is
+  // still computed against the baseline for the logs, but no copy depends on it.
+  const rawSavingCategory = computeSavingCategory(assembledBaseline.eff_cost, recEffCost, 0);
+  const savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest' =
+    rawSavingCategory === 'baseline_cheapest' ? 'found_saving' : rawSavingCategory;
   console.log('[selection]', {
     winner_out:    recommendation.outbound_date,
     winner_ret:    recommendation.return_date,
@@ -1145,7 +1158,7 @@ export async function assembleCombinationsOnly(
     total:   recommendation.total_cost_gbp,
     eff:     recEffCost,
   });
-  const baselineIsRecommended = savingCategory === 'baseline_cheapest';
+  const baselineIsRecommended = false; // the baseline is never recommended any more
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: assembledBaseline.outbound_date,
     return_date: assembledBaseline.return_date,
@@ -1248,7 +1261,7 @@ export async function assembleRecommendation(
       combinationKey(c) !== winnerCombinationKey &&
       (absenceDays > 0 ? c.absence_days === 0 : true),
     )
-    .sort((a, b) => effectiveCost(a) - effectiveCost(b));
+    .sort(compareCostThenDeparture(effectiveCost));
   const bestNoFineAlternative = alternatives[0] ?? null;
 
   const fmtDateLong = (iso: string): string => {
@@ -1294,10 +1307,8 @@ export async function assembleRecommendation(
 
   // Single most meaningful quality contrast — first matching rule wins,
   // falling through to cost_driven when nothing distinctive applies.
+  // (The old 'departure_vs_baseline' contrast is gone with the baseline.)
   const winnerQualityAdvantage: string = (() => {
-    if (winnerOutDepQuality === 'ideal' && baselineOutDepQuality === 'very_early') {
-      return 'departure_vs_baseline';
-    }
     if (
       (winnerArrQuality === 'excellent' || winnerArrQuality === 'good') &&
       (altArrQ === 'acceptable' || altArrQ === 'poor')
@@ -1427,7 +1438,7 @@ export async function assembleRecommendation(
     bestInsetFromPool: (() => {
       const insets = base.scoredPool
         .filter((c: any) => c.is_inset_day && !c.is_baseline)
-        .sort((a: any, b: any) => effectiveCost(a) - effectiveCost(b));
+        .sort(compareCostThenDeparture<any>(effectiveCost));
       const best = insets[0];
       if (!best) return undefined;
       return {
@@ -1467,20 +1478,16 @@ export async function assembleRecommendation(
   // recommendation IS base.selection.winner — reuse its already-computed
   // effectiveCost rather than re-finding it via a shortlist .find().
   const recEffCost2 = base.selection?.winnerEffCost ?? recommendation.total_cost_gbp;
-  const isBaselineWinner2 = (recommendation as any).is_baseline === true;
-  const savingCategory = isBaselineWinner2
-    ? 'baseline_cheapest' as const
-    : computeSavingCategory(
-        base.baseline.eff_cost,
-        recEffCost2,
-        0, // nightsDiff already baked into eff_cost
-      );
+  // Same rule as assembleCombinationsOnly: never 'baseline_cheapest' (see there).
+  const rawSavingCategory2 = computeSavingCategory(base.baseline.eff_cost, recEffCost2, 0);
+  const savingCategory: 'significant' | 'found_saving' | 'baseline_cheapest' =
+    rawSavingCategory2 === 'baseline_cheapest' ? 'found_saving' : rawSavingCategory2;
   console.log('[savingCategory-eff]', {
     baseline_eff_cost:        base.baseline.eff_cost,
     recommendation_eff_cost:  recEffCost2,
     savingCategory,
   });
-  const baselineIsRecommended = savingCategory === 'baseline_cheapest';
+  const baselineIsRecommended = false; // the baseline is never recommended any more
   const baselineAsItinerary: BaselineAsItinerary = {
     outbound_date: base.baseline.outbound_date,
     return_date: base.baseline.return_date,

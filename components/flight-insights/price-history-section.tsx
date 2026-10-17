@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFlightInsights } from './flight-insights-context';
 import { PriceMovementChart } from './price-movement-chart';
-import { buildPriceRangeLine, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
+import { buildPriceRangeLine, computePriceMovement, PRICE_MOVEMENT_STANDING_LINE } from '@/lib/flights/priceMovement';
 import type { PricePoint, PriceMovementDirection, PricePositionTier } from '@/lib/flights/priceMovement';
 
 // One compact card below the "Find your cheapest dates" matrix, toggling
@@ -90,7 +90,7 @@ function tabStyle(active: boolean): React.CSSProperties {
 export function PriceHistorySection({
   destinationSlug, destinationName, tripType, adults, children, infants, recommendation,
 }: PriceHistorySectionProps) {
-  const { selectedMatrixCell, modalCloseCount } = useFlightInsights();
+  const { selectedMatrixCell, modalCloseCount, aiResult } = useFlightInsights();
 
   const [destinationData, setDestinationData] = useState<PriceHistoryResponse | null>(null);
   const [destinationLoading, setDestinationLoading] = useState(true);
@@ -101,6 +101,30 @@ export function PriceHistorySection({
   const effectiveCell = selectedMatrixCell ?? (recommendation
     ? { outboundDate: recommendation.outbound_date, returnDate: recommendation.return_date }
     : null);
+
+  // When "These dates" is showing the RECOMMENDED date pair, it shows the exact recommended
+  // flight's series — the very same one as the "How this price has moved" card at the top of the
+  // page (aiResult.price_movement, from get_price_movement) and that card's narration — instead
+  // of the cached "cheapest fare for these dates" series, which is a different thing (and held
+  // fewer checks: the card said five, this chart showed three). No extra fetch or AI call.
+  // Any other clicked cell keeps its own "cheapest for these dates" series.
+  const showsRecommendedFlight = !!(effectiveCell && recommendation && aiResult?.price_movement &&
+    effectiveCell.outboundDate === recommendation.outbound_date &&
+    effectiveCell.returnDate   === recommendation.return_date);
+  const exactFlightData: PriceHistoryResponse | null = showsRecommendedFlight && aiResult?.price_movement
+    ? (() => {
+        const raw = {
+          checks_total:     aiResult.price_movement.checks_total,
+          checks_with_data: aiResult.price_movement.checks_with_data,
+          price_points:     aiResult.price_movement.price_points,
+        };
+        return {
+          ...raw,
+          ...computePriceMovement(raw),
+          narration: aiResult.lever_insights.find(c => c.lever === 'price_movement')?.insight ?? '',
+        } as PriceHistoryResponse;
+      })()
+    : null;
 
   const [view, setView] = useState<View>(() => (effectiveCell ? 'cell' : 'destination'));
   const [highlighted, setHighlighted] = useState(false);
@@ -159,7 +183,7 @@ export function PriceHistorySection({
   // matrix cell is clicked (selectedMatrixCell, shared via context), then
   // re-fetches on every change.
   useEffect(() => {
-    if (!effectiveCell) return;
+    if (!effectiveCell || showsRecommendedFlight) return;
     setCellLoading(true);
     const params = new URLSearchParams({
       destination_slug: destinationSlug,
@@ -175,21 +199,23 @@ export function PriceHistorySection({
       .then(setCellData)
       .catch(err => console.error('[PriceHistorySection] cell fetch failed:', err))
       .finally(() => setCellLoading(false));
-  }, [destinationSlug, tripType, adults, children, infants, effectiveCell?.outboundDate, effectiveCell?.returnDate]);
+  }, [destinationSlug, tripType, adults, children, infants, effectiveCell?.outboundDate, effectiveCell?.returnDate, showsRecommendedFlight]);
 
   const showingCell = view === 'cell' && !!effectiveCell;
-  const data = showingCell ? cellData : destinationData;
-  const loading = showingCell ? cellLoading : destinationLoading;
+  const data = showingCell ? (exactFlightData ?? cellData) : destinationData;
+  const loading = showingCell ? (exactFlightData ? false : cellLoading) : destinationLoading;
   // "These dates" tracks one date pair (cheapest fare found, possibly a
   // different carrier/airport each check); "Whole matrix" tracks a median
   // across every date pair — genuinely different things, so each gets its
   // own heading rather than a shared "How the price has moved" that reads
   // as a single price for both.
   const sectionHeading = showingCell
-    ? 'How prices across these dates have moved'
+    ? (exactFlightData ? 'How this price has moved' : 'How prices across these dates have moved')
     : 'How the middle price has moved';
   const subtitle = showingCell
-    ? 'Airfare only, not all-in. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.'
+    ? (exactFlightData
+        ? 'Airfare only, not all-in. This exact flight — the recommended outbound and return — at each check.'
+        : 'Airfare only, not all-in. The cheapest fare found for this exact date pair, which may be a different carrier or airport at each check.')
     : 'Airfare only, not all-in. The middle price across every date pair above (the median) — not just one flight.';
   const fallbackText = showingCell
     ? 'Price history for this itinerary is not available right now.'
