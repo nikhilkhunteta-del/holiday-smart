@@ -317,7 +317,8 @@ export function LegOptionsModal({
                 </div>
               )}
 
-              {selectedCell.requiresAbsence && (
+              {/* Only a school-age child misses school; infant-only families never see this. */}
+              {selectedCell.requiresAbsence && children > 0 && (
                 <p style={{
                   fontFamily: 'Inter, sans-serif',
                   fontSize: 11,

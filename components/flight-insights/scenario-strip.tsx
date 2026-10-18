@@ -67,10 +67,10 @@ export function ScenarioStrip({ scenarios, currentUrl }: ScenarioStripProps) {
         </p>
       </div>
 
-      {/* Horizontal card row */}
+      {/* Card row: one row on desktop, stacking to one column on a phone */}
       <div style={{
         display:             'grid',
-        gridTemplateColumns: `repeat(${scenarios.length}, 1fr)`,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
         gap:                 16,
       }}>
         {scenarios.map((scenario, i) => {

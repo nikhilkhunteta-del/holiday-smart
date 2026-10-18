@@ -1,7 +1,7 @@
 /**
  * Lists every distinct WEATHER window across all schools for one half-term, and optionally
- * runs the three derivation scripts (4a backfillWindowDerivation, 4b deriveWindowStatsRemainder,
- * 4c deriveSevereRainWarning) for each window x destination.
+ * runs the four derivation scripts (4a backfillWindowDerivation, 4b deriveWindowStatsRemainder,
+ * 4c deriveSevereRainWarning, 4e deriveCardFigures) for each window x destination.
  *
  * A school's half-term dates are picked the same way the home page does (pages/index.js,
  * populatePills): the school's own school_term_dates row if it has one, otherwise its
@@ -21,7 +21,7 @@
  *
  * Read-only unless both --run and --write are given:
  *   (default)        list windows, school counts and skips; no scripts run
- *   --run            also run 4a/4b/4c for every window x destination in PREVIEW (writes nothing)
+ *   --run            also run 4a/4b/4c/4e for every window x destination in PREVIEW (writes nothing)
  *   --run --write    run them with --write
  *   --only=START..END  limit --run to one weather window
  *   --slugs=a,b      destinations (default: WEATHER_TAB_DESTINATIONS)
@@ -144,12 +144,12 @@ async function main() {
 
   if (!run) return;
 
-  // ── Run 4a -> 4b -> 4c per window x destination ───────────────────────────
+  // ── Run 4a -> 4b -> 4c -> 4e per window x destination ───────────────────────────
   const targets = kept.filter(g => !only || only === `${g.start}..${g.end}`);
   if (only && targets.length === 0) throw new Error(`--only=${only} is not one of the kept windows`);
   for (const g of targets) {
     for (const slug of slugs) {
-      for (const script of ['backfillWindowDerivation', 'deriveWindowStatsRemainder', 'deriveSevereRainWarning']) {
+      for (const script of ['backfillWindowDerivation', 'deriveWindowStatsRemainder', 'deriveSevereRainWarning', 'deriveCardFigures']) {
         const args = ['tsx', `lib/weather/${script}.ts`, `--slug=${slug}`, `--window-start=${g.start}`, `--window-end=${g.end}`];
         if (write) args.push('--write');
         console.log(`\n=== ${slug} ${g.start}..${g.end} ${script} ${write ? 'WRITE' : 'PREVIEW'} ===`);

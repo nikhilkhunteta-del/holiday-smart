@@ -14,6 +14,8 @@ import { WeatherTab } from '@/components/weather/weather-tab';
 import { loadWeatherTab } from '@/lib/weather/loadWeatherTab';
 import { computeWeatherVerdict } from '@/lib/weather/computeWeatherVerdict';
 import { destinationDisplayName } from '@/lib/destinations';
+import { destinationsWithFlights } from '@/lib/flights/destinationsWithFlights';
+import { DestinationSwitch } from '@/components/destination-switch';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,6 +71,8 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
   // windowStart/windowEnd themselves are unchanged for every flight call. Started now,
   // awaited below, so it runs alongside the flight calls rather than after them.
   const weatherPromise = loadWeatherTab(destinationSlug, windowStart, windowEnd);
+  // Destinations with flight data for these dates, for the switch at the top (null hides it).
+  const destinationOptionsPromise = destinationsWithFlights(windowStart, windowEnd);
 
   // ── Four parallel server calls ────────────────────────────────────────────
   const [savingsResult, smartResult, schoolResult, destinationResult] = await Promise.all([
@@ -287,14 +291,20 @@ export default async function FlightInsightsPage({ searchParams }: PageProps) {
         latestStripYear:        weatherData.latestStripYear,
       })
     : null;
-  const weatherTeaser  = weatherVerdict
-    ? [weatherVerdict.tierPhrase, weatherVerdict.headline].filter(Boolean).join(' ') || null
-    : null;
+  const weatherTeaser  = weatherVerdict?.teaser ?? null;
+  const destinationOptions = await destinationOptionsPromise;
 
   return (
     <FlightInsightsProvider>
       <main className="min-h-screen bg-background">
-        <div className="max-w-content mx-auto px-gutter py-xl flex flex-col gap-xl">
+        {/* No side padding of its own on a phone: the global main rule (styles/globals.css)
+            already pads 24px there, and adding the gutter on top left too little width at 390px. */}
+        <div className="max-w-content mx-auto px-0 sm:px-gutter py-xl flex flex-col gap-xl">
+
+          {/* Destination switch — changes only ?destination=, keeps everything else */}
+          {destinationOptions && (
+            <DestinationSwitch options={destinationOptions} current={destinationSlug} />
+          )}
 
           {/* 1. PreferencesCard — renders immediately, outside the AI gate */}
           <PreferencesCard
