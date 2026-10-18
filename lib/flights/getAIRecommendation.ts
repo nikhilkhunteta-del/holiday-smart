@@ -1234,7 +1234,12 @@ One sentence. Specific. No carrier saving numbers.`,
     // winner total) explicitly side by side, rather than picking one. This
     // is the standard pattern for any future absence-day trade-off — do
     // not go back to a single silently-chosen basis.
-    if (absenceDays > 0) {
+    //
+    // Only when a school-age child is travelling: absence_days is counted from the term window,
+    // not from who travels, so a family with just an infant used to get "This trip misses 2
+    // school days — £0 if your school fines you". No school-age child, no missed school, no card
+    // (same rule as the "Misses N school days" clause under the headline).
+    if (absenceDays > 0 && context.children > 0) {
       const outboundDateFormatted = fmtDLong(recommended.outbound_date);
       const returnDateFormatted   = fmtDLong(recommended.return_date);
       const absenceOutDays = context.absence_out_days ?? 0;
