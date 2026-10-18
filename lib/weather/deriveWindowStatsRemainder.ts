@@ -36,7 +36,8 @@ import { addDays } from '../flights/snapshotJob';
 import { WEATHER_THRESHOLDS } from './thresholds';
 import { parseDerivationArgs, loadDestination } from './derivationInputs';
 import { formatYears } from './formatYears';
-import { findClockChange, parseUtcIso, toLocalParts, utcOffsetMinutes, formatHHMM } from './localTime';
+import { findClockChange } from './localTime';
+import { estimateSunset } from './sunsetEstimate';
 
 const SUPABASE_REST = 'https://mlqkicbifcwjvfagtdbc.supabase.co/rest/v1';
 
@@ -220,44 +221,15 @@ async function main() {
 
   // ── 7. sunset_shift_note — the window's OWN target year, never a historical loop year ──
   // Does a clock change fall inside [windowStart, windowEnd] in the target year (the year of
-  // windowStart)? Answered from the IANA zone for those exact dates. No weather data exists yet
-  // for a future year, so the two sunset times are estimated as the mean over the headline years
-  // of the real observed sunset on the SAME calendar dates (day before / day of the change),
-  // expressed as UTC instants, then shown on the target year's own wall clock. Sunset on a fixed
-  // calendar date moves by at most a couple of minutes between years, hence "about".
+  // windowStart)? Answered from the IANA zone for those exact dates. The two sunset times (day
+  // before / day of the change) are estimated by estimateSunset() — see sunsetEstimate.ts.
   const targetYear = Number(windowStart.slice(0, 4));
   const change = findClockChange(windowStart, windowEnd, ianaTimezone);
   let sunsetShiftNote: string | null = null;
   if (change) {
     const prevDate = addDays(change.date, -1);
-    const sunsetUtcMinutes = async (target: string): Promise<number> => {
-      const md = monthDay(target);
-      const mins: number[] = [];
-      for (const y of headlineYears) {
-        const row = (await pgFetch(
-          `/weather_daily_context?${qs([
-            ['select', 'sunset_local'],
-            ['destination_id', `eq.${destinationId}`],
-            ['observed_date', `eq.${withYear(md, y)}`],
-          ])}`,
-        )) as Array<{ sunset_local: string }>;
-        if (row.length !== 1) throw new Error(`no sunset for ${withYear(md, y)} — cannot estimate ${target}`);
-        // Stored sunset_local is wall-clock in THAT year; convert back to a UTC time-of-day.
-        const [yy, mm, dd] = withYear(md, y).split('-').map(Number);
-        const [hh, mi] = row[0].sunset_local.split(':').map(Number);
-        let utc = Date.UTC(yy, mm - 1, dd, hh, mi);
-        utc -= utcOffsetMinutes(utc, ianaTimezone) * 60_000; // approximate, then refine once
-        utc = Date.UTC(yy, mm - 1, dd, hh, mi) - utcOffsetMinutes(utc, ianaTimezone) * 60_000;
-        mins.push((utc % 86_400_000) / 60_000);
-      }
-      return mins.reduce((a, b) => a + b, 0) / mins.length;
-    };
-    const toTargetClock = (target: string, utcMinuteOfDay: number): string => {
-      const instant = Date.parse(`${target}T00:00:00Z`) + Math.round(utcMinuteOfDay) * 60_000;
-      return formatHHMM(toLocalParts(instant, ianaTimezone));
-    };
-    const before = toTargetClock(prevDate, await sunsetUtcMinutes(prevDate));
-    const after = toTargetClock(change.date, await sunsetUtcMinutes(change.date));
+    const before = await estimateSunset(pgFetch, destinationId, headlineYears, ianaTimezone, prevDate);
+    const after = await estimateSunset(pgFetch, destinationId, headlineYears, ianaTimezone, change.date);
     const dayLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
       .formatToParts(new Date(`${change.date}T12:00:00Z`));
     const part = (t: string) => dayLabel.find(p => p.type === t)!.value;

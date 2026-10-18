@@ -84,3 +84,27 @@ ALTER TABLE weather_window_stats
 -- year in it for "most recently YYYY", and omits that clause when this is NULL.
 ALTER TABLE weather_window_stats
   ADD COLUMN IF NOT EXISTS severe_rain_years text;
+
+-- The Weather tab's temperature and daylight cards (Task 4e, lib/weather/deriveCardFigures.ts).
+-- Feels-like MEDIANS by part of day over the headline years, stored to two decimals and rounded
+-- to whole degrees only for display: morning = daylight hours starting before 12:00, afternoon =
+-- daylight hours starting 12:00-17:59, evening = the same evening hours as the P10/P90 evening
+-- columns above (18:00 to the earlier of sunset + 2h and 22:00). The older P10/P90
+-- daytime_/evening_feelslike_low/high_c columns stay as they are, no longer read by the page.
+-- Sunsets are "HH:MM" on the window's own target-year clock, estimated from the stored history:
+-- sunset_mid_window on the window's middle day; clock_change_date / sunset_before_change /
+-- sunset_after_change only when the clocks change inside the window (all three NULL otherwise).
+-- NULL = not computed yet; the page shows the card without these figures.
+ALTER TABLE weather_window_stats
+  ADD COLUMN IF NOT EXISTS morning_feelslike_c   numeric(4,2),
+  ADD COLUMN IF NOT EXISTS afternoon_feelslike_c numeric(4,2),
+  ADD COLUMN IF NOT EXISTS evening_feelslike_c   numeric(4,2),
+  ADD COLUMN IF NOT EXISTS sunset_mid_window     text,
+  ADD COLUMN IF NOT EXISTS clock_change_date     date,
+  ADD COLUMN IF NOT EXISTS sunset_before_change  text,
+  ADD COLUMN IF NOT EXISTS sunset_after_change   text;
+
+-- The days severe_rain_warning_years counted (Task 4c), oldest first, for the Weather tab's
+-- "happened on 1 day in the last 20 years: 30 Oct 2024" line. NULL = none, or not computed yet.
+ALTER TABLE weather_window_stats
+  ADD COLUMN IF NOT EXISTS severe_rain_dates date[];

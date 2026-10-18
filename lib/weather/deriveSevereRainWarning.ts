@@ -22,7 +22,8 @@
  *
  * The effective threshold (mm) is stored alongside the count in severe_rain_threshold_mm, and
  * the flagged years themselves in severe_rain_years ("2019, 2024" — same format as
- * sea_temp_years; NULL when no year was flagged).
+ * sea_temp_years; NULL when no year was flagged), and the flagged days in severe_rain_dates
+ * (a date[], oldest first; NULL when none) for the Weather tab's "happened on 30 Oct 2024" line.
  *
  * Inputs (see derivationInputs.ts): --slug, --window-start, --window-end, and the mode:
  *   (default)          dry run — compute and print only; writes nothing
@@ -146,6 +147,16 @@ async function main() {
   const severeRainYears = flaggedYears.length === 0 ? null : formatYears(flaggedYears);
   console.log(`[4c] severe_rain_warning_years = ${count} of ${stripYears.length} (${flaggedYears.join(', ') || 'none'})`);
   console.log(`[4c] severe_rain_years = ${severeRainYears === null ? 'NULL' : `'${severeRainYears}'`}`);
+  const severeRainDates = flagged.length === 0 ? null : flagged.map(d => d.date);
+  const patch = {
+    severe_rain_warning_years: count,
+    severe_rain_threshold_mm: Math.round(threshold * 100) / 100, // numeric(5,2)
+    // Explicit NULL when nothing was flagged, so a stale list can never survive a re-run.
+    severe_rain_years: severeRainYears,
+    severe_rain_dates: severeRainDates,
+    computed_at: new Date().toISOString(),
+  };
+  console.log(`[4c] JSON ${JSON.stringify({ slug, window_start: windowStart, window_end: windowEnd, ...patch })}`);
 
   if (!write) {
     console.log('\n[4c] dry run — nothing written.');
@@ -156,13 +167,7 @@ async function main() {
   const out = (await pgFetch(`/weather_window_stats?${qs(rowFilter)}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
-      severe_rain_warning_years: count,
-      severe_rain_threshold_mm: Math.round(threshold * 100) / 100, // numeric(5,2)
-      // Explicit NULL when nothing was flagged, so a stale list can never survive a re-run.
-      severe_rain_years: severeRainYears,
-      computed_at: new Date().toISOString(),
-    }),
+    body: JSON.stringify(patch),
   })) as Array<Record<string, unknown>>;
   if (out.length !== 1) throw new Error(`expected to update exactly 1 row, updated ${out.length}`);
   console.log('\n[4c] row AFTER:');

@@ -24,8 +24,7 @@ export interface WeatherStatsRow extends WeatherWindowStatsRow {
   typical_washout_days?: number | string | null;
   washout_days_min?: number | string | null;
   washout_days_max?: number | string | null;
-  hourly_rain_share?: Record<string, number | string> | null;
-  daylight_hours_minutes?: string | null;
+  consecutive_washout_years?: number | string | null;
 }
 
 export interface WeatherTabData {

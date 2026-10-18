@@ -273,6 +273,13 @@ that way:
   `get_open_jaw` / `get_nearby_destination_airports` (both return null for Malta anyway).
 - Carrier-name maps (several files) include Malta's carriers (KM Malta Airlines, LOT, Jet2) so
   copy never shows a raw code.
+- **Destination switch** (`components/destination-switch.tsx`, top of the page above the
+  preferences card and tabs): "Barcelona | Malta" links that change only `?destination=` and keep
+  every other parameter, including a `?tab=` chosen after load (built from `useSearchParams`).
+  Offers only `SWITCHABLE_DESTINATIONS` (`lib/flights/destinationsWithFlights.ts` — barcelona,
+  malta; Andalusian Corridor is left out on purpose) that have, in the latest completed
+  cross-sectional run, at least one London->destination and one destination->London fare
+  departing within the half-term. Fewer than two -> no switch.
 
 ### The baseline is gone from the page — what replaced it (and what still exists)
 The "typical Saturday booking" (cheapest stored `baseline_snapshots` fare on the Saturday before
@@ -347,9 +354,9 @@ time from another time plus/minus a duration — read the stored one.
 - **`cell_price_history` (the "cheapest for these dates" cache) stops at the 21 Jul check** — the
   28 Jul and 11 Aug runs were never added. Refreshing it is a data job.
 - The penalty card and the "Misses N school days" clause now need a school-age child
-  (`context.children > 0`); `absence_days` itself is still counted from the term window, so the
-  leg-options modal's "This combination includes term-time absence" note still shows for
-  infant-only families.
+  (`context.children > 0`); `absence_days` itself is still counted from the term window. The
+  leg-options modal's "This combination includes term-time absence" note now needs one too
+  (`children > 0`), so infant-only families no longer see it.
 
 ### Flight API Abstraction Rule
 All flight data calls must go through `lib/flights/fetchFlights.ts` — the only entry point.
@@ -380,19 +387,35 @@ only the weather job reads the coordinates.
 - `backfillWindowDerivation.ts` (4a) — strip cells + washout/headline columns.
 - `deriveWindowStatsRemainder.ts` (4b) — feels-like, sea temp (+ `sea_temp_years`), daylight,
   rain share, sunset-shift note.
-- `deriveSevereRainWarning.ts` (4c) — severe-rain count, threshold mm and `severe_rain_years`
-  (dry run unless `--write`).
-- 4a/4b/4c all take `--slug=… --window-start=YYYY-MM-DD --window-end=YYYY-MM-DD` and run in that
-  order; each stamps `computed_at` when it writes. **All three preview by default and write
+- `deriveSevereRainWarning.ts` (4c) — severe-rain count, threshold mm, `severe_rain_years` and
+  `severe_rain_dates` (the flagged days, for "happened on 1 day …: 30 Oct 2024").
+- `deriveCardFigures.ts` (4e) — the Weather tab's temperature and daylight cards:
+  `morning/afternoon/evening_feelslike_c` (MEDIAN feels-like over the headline years: daylight
+  hours starting before 12:00 / 12:00–17:59 / the 4b evening hours), `sunset_mid_window`, and
+  `clock_change_date` + `sunset_before/after_change` when the clocks change inside the window.
+  Sunsets come from `sunsetEstimate.ts` (shared with 4b). The old P10/P90 feels-like columns,
+  `hourly_rain_share` and `sunset_shift_note` are still written by 4b but no longer read.
+- 4a/4b/4c/4e all take `--slug=… --window-start=YYYY-MM-DD --window-end=YYYY-MM-DD` and run in
+  that order; each stamps `computed_at` when it writes. **All four preview by default and write
   nothing; pass `--write` to write.** 4a refuses a window with any day that has no stored
   weather (it used to count such a day as dry).
 - `deriveAllWeatherWindows.ts` — lists every distinct weather window across all schools (same
   school-then-borough date pick as the home page) with school counts and skip reasons
-  (single-day half-terms; days outside the stored ~15 Oct – 5 Nov). `--run` previews 4a/4b/4c
+  (single-day half-terms; days outside the stored ~15 Oct – 5 Nov). `--run` previews 4a/4b/4c/4e
   for each kept window x destination; `--run --write` writes them.
-- `computeWeatherVerdict.ts` (4d) — pure, render-time: tier + tier phrase, headline, "washout
-  day" definition, warmth band, evenings, rain timing (`rainTimingLateDayMinPct`: "Mornings are
-  usually dry" only at/above it), severe-rain summary, ordered caveats. Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
+- `computeWeatherVerdict.ts` (4d) — pure, render-time: tier phrase (the large headline: "Rarely
+  rained off." / "Mostly dry." / "Hit and miss." / "Often rained off."), the standfirst ("In 8 of
+  the last 10 years…"), the basis line, the "washout day" definition, rain timing as one line
+  (`rainTimingLateDayMinPct`: "Mornings are usually dry" only at/above it), the three cards
+  (temperature, sea — sentence picked from the unrounded value against `seaTempComfortableC` /
+  `seaTempSwimmableC` — and daylight), the very-heavy-rain notes line, and the Flights-tab
+  weather line (`teaser`). Each part is null when its columns are empty (e.g. before 4e has run:
+  no temperature card, the daylight card shows only the day's length, no heavy-rain line when
+  days were flagged but their dates aren't stored). Checks: `npx tsx lib/weather/computeWeatherVerdict.check.ts`.
+- The strip uses three steps of one blue (`CELL_COLOURS` in `weather-tab.tsx`), split by
+  lightness so they survive colour-blindness — not Deep Teal, not the error red. A rule under the
+  headline years reads "Headline years above". On a phone a 9-day window fits; longer windows
+  scroll inside the strip with the year column pinned.
 
 **Weather tab (results page):** `?tab=weather` on `/results/flight-insights`. Shown only for
 slugs in `WEATHER_TAB_DESTINATIONS` (`lib/weather/weatherTabConfig.ts` — barcelona, malta; never
@@ -827,6 +850,7 @@ not listed here or under "Parked" was deleted in the cleanup PR after #200.
 app/results/flight-insights/page.tsx      server component; calls get_savings_breakdown,
 │                                         get_smart_recommendation, all_schools lookup
 └─ FlightInsightsProvider                 flight-insights-context.tsx (shared client state)
+   ├─ DestinationSwitch                   components/destination-switch.tsx — Barcelona | Malta
    ├─ PreferencesCard                     preferences-card.tsx — party, bags, seats (above the tabs)
    └─ ResultsTabs                         components/results-tabs.tsx — Flights | Weather, ?tab=weather
       ├─ WeatherTab                       components/weather/weather-tab.tsx (server; only when
